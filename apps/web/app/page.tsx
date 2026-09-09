@@ -79,7 +79,7 @@ export default async function DashboardPage() {
           </div>
           <div className="top-actions">
             <span className="live-badge"><i /> {summary.analyzedCalls} calls reais</span>
-            <button type="button">Últimos 30 dias⌄</button>
+            <button type="button" aria-label="Período exibido: todo o histórico">Todo o histórico</button>
             <div className="avatar">IG</div>
           </div>
         </header>
