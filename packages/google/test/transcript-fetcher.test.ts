@@ -18,7 +18,10 @@ test("exports the canonical Google Doc as plain text without exposing credential
   assert.equal(authorization, "Bearer synthetic-token");
 });
 
-test("maps authorization failures to a retryable domain error", async () => {
+test("distinguishes an expired worker credential from per-file access denial", async () => {
+  const expired = new GoogleDriveTranscriptFetcher("synthetic-token", async () => new Response("", { status: 401 }));
+  await assert.rejects(() => expired.fetch("1ABC_xyz-987"), /google_authentication_required/);
+
   const fetcher = new GoogleDriveTranscriptFetcher("synthetic-token", async () => new Response("", { status: 403 }));
   await assert.rejects(() => fetcher.fetch("1ABC_xyz-987"), /transcript_access_denied/);
 });

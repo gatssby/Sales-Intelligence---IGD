@@ -17,6 +17,7 @@ O worker anterior fazia claim concorrente, mas a resposta paga e a promoção pa
 - O teto operacional é `limit_usd - safety_reserve_usd`. A conta permanece pausada após atingir o teto, inclusive depois de restart.
 - `insider-confidence-v2` separa `requires_human_review` de escalation. Escalation usa schema inválido, grounding, coverage, coerência e confiança.
 - `analysis-output-v1` distingue `scoreable` de `unscorable`. Resultado não avaliável preserva evidências e motivo, mas usa `overall_score=null` e fica fora de médias e rankings.
+- O estágio `transcript` também é claimado com lease e `SKIP LOCKED`. O worker busca no máximo uma Call por slot, persiste o transcript antes de liberar a análise e recupera crashes entre essas duas operações. Tentativas por arquivo são limitadas; credencial Google expirada para o worker interrompe o processo sem condenar a Call.
 - Análises históricas permanecem com seus schemas e policies originais; não há rewrite retroativo.
 
 ## Consequências

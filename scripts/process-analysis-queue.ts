@@ -15,7 +15,9 @@ import {
   PostgresOfficialAnalysisLifecycle,
   type AnalysisLifecycleStrategy,
   type ClaimedAnalysisJob,
+  type ClaimedTranscriptJob,
 } from "@igd/db";
+import { GoogleDriveTranscriptFetcher } from "@igd/google";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -85,11 +87,17 @@ const policy = createConfidencePolicy({
 });
 const leaseSeconds = numericEnvironment("AI_ANALYSIS_LEASE_SECONDS", 300);
 const retryDelaySeconds = numericEnvironment("AI_ANALYSIS_RETRY_DELAY_SECONDS", 60);
+const transcriptRetryDelaySeconds = numericEnvironment("TRANSCRIPT_RETRY_DELAY_SECONDS", 3600);
+const transcriptMaxAttempts = numericEnvironment("TRANSCRIPT_MAX_ATTEMPTS", 3);
+if (!Number.isInteger(transcriptMaxAttempts) || transcriptMaxAttempts < 1) throw new Error("TRANSCRIPT_MAX_ATTEMPTS must be a positive integer");
 const primaryReservationUsd = numericEnvironment("AI_BUDGET_PRIMARY_RESERVATION_USD", 0.25);
 const escalationReservationUsd = numericEnvironment("AI_BUDGET_ESCALATION_RESERVATION_USD", 0.75);
 const releaseSha = process.env.RELEASE_SHA ?? null;
 let stopRequested = false;
 let budgetPaused = false;
+const transcriptFetcher = process.env.GOOGLE_ACCESS_TOKEN
+  ? new GoogleDriveTranscriptFetcher(process.env.GOOGLE_ACCESS_TOKEN)
+  : null;
 
 process.on("SIGTERM", () => { stopRequested = true; });
 process.on("SIGINT", () => { stopRequested = true; });
@@ -176,6 +184,32 @@ async function processClaim(job: ClaimedAnalysisJob): Promise<"completed" | "fai
   }
 }
 
+async function fetchClaimedTranscript(job: ClaimedTranscriptJob): Promise<"ready" | "retry_wait" | "failed_terminal" | "credential_error"> {
+  if (!transcriptFetcher) throw new Error("transcript_fetcher_unavailable");
+  let text: string;
+  try {
+    text = await transcriptFetcher.fetch(job.transcriptFileId, job.transcriptUrl ?? undefined);
+  } catch (error) {
+    const errorCode = error instanceof Error ? error.message : "transcript_fetch_failed";
+    if (errorCode === "google_authentication_required") {
+      await lifecycle.releaseTranscriptForCredential({ jobId: job.jobId, callId: job.callId, retryDelaySeconds: 300 });
+      return "credential_error";
+    }
+    return lifecycle.recordTranscriptFailure({
+      jobId: job.jobId,
+      callId: job.callId,
+      errorCode,
+      maxAttempts: transcriptMaxAttempts,
+      retryDelaySeconds: transcriptRetryDelaySeconds,
+    });
+  }
+  // Persistence failures deliberately leave the lease claimed so restart recovery can
+  // distinguish "text stored, queue promotion pending" from a remote fetch failure.
+  await repository.storeTranscript(job.callId, job.transcriptFileId, text);
+  await lifecycle.completeTranscript({ jobId: job.jobId, callId: job.callId });
+  return "ready";
+}
+
 async function main(): Promise<void> {
   const synced = await lifecycle.syncCatalog();
   if (prepareOnly) {
@@ -204,10 +238,11 @@ async function main(): Promise<void> {
   });
   const staleBefore = new Date(Date.now() - leaseSeconds * 1_000);
   const reservationRecovery = await ledger.recoverStaleReservations(BUDGET_ACCOUNT_ID, staleBefore);
+  const transcriptRecovery = await lifecycle.recoverExpiredTranscriptClaims(new Date());
   const lifecycleRecovery = await lifecycle.recoverExpiredClaims(new Date());
   const workerGroupId = `analysis-${process.pid}-${randomUUID().slice(0, 8)}`;
   await lifecycle.heartbeat({ workerId: workerGroupId, releaseSha, concurrency, status: "starting" });
-  const counters = { claimed: 0, completed: 0, failed: 0, reconciliation: 0 };
+  const counters = { claimed: 0, completed: 0, failed: 0, reconciliation: 0, transcriptsAttempted: 0, transcriptsReady: 0, transcriptFailures: 0, transcriptCredentialErrors: 0 };
   const heartbeatTimer = setInterval(() => {
     void lifecycle.heartbeat({ workerId: workerGroupId, releaseSha, concurrency, status: budgetPaused ? "paused_budget" : stopRequested ? "stopping" : "running" });
   }, 15_000);
@@ -221,6 +256,20 @@ async function main(): Promise<void> {
       const job = await lifecycle.claimNext({ workerId: `${workerGroupId}:${slotIndex}`, leaseSeconds, strategy: strategy.lifecycle });
       if (!job) {
         counters.claimed -= 1;
+        if (transcriptFetcher && (daemon || counters.transcriptsAttempted < limit)) {
+          counters.transcriptsAttempted += 1;
+          const transcriptJob = await lifecycle.claimNextTranscript({ workerId: `${workerGroupId}:${slotIndex}`, leaseSeconds });
+          if (transcriptJob) {
+            const transcriptResult = await fetchClaimedTranscript(transcriptJob);
+            if (transcriptResult === "ready") counters.transcriptsReady += 1;
+            else if (transcriptResult === "credential_error") {
+              counters.transcriptCredentialErrors += 1;
+              stopRequested = true;
+            } else counters.transcriptFailures += 1;
+            continue;
+          }
+          counters.transcriptsAttempted -= 1;
+        }
         if (!daemon) return;
         await new Promise((resolve) => setTimeout(resolve, 5_000));
         continue;
@@ -241,7 +290,7 @@ async function main(): Promise<void> {
     await lifecycle.heartbeat({ workerId: workerGroupId, releaseSha, concurrency, status: budgetPaused ? "paused_budget" : "stopped" });
   }
   const budget = await ledger.snapshot(BUDGET_ACCOUNT_ID);
-  console.log(JSON.stringify({ mode: daemon ? "daemon" : "apply", synced, reservationRecovery, lifecycleRecovery, ...counters, budget }));
+  console.log(JSON.stringify({ mode: daemon ? "daemon" : "apply", synced, reservationRecovery, transcriptRecovery, lifecycleRecovery, ...counters, budget }));
 }
 
 try {

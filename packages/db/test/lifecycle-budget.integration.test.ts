@@ -97,6 +97,54 @@ integration("global budget and official lifecycle remain safe across workers and
       assert.equal(claims.find(Boolean)?.callId, calls[0].id);
     });
 
+    await t.test("transcript fetch is single-claim, restart-safe, and retry-bounded", async () => {
+      const sellers = await sql<{ id: string }[]>`
+        insert into sellers (display_name, external_reference, seller_code, product, active)
+        values ('Transcript Seller Synthetic', 'SYN-TRANSCRIPT', 'V9901', 'INSIDER', true) returning id
+      `;
+      const calls = await sql<{ id: string }[]>`
+        insert into calls (seller_id, external_key, product_key, status, transcript_file_id)
+        values (${sellers[0].id}, 'synthetic-transcript-fetch', 'insider', 'metadata_ready', 'syntheticTranscript9901') returning id
+      `;
+      const lifecycle = new PostgresOfficialAnalysisLifecycle(sql);
+      await lifecycle.syncCatalog();
+      const claims = await Promise.all([
+        lifecycle.claimNextTranscript({ workerId: "transcript-worker-a", leaseSeconds: 300 }),
+        lifecycle.claimNextTranscript({ workerId: "transcript-worker-b", leaseSeconds: 300 }),
+      ]);
+      const claimed = claims.find(Boolean);
+      assert.equal(claims.filter(Boolean).length, 1);
+      assert.equal(claimed?.callId, calls[0].id);
+
+      await sql`
+        insert into transcripts (call_id, raw_text, normalized_text, content_sha256, source)
+        values (${calls[0].id}, 'Synthetic fetched transcript', 'Synthetic fetched transcript', ${"8".repeat(64)}, 'synthetic_test')
+      `;
+      assert.deepEqual(
+        await lifecycle.recoverExpiredTranscriptClaims(new Date(Date.now() + 10 * 60_000)),
+        { ready: 1, resumed: 0 },
+      );
+      const recovered = await sql<{ status: string; stage: string }[]>`
+        select status, stage from analysis_jobs where call_id=${calls[0].id}
+      `;
+      assert.deepEqual(recovered[0], { status: "ready", stage: "queue" });
+
+      const terminalCalls = await sql<{ id: string }[]>`
+        insert into calls (seller_id, external_key, product_key, status, transcript_file_id)
+        values (${sellers[0].id}, 'synthetic-transcript-terminal', 'insider', 'metadata_ready', 'syntheticTranscript9902') returning id
+      `;
+      await lifecycle.syncCatalog();
+      const terminalClaim = await lifecycle.claimNextTranscript({ workerId: "transcript-worker-c", leaseSeconds: 300 });
+      assert.equal(terminalClaim?.callId, terminalCalls[0].id);
+      assert.equal(await lifecycle.recordTranscriptFailure({
+        jobId: terminalClaim!.jobId,
+        callId: terminalClaim!.callId,
+        errorCode: "transcript_access_denied",
+        maxAttempts: 1,
+        retryDelaySeconds: 60,
+      }), "failed_terminal");
+    });
+
     await t.test("restart finalizes a settled attempt without another provider request", async () => {
       const lifecycle = new PostgresOfficialAnalysisLifecycle(sql);
       const claimed = await lifecycle.getClaimedByWorker("worker-a") ?? await lifecycle.getClaimedByWorker("worker-b");

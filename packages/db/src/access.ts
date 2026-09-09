@@ -283,7 +283,7 @@ export class ScopedSalesRepository {
         count(*) filter(where official_id is not null)::integer analyzed,
         count(*) filter(where status='claimed')::integer processing,
         count(*) filter(where status in ('ready','retry_wait','paused_budget'))::integer pending,
-        count(*) filter(where status='awaiting_transcript' and last_error_code is null)::integer awaiting_transcript,
+        count(*) filter(where status='awaiting_transcript' and (last_error_code is null or last_error_code='google_authentication_required'))::integer awaiting_transcript,
         count(*) filter(where status='awaiting_transcript' and last_error_code like 'transcript_access%')::integer access_issue,
         count(*) filter(where status='quarantine')::integer association_review,
         count(*) filter(where status in ('failed_terminal','reconciliation_required'))::integer failed,

@@ -159,6 +159,7 @@ Uma call sem material suficiente usa `scoreability: "unscorable"`, `overall_scor
 - A policy `insider-confidence-v2` decide escalation por sinais auditáveis de confiabilidade.
 - Antes de cada request, o worker reserva budget na conta global; settlement usa o custo real do Gateway.
 - Requests iniciadas sem receipt ficam em reconciliação e não são repetidas automaticamente.
+- O mesmo backlog controla o fetch just-in-time de transcript: claims têm lease, usam janela igual à concorrência e tentativas por arquivo são limitadas. Falha global de autenticação Google interrompe o worker sem transformar todas as Calls em falhas de acesso.
 
 ### 6.4 Evidência
 

@@ -59,7 +59,7 @@ Only after the 10-call gate is healthy may the durable worker be started:
 ssh oracle-vps 'cd /opt/sales-intelligence && sudo SALES_RELEASE_SHA=$(readlink current | sed "s#.*/##") docker compose up -d --no-deps worker'
 ```
 
-The worker uses PostgreSQL leases, heartbeat rows and global budget reservations. A budget pause is durable and is not cleared by restart.
+The worker uses PostgreSQL leases, heartbeat rows and global budget reservations. It fetches transcripts just in time with `GOOGLE_ACCESS_TOKEN`, one per concurrency slot, rather than downloading the full catalog. Per-file retries are bounded by `TRANSCRIPT_MAX_ATTEMPTS`; an expired Google credential stops the worker and leaves the Call retryable. A budget pause is durable and is not cleared by restart.
 
 ## Checks
 

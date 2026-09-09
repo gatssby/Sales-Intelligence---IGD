@@ -22,6 +22,15 @@ export type ClaimedAnalysisJob = {
   stage: string;
 };
 
+export type ClaimedTranscriptJob = {
+  jobId: string;
+  callId: string;
+  transcriptFileId: string;
+  transcriptUrl: string | null;
+  workerId: string;
+  attemptCount: number;
+};
+
 export type PersistedPrimaryResume = {
   attempt: Extract<AnalysisAttemptResult, { status: "completed" }>;
   escalationReasons: string[];
@@ -55,6 +64,131 @@ export class PostgresOfficialAnalysisLifecycle {
       from calls c on conflict (call_id) do nothing returning id
     `;
     return { inserted: rows.length };
+  }
+
+  async claimNextTranscript(input: { workerId: string; leaseSeconds: number }): Promise<ClaimedTranscriptJob | null> {
+    if (!input.workerId.trim() || !Number.isInteger(input.leaseSeconds) || input.leaseSeconds < 30) throw new Error("invalid_transcript_claim");
+    return this.sql.begin(async (tx) => {
+      const rows = await tx<{
+        job_id: string; call_id: string; transcript_file_id: string;
+        transcript_url: string | null; attempt_count: number;
+      }[]>`
+        select j.id job_id, j.call_id, c.transcript_file_id, source.transcript_url, j.attempt_count
+        from analysis_jobs j
+        join calls c on c.id=j.call_id
+        join sellers s on s.id=c.seller_id
+        left join lateral (
+          select transcript_url from call_sources
+          where call_id=c.id and transcript_file_id=c.transcript_file_id
+          order by last_seen_at desc limit 1
+        ) source on true
+        where j.status='awaiting_transcript' and j.stage='transcript'
+          and (j.retry_at is null or j.retry_at <= now())
+          and c.transcript_file_id is not null
+        order by s.active desc,
+          (select max(j2.last_transcript_attempt_at) from analysis_jobs j2 join calls c2 on c2.id=j2.call_id where c2.seller_id=s.id) asc nulls first,
+          coalesce(c.started_at, c.created_at) desc, c.id
+        for update of j, s skip locked
+        limit 1
+      `;
+      const job = rows[0];
+      if (!job) return null;
+      const attemptCount = job.attempt_count + 1;
+      await tx`
+        update analysis_jobs set status='claimed', worker_id=${input.workerId},
+          lease_expires_at=now()+(${input.leaseSeconds} * interval '1 second'),
+          attempt_count=${attemptCount}, last_claimed_at=now(), last_transcript_attempt_at=now(), updated_at=now()
+        where id=${job.job_id}
+      `;
+      return {
+        jobId: job.job_id,
+        callId: job.call_id,
+        transcriptFileId: job.transcript_file_id,
+        transcriptUrl: job.transcript_url,
+        workerId: input.workerId,
+        attemptCount,
+      };
+    });
+  }
+
+  async completeTranscript(input: { jobId: string; callId: string }): Promise<void> {
+    await this.sql.begin(async (tx) => {
+      const transcript = await tx`select 1 from transcripts where call_id=${input.callId} limit 1`;
+      if (!transcript.length) throw new Error("transcript_not_persisted");
+      await tx`
+        update analysis_jobs set status='ready', stage='queue', worker_id=null, lease_expires_at=null,
+          retry_at=null, last_error_code=null, updated_at=now()
+        where id=${input.jobId} and call_id=${input.callId} and status='claimed' and stage='transcript'
+      `;
+    });
+  }
+
+  async recordTranscriptFailure(input: {
+    jobId: string;
+    callId: string;
+    errorCode: string;
+    maxAttempts: number;
+    retryDelaySeconds: number;
+  }): Promise<"retry_wait" | "failed_terminal"> {
+    const safeCode = input.errorCode.replace(/[^a-z0-9_-]/gi, "_").slice(0, 80) || "transcript_fetch_failed";
+    if (!Number.isInteger(input.maxAttempts) || input.maxAttempts < 1) throw new Error("invalid_transcript_max_attempts");
+    return this.sql.begin(async (tx) => {
+      const jobs = await tx<{ attempt_count: number }[]>`
+        select attempt_count from analysis_jobs
+        where id=${input.jobId} and call_id=${input.callId} and status='claimed' and stage='transcript'
+        for update
+      `;
+      if (!jobs[0]) throw new Error("transcript_claim_not_found");
+      const terminal = ["transcript_not_found", "transcript_empty", "invalid_transcript_file_id"].includes(safeCode)
+        || jobs[0].attempt_count >= input.maxAttempts;
+      await tx`
+        update analysis_jobs set status=${terminal ? "failed_terminal" : "awaiting_transcript"},
+          worker_id=null, lease_expires_at=null,
+          retry_at=${terminal ? null : new Date(Date.now() + input.retryDelaySeconds * 1_000)},
+          last_error_code=${safeCode}, updated_at=now()
+        where id=${input.jobId}
+      `;
+      await tx`
+        update calls set status=${terminal ? "failed_permanent" : "failed_retryable"}, updated_at=now()
+        where id=${input.callId} and status <> 'analyzed'
+      `;
+      return terminal ? "failed_terminal" : "retry_wait";
+    });
+  }
+
+  async releaseTranscriptForCredential(input: { jobId: string; callId: string; retryDelaySeconds: number }): Promise<void> {
+    await this.sql`
+      update analysis_jobs set status='awaiting_transcript', worker_id=null, lease_expires_at=null,
+        retry_at=${new Date(Date.now() + input.retryDelaySeconds * 1_000)},
+        attempt_count=greatest(attempt_count-1,0), last_error_code='google_authentication_required', updated_at=now()
+      where id=${input.jobId} and call_id=${input.callId} and status='claimed' and stage='transcript'
+    `;
+  }
+
+  async recoverExpiredTranscriptClaims(staleBefore: Date): Promise<{ ready: number; resumed: number }> {
+    return this.sql.begin(async (tx) => {
+      const jobs = await tx<{ job_id: string; call_id: string; transcript_present: boolean }[]>`
+        select j.id job_id, j.call_id,
+          exists(select 1 from transcripts t where t.call_id=j.call_id) transcript_present
+        from analysis_jobs j
+        where j.status='claimed' and j.stage='transcript' and j.analysis_run_id is null
+          and j.lease_expires_at < ${staleBefore}
+        for update of j skip locked
+      `;
+      let ready = 0;
+      let resumed = 0;
+      for (const job of jobs) {
+        if (job.transcript_present) {
+          await tx`update analysis_jobs set status='ready', stage='queue', worker_id=null, lease_expires_at=null, retry_at=null, last_error_code=null, updated_at=now() where id=${job.job_id}`;
+          await tx`update calls set status='transcript_ready', updated_at=now() where id=${job.call_id} and status <> 'analyzed'`;
+          ready += 1;
+        } else {
+          await tx`update analysis_jobs set status='awaiting_transcript', worker_id=null, lease_expires_at=null, updated_at=now() where id=${job.job_id}`;
+          resumed += 1;
+        }
+      }
+      return { ready, resumed };
+    });
   }
 
   async claimNext(input: { workerId: string; leaseSeconds: number; strategy: AnalysisLifecycleStrategy }): Promise<ClaimedAnalysisJob | null> {

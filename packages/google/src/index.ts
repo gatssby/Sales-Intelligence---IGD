@@ -18,7 +18,8 @@ export class GoogleDriveTranscriptFetcher implements TranscriptFetcher {
       headers: { Authorization: `Bearer ${this.accessToken}` },
     });
 
-    if (response.status === 401 || response.status === 403) throw new Error("transcript_access_denied");
+    if (response.status === 401) throw new Error("google_authentication_required");
+    if (response.status === 403) throw new Error("transcript_access_denied");
     if (response.status === 404) throw new Error("transcript_not_found");
     if (!response.ok) throw new Error("transcript_fetch_failed");
     const text = await response.text();
