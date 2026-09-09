@@ -260,7 +260,7 @@ export class PostgresIngestionRepository implements IngestionRepository {
           and exists (select 1 from transcripts t where t.id = ar.transcript_id)
           and not exists (
             select 1 from analysis_request_reservations reservation
-            where reservation.analysis_run_id = ar.id and reservation.status = 'reserved'
+            where reservation.analysis_run_id = ar.id
           )
           and not exists (
             select 1 from analysis_runs official
@@ -390,8 +390,12 @@ export class PostgresIngestionRepository implements IngestionRepository {
   async recoverStaleAnalysisRuns(staleMinutes: number): Promise<{ requeued: number; outcomeUnknown: number }> {
     if (!Number.isFinite(staleMinutes) || staleMinutes < 5) throw new Error("invalid_analysis_stale_minutes");
     return this.sql.begin(async (tx) => {
-      const stale = await tx<{ id: string; call_id: string; outcome_unknown: boolean }[]>`
+      const stale = await tx<{ id: string; call_id: string; has_requests: boolean; outcome_unknown: boolean }[]>`
         select ar.id, ar.call_id,
+          exists (
+            select 1 from analysis_request_reservations reservation
+            where reservation.analysis_run_id = ar.id
+          ) has_requests,
           exists (
             select 1 from analysis_request_reservations reservation
             where reservation.analysis_run_id = ar.id and reservation.status = 'reserved'
@@ -403,11 +407,11 @@ export class PostgresIngestionRepository implements IngestionRepository {
       let requeued = 0;
       let outcomeUnknown = 0;
       for (const run of stale) {
-        if (run.outcome_unknown) {
+        if (run.has_requests) {
           outcomeUnknown += 1;
           await tx`
             update analysis_runs set status = 'failed', phase = 'failed', is_current = false,
-              error_code = 'analysis_request_outcome_unknown', finished_at = now()
+              error_code = ${run.outcome_unknown ? "analysis_request_outcome_unknown" : "analysis_finalization_interrupted"}, finished_at = now()
             where id = ${run.id}
           `;
           await tx`update calls set status = 'failed_retryable', updated_at = now() where id = ${run.call_id}`;
