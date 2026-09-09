@@ -313,6 +313,20 @@ Regras mínimas:
 - rastrear quem reanalisou/revisou uma call;
 - secrets em secret manager/env seguro.
 
+### 11.1 Autenticação e autorização da aplicação
+
+A aplicação usa contas individuais mantidas no PostgreSQL. A autorização é composta por três dimensões separadas:
+
+1. papel (`ADMIN`, `LEADER`, `SUPERVISOR`, `SALES_OPS`);
+2. capacidade (`users:manage`, `settings:manage`, `calls:read`, `analytics:read`, `spend:execute`);
+3. escopo (`GLOBAL`, conjunto de times ou conjunto de produtos).
+
+A matriz papel → capacidades existe em um único módulo. Páginas, APIs e comandos chamam essa camada em vez de comparar papéis diretamente. Consultas de calls e métricas recebem o contexto de autorização e aplicam o predicado de escopo no PostgreSQL. A mesma regra cobre listagens, detalhes por ID e agregações.
+
+Somente `ADMIN` recebe `spend:execute` nesta versão. Uma tentativa negada termina antes de criar job ou chamar provider e gera um evento de auditoria sem payload da call.
+
+Consulte [ADR 0004](decisions/0004-application-auth-and-access-control.md) e o [runbook de autenticação](authentication-access-control.md).
+
 ---
 
 ## 12. Próxima implementação

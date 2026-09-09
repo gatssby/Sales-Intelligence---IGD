@@ -68,6 +68,12 @@ The system `certbot.timer` performs automatic renewal. A non-destructive renewal
 ssh oracle-vps 'sudo certbot renew --dry-run --cert-name sales-igd.com.br'
 ```
 
+## Future transition from shared Basic Auth
+
+Application authentication does not automatically replace the nginx Basic Auth layer. Follow the gated transition in [authentication-access-control.md](authentication-access-control.md): migrate the schema, bootstrap the first administrator, validate individual accounts in an isolated environment, optionally run both layers, and remove nginx Basic Auth only in a separate explicitly approved change.
+
+If application login fails during a future transition, restore the previous immutable release and keep `/etc/nginx/.htpasswd-sales-igd` enabled. Database authentication tables are additive and do not require deleting operational or analysis data for rollback.
+
 ## Rollback
 
 Releases are immutable. To roll back, deploy the previous commit explicitly:

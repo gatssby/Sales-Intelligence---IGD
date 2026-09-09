@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { AnalysisEngineError, createAnalysisEngine, createVercelAiGatewayModelGateway } from "@igd/ai";
-import { PostgresIngestionRepository } from "@igd/db";
+import { PostgresAuthRepository, PostgresIngestionRepository } from "@igd/db";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -42,6 +42,10 @@ try {
     `;
     console.log(JSON.stringify({ mode: "dry_run", ...rows[0], requestedLimit: limit, strategy }));
   } else {
+    await new PostgresAuthRepository(repository.sql).requireSpendActor(
+      process.env.AUTH_ACTOR_EMAIL ?? "",
+      "analysis.process.cli",
+    );
     const recovery = await repository.recoverStaleAnalysisRuns(staleMinutes);
     const prepared = prepare ? await repository.prepareOfficialBatch(strategy, limit) : null;
     const gateway = createVercelAiGatewayModelGateway();

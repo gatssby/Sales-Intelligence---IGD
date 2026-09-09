@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
-import { getDashboardData } from "@/lib/data";
+import { getSql } from "@/lib/database";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const data = await getDashboardData();
-
-  if (data.source !== "postgres" || !data.call) {
+  try {
+    await getSql()`select 1`;
+  } catch {
     return NextResponse.json(
-      { status: "unavailable", database: "unavailable", currentAnalysis: false },
+      { status: "unavailable", database: "unavailable" },
       { status: 503 },
     );
   }
-
-  return NextResponse.json({ status: "ok", database: "connected", currentAnalysis: true });
+  return NextResponse.json({ status: "ok", database: "connected" });
 }

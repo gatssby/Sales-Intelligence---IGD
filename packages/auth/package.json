@@ -1,18 +1,17 @@
 {
-  "name": "@igd/db",
+  "name": "@igd/auth",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@igd/ai": "0.1.0",
-    "@igd/auth": "0.1.0",
-    "@igd/core": "0.1.0",
-    "postgres": "3.4.9"
+    "bcryptjs": "3.0.3"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

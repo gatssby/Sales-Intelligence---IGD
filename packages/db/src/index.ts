@@ -3,6 +3,9 @@ import postgres, { type Sql, type TransactionSql } from "postgres";
 import type { IngestionInput, IngestionRepository, PersistedCall } from "@igd/core";
 import type { AnalysisAttemptResult, AnalysisOutput, AnalysisStrategy, BenchmarkModelResult } from "@igd/ai";
 
+export * from "./access";
+export * from "./auth";
+
 export type RepositoryOptions = {
   provider?: string;
   model?: string;

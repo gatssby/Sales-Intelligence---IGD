@@ -26,10 +26,14 @@
     "transcripts:store-stream": "tsx scripts/store-transcript-stream.ts",
     "analysis:process": "tsx scripts/process-analysis-queue.ts",
     "analysis:benchmark": "tsx scripts/run-analysis-benchmark.ts",
-    "analysis:report": "tsx scripts/report-official-batch.ts"
+    "analysis:report": "tsx scripts/report-official-batch.ts",
+    "auth:bootstrap-admin": "tsx scripts/bootstrap-admin.ts",
+    "auth:demo-seed": "tsx scripts/seed-auth-demo.ts",
+    "test:auth:http": "tsx scripts/test-auth-http.ts"
   },
   "dependencies": {
     "csv-parse": "^7.0.2",
+    "bcryptjs": "^3.0.3",
     "openai": "7.12.1",
     "postgres": "3.4.9",
     "zod": "4.5.4"
