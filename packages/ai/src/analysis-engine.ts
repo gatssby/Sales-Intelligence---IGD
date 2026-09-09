@@ -126,6 +126,7 @@ export type BenchmarkExecution = {
 
 export type AnalysisEngineObserver = {
   onPhase?(phase: "analyzing_primary" | "escalation_required" | "analyzing_escalation"): Promise<void> | void;
+  onRequest?(request: { role: "primary" | "escalation"; model: string }): Promise<void> | void;
   onAttempt?(attempt: AnalysisAttemptResult): Promise<void> | void;
 };
 
@@ -242,6 +243,7 @@ export function createAnalysisEngine(options: {
       ): Promise<OfficialAnalysisExecution> => {
         await observer.onPhase?.("escalation_required");
         await observer.onPhase?.("analyzing_escalation");
+        await observer.onRequest?.({ role: "escalation", model: strategy.escalationModel });
         let escalationExecution: ModelExecution;
         try {
           escalationExecution = await gateway.analyze({ ...input, model: strategy.escalationModel, purpose: "official-analysis", role: "escalation" });
@@ -312,6 +314,7 @@ export function createAnalysisEngine(options: {
       let execution: ModelExecution;
       for (let retry = 0; ; retry += 1) {
         try {
+          await observer.onRequest?.({ role: "primary", model: strategy.primaryModel });
           execution = await gateway.analyze({ ...input, model: strategy.primaryModel, purpose: "official-analysis", role: "primary" });
           break;
         } catch (error) {

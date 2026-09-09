@@ -14,7 +14,7 @@ const phase = process.env.AI_BENCHMARK_PHASE ?? "screening-a";
 const sampleSize = Number(process.env.AI_BENCHMARK_SAMPLE_SIZE ?? "3");
 const concurrency = Number(process.env.AI_BENCHMARK_CONCURRENCY ?? "3");
 const maxCostUsd = Number(process.env.BENCHMARK_MAX_COST_USD);
-const reconciledSpendUsd = Number(process.env.BENCHMARK_RECONCILED_SPEND_USD ?? "0");
+const keySpendSanityCheckUsd = Number(process.env.VERCEL_KEY_SPEND_SANITY_CHECK_USD ?? "0");
 const rubricVersion = process.env.RUBRIC_VERSION ?? "insider-demo-v0";
 const promptVersion = process.env.PROMPT_VERSION ?? "call-analysis-v0";
 const maxOutputTokens = Number(process.env.AI_ANALYSIS_MAX_OUTPUT_TOKENS ?? "2000");
@@ -65,21 +65,24 @@ try {
           and attempt.model = result.model and attempt.rubric_version = run.rubric_version
           and attempt.prompt_version = run.prompt_version and attempt.schema_version = run.schema_version
       )
+    ), adjustments as (
+      select coalesce(sum(amount_usd), 0) spend from benchmark_cost_adjustments
     )
-    select (reserved.spend + legacy.spend)::float spend from reserved cross join legacy
+    select (reserved.spend + legacy.spend + adjustments.spend)::float spend
+    from reserved cross join legacy cross join adjustments
   `;
   const alreadySpentUsd = persistedSpend[0].spend;
   const guard = createBenchmarkBudgetGuard({ maxCostUsd, alreadySpentUsd });
   const runId = await repository.createBenchmarkRun({
     name: `INSIDER ${phase}`, phase, selectionMethod: phase.includes("stress") ? "extreme_context_stress" : "deterministic_non_extreme_targets",
-    modelIds: models, metadata: { sampleSize, concurrency, maxOutputTokens, characterCounts: selected.map((item) => item.characterCount), alreadySpentUsd, maxCostUsd, keySpendSanityCheckUsd: reconciledSpendUsd },
+    modelIds: models, metadata: { sampleSize, concurrency, maxOutputTokens, characterCounts: selected.map((item) => item.characterCount), alreadySpentUsd, maxCostUsd, keySpendSanityCheckUsd },
   });
   const engine = createAnalysisEngine({
     gateway,
     strategy: { version: "benchmark-only", primaryModel: models[0], escalationModel: models[0], confidenceThreshold: 0, maxTechnicalRetries: 0 },
   });
   const jobs = selected.flatMap((item) => models.map((model) => ({ item, model })));
-  let cursor = 0; let completed = 0; let failed = 0; let reused = 0; let budgetSkipped = 0; let inFlight = 0;
+  let cursor = 0; let completed = 0; let failed = 0; let reused = 0; let reservationBlocked = 0; let budgetSkipped = 0; let inFlight = 0;
 
   const worker = async () => {
     while (cursor < jobs.length) {
@@ -92,7 +95,7 @@ try {
         : 0.25;
       if (!guard.reserve(estimatedCost)) { budgetSkipped += 1; continue; }
       const attemptId = await repository.claimBenchmarkAttempt(runId, job.item, job.model, estimatedCost);
-      if (!attemptId) { guard.cancel(estimatedCost); reused += 1; continue; }
+      if (!attemptId) { guard.cancel(estimatedCost); reservationBlocked += 1; continue; }
       inFlight += 1;
       const execution = await engine.runBenchmark({
         transcript: job.item.transcript, rubric: `${rubric}\n\nConfiguração versionada:\n${rubricConfigRaw}`,
@@ -105,7 +108,7 @@ try {
       if (result.status === "completed") completed += 1; else failed += 1;
       if ((completed + failed) % 5 === 0) {
         const budget = guard.snapshot();
-        console.log(JSON.stringify({ checkpoint: true, completed, failed, reused, inFlight, actualSpendUsd: budget.alreadySpentUsd + budget.actualIncrementalCostUsd, budgetUsd: budget.maxCostUsd, remainingUsd: Math.max(0, budget.maxCostUsd - budget.projectedCostUsd) }));
+        console.log(JSON.stringify({ checkpoint: true, completed, failed, reused, reservationBlocked, inFlight, actualSpendUsd: budget.alreadySpentUsd + budget.actualIncrementalCostUsd, budgetUsd: budget.maxCostUsd, remainingUsd: Math.max(0, budget.maxCostUsd - budget.projectedCostUsd) }));
       }
     }
   };
@@ -113,10 +116,10 @@ try {
   try {
     await Promise.all(Array.from({ length: concurrency }, () => worker()));
     const budget = guard.snapshot();
-    await repository.finishBenchmarkRun(runId, "completed", { completed, failed, reused, budgetSkipped, budget });
-    console.log(JSON.stringify({ benchmarkRunId: runId, phase, models: models.length, calls: selected.length, completed, failed, reused, budgetSkipped, inFlight, budget }));
+    await repository.finishBenchmarkRun(runId, "completed", { completed, failed, reused, reservationBlocked, budgetSkipped, budget });
+    console.log(JSON.stringify({ benchmarkRunId: runId, phase, models: models.length, calls: selected.length, completed, failed, reused, reservationBlocked, budgetSkipped, inFlight, budget }));
   } catch (error) {
-    await repository.finishBenchmarkRun(runId, "failed", { errorCode: "benchmark_runner_failed", completed, failed, reused, budgetSkipped, budget: guard.snapshot() });
+    await repository.finishBenchmarkRun(runId, "failed", { errorCode: "benchmark_runner_failed", completed, failed, reused, reservationBlocked, budgetSkipped, budget: guard.snapshot() });
     throw error;
   }
 } finally {

@@ -26,6 +26,7 @@ function loadStrategy() {
 }
 
 const strategy = loadStrategy();
+const staleMinutes = Number(process.env.AI_ANALYSIS_STALE_AFTER_MINUTES ?? "30");
 const repository = new PostgresIngestionRepository(databaseUrl);
 try {
   if (prepareOnly) {
@@ -41,6 +42,7 @@ try {
     `;
     console.log(JSON.stringify({ mode: "dry_run", ...rows[0], requestedLimit: limit, strategy }));
   } else {
+    const recovery = await repository.recoverStaleAnalysisRuns(staleMinutes);
     const prepared = prepare ? await repository.prepareOfficialBatch(strategy, limit) : null;
     const gateway = createVercelAiGatewayModelGateway();
     let completed = 0;
@@ -50,6 +52,7 @@ try {
       const job = await repository.claimNextAnalysis();
       if (!job) { skipped += limit - index; break; }
       try {
+        const reservationIds: string[] = [];
         if (!/^[a-z0-9._-]+$/i.test(job.rubricVersion)) throw new Error("invalid_rubric_version");
         const rubricPath = path.resolve(process.env.ANALYSIS_RUBRIC_FILE ?? `packages/ai/rubrics/${job.rubricVersion}.md`);
         const rubricConfigPath = path.resolve(process.env.ANALYSIS_RUBRIC_CONFIG ?? "config/products/insider/rubric.v0.json");
@@ -62,7 +65,12 @@ try {
           expectedDimensionKeys: rubricConfig.dimensions.map((dimension) => dimension.key),
         }, {
           onPhase: (phase) => repository.updateAnalysisPhase(job.runId, phase),
-          onAttempt: (attempt) => repository.recordAnalysisAttempt(job.runId, attempt),
+          onRequest: async (request) => { reservationIds.push(await repository.reserveAnalysisRequest(job.runId, request)); },
+          onAttempt: async (attempt) => {
+            const reservationId = reservationIds.shift();
+            if (!reservationId) throw new Error("analysis_request_reservation_missing");
+            await repository.settleAnalysisRequest(job.runId, reservationId, attempt);
+          },
         });
         await repository.completeAnalysis(job.runId, execution);
         completed += 1;
@@ -72,7 +80,7 @@ try {
         failed += 1;
       }
     }
-    console.log(JSON.stringify({ mode: "apply", limit, prepared, completed, failed, skipped }));
+    console.log(JSON.stringify({ mode: "apply", limit, recovery, prepared, completed, failed, skipped }));
   }
 } finally {
   await repository.close();

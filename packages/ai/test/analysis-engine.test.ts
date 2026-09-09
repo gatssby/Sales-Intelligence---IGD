@@ -129,14 +129,17 @@ test("official analysis emits durable phase and attempt checkpoints before retur
     expectedDimensionKeys: [...dimensions],
   }, {
     onPhase(phase) { checkpoints.push(`phase:${phase}`); },
+    onRequest(request) { checkpoints.push(`request:${request.role}`); },
     onAttempt(attempt) { checkpoints.push(`attempt:${attempt.role}:${attempt.status}`); },
   });
 
   assert.deepEqual(checkpoints, [
     "phase:analyzing_primary",
+    "request:primary",
     "attempt:primary:completed",
     "phase:escalation_required",
     "phase:analyzing_escalation",
+    "request:escalation",
     "attempt:escalation:completed",
   ]);
 });

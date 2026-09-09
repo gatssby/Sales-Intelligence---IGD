@@ -9,8 +9,10 @@ The first vertical slice started with six tables and now adds source-agnostic in
 - `transcripts`: versioned text plus SHA-256 idempotency key.
 - `analysis_runs`: append-only, versioned structured analysis history.
 - `analysis_attempts`: provider calls made inside one official run, including primary, technical retry and escalation receipts.
+- `analysis_request_reservations`: pre-request markers that prevent an unknown paid request from being retried silently after worker interruption.
 - `benchmark_runs` / `benchmark_results`: isolated experiments that cannot become current or feed KPIs.
 - `benchmark_attempts`: durable request reservations and cost receipts used to rebuild benchmark spend after interruption.
+- `benchmark_cost_adjustments`: explicit, audited reconciliation gaps from spend observed outside per-request receipts.
 - `call_sources`: one or more discovery origins for the same canonical call.
 - `ingestion_runs`: aggregate audit record for a controlled input batch.
 - `ingestion_events`: sparse diagnostic events tied to an ingestion run.

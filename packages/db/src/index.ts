@@ -259,6 +259,10 @@ export class PostgresIngestionRepository implements IngestionRepository {
           and ar.is_current = false
           and exists (select 1 from transcripts t where t.id = ar.transcript_id)
           and not exists (
+            select 1 from analysis_request_reservations reservation
+            where reservation.analysis_run_id = ar.id and reservation.status = 'reserved'
+          )
+          and not exists (
             select 1 from analysis_runs official
             where official.call_id = ar.call_id and official.status = 'completed' and official.is_current = true
           )
@@ -331,7 +335,26 @@ export class PostgresIngestionRepository implements IngestionRepository {
     await this.sql`update analysis_runs set phase = ${phase} where id = ${runId} and status = 'running'`;
   }
 
-  async recordAnalysisAttempt(runId: string, attempt: AnalysisAttemptResult): Promise<void> {
+  async reserveAnalysisRequest(runId: string, request: { role: "primary" | "escalation"; model: string }): Promise<string> {
+    return this.sql.begin(async (tx) => {
+      const runs = await tx`select id from analysis_runs where id = ${runId} and status = 'running' for update`;
+      if (!runs.length) throw new Error("analysis_run_not_running");
+      const offsets = await tx<{ next_request: number }[]>`
+        select coalesce(max(request_number), 0)::integer + 1 next_request
+        from analysis_request_reservations where analysis_run_id = ${runId}
+      `;
+      const rows = await tx<{ id: string }[]>`
+        insert into analysis_request_reservations (
+          analysis_run_id, request_number, role, provider, model, status
+        ) values (
+          ${runId}, ${offsets[0].next_request}, ${request.role}, ${request.model.split("/")[0] || "unknown"}, ${request.model}, 'reserved'
+        ) returning id
+      `;
+      return rows[0].id;
+    });
+  }
+
+  async settleAnalysisRequest(runId: string, reservationId: string, attempt: AnalysisAttemptResult): Promise<void> {
     await this.sql.begin(async (tx) => {
       await tx`select id from analysis_runs where id = ${runId} and status = 'running' for update`;
       const offsets = await tx<{ next_attempt: number }[]>`
@@ -352,6 +375,52 @@ export class PostgresIngestionRepository implements IngestionRepository {
           ${attempt.latencyMs}, ${attempt.status === "failed" ? attempt.errorCode : null}, ${new Date(attempt.requestedAt)}
         )
       `;
+      const settled = await tx`
+        update analysis_request_reservations set
+          status = ${attempt.status}, input_tokens = ${attempt.inputTokens}, output_tokens = ${attempt.outputTokens},
+          cached_input_tokens = ${attempt.cachedInputTokens}, gateway_actual_cost_usd = ${attempt.gatewayActualCostUsd},
+          estimated_cost_usd = ${attempt.estimatedCostUsd}, cost_source = ${attempt.costSource}, finished_at = now()
+        where id = ${reservationId} and analysis_run_id = ${runId} and status = 'reserved'
+        returning id
+      `;
+      if (!settled.length) throw new Error("analysis_request_reservation_not_settled");
+    });
+  }
+
+  async recoverStaleAnalysisRuns(staleMinutes: number): Promise<{ requeued: number; outcomeUnknown: number }> {
+    if (!Number.isFinite(staleMinutes) || staleMinutes < 5) throw new Error("invalid_analysis_stale_minutes");
+    return this.sql.begin(async (tx) => {
+      const stale = await tx<{ id: string; call_id: string; outcome_unknown: boolean }[]>`
+        select ar.id, ar.call_id,
+          exists (
+            select 1 from analysis_request_reservations reservation
+            where reservation.analysis_run_id = ar.id and reservation.status = 'reserved'
+          ) outcome_unknown
+        from analysis_runs ar
+        where ar.status = 'running' and ar.started_at < now() - ${`${staleMinutes} minutes`}::interval
+        for update
+      `;
+      let requeued = 0;
+      let outcomeUnknown = 0;
+      for (const run of stale) {
+        if (run.outcome_unknown) {
+          outcomeUnknown += 1;
+          await tx`
+            update analysis_runs set status = 'failed', phase = 'failed', is_current = false,
+              error_code = 'analysis_request_outcome_unknown', finished_at = now()
+            where id = ${run.id}
+          `;
+          await tx`update calls set status = 'failed_retryable', updated_at = now() where id = ${run.call_id}`;
+        } else {
+          requeued += 1;
+          await tx`
+            update analysis_runs set status = 'queued', phase = 'queued', started_at = null, error_code = null
+            where id = ${run.id}
+          `;
+          await tx`update calls set status = 'analysis_queued', updated_at = now() where id = ${run.call_id}`;
+        }
+      }
+      return { requeued, outcomeUnknown };
     });
   }
 
