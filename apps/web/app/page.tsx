@@ -1,4 +1,7 @@
 import { getDashboardData } from "@/lib/data";
+import { hasCapability } from "@igd/auth";
+import { requireUser } from "@/lib/auth/session";
+import { logoutAction } from "@/app/logout/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +31,8 @@ const performanceStatus = (score: number) => {
 };
 
 export default async function DashboardPage() {
-  const data = await getDashboardData();
+  const user = await requireUser();
+  const data = await getDashboardData(user);
   const call = data.call;
 
   if (!call) {
@@ -37,8 +41,9 @@ export default async function DashboardPage() {
         <section className="empty-card">
           <div className="brand-mark">SI</div>
           <p className="eyebrow">IGD Sales Intelligence</p>
-          <h1>Dashboard pronto para receber a primeira análise.</h1>
-          <p>Abra o túnel SSH e configure <code>DATABASE_URL</code> para exibir os dados reais da demo.</p>
+          <h1>Nenhuma análise disponível no seu escopo.</h1>
+          <p>Seu acesso está ativo, mas não há calls analisadas nos times ou produtos associados.</p>
+          <form action={logoutAction}><button type="submit">Sair</button></form>
         </section>
       </main>
     );
@@ -69,6 +74,7 @@ export default async function DashboardPage() {
           <a href="#equipe"><span>◎</span> Equipe</a>
           <a href="#call"><span>◉</span> Calls</a>
           <a href="#coaching"><span>↗</span> Coaching</a>
+          {hasCapability(user, "users:manage") ? <a href="/admin/users"><span>⚙</span> Usuários e acessos</a> : null}
         </nav>
         <div className="sidebar-foot">
           <div className="pulse-dot" />
@@ -83,15 +89,16 @@ export default async function DashboardPage() {
             <h1>Visão executiva</h1>
           </div>
           <div className="top-actions">
-            <span className="live-badge"><i /> 1 call real</span>
+            <span className="live-badge"><i /> {data.metrics.analyzedCalls} calls no escopo</span>
             <button type="button">Últimos 30 dias⌄</button>
-            <div className="avatar">IG</div>
+            <div className="avatar" title={`${user.displayName} · ${user.role}`}>{user.displayName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</div>
+            <form action={logoutAction}><button type="submit">Sair</button></form>
           </div>
         </header>
 
         <section className="hero" id="executivo">
           <div>
-            <span className="kicker">AMOSTRA ATUAL: 1 CALL</span>
+            <span className="kicker">ESCOPO ATUAL: {user.scope.kind}</span>
             <h2>Análise da call</h2>
             <p>Resultados da call analisada, com referências aos trechos usados na avaliação.</p>
           </div>
@@ -99,10 +106,10 @@ export default async function DashboardPage() {
         </section>
 
         <section className="metrics-grid">
-          <article className="metric-card"><p>Calls analisadas</p><strong>1</strong><span className="metric-note positive">1 análise concluída</span></article>
-          <article className="metric-card"><p>Score médio</p><strong>{call.score}<small>/100</small></strong><span className="metric-note">Rubrica v0 · demo</span></article>
-          <article className="metric-card"><p>Cobertura IA</p><strong>100<small>%</small></strong><span className="metric-note positive">1 de 1 call ingerida</span></article>
-          <article className="metric-card"><p>Oportunidade</p><strong className="word-stat">Baixa</strong><span className="metric-note warning">Desqualificada com evidência</span></article>
+          <article className="metric-card"><p>Calls analisadas</p><strong>{data.metrics.analyzedCalls}</strong><span className="metric-note positive">Somente o escopo autorizado</span></article>
+          <article className="metric-card"><p>Score médio</p><strong>{data.metrics.averageScore ?? "—"}<small>/100</small></strong><span className="metric-note">Agregação com escopo</span></article>
+          <article className="metric-card"><p>Vendedores</p><strong>{data.metrics.sellerCount}</strong><span className="metric-note positive">Visíveis para esta conta</span></article>
+          <article className="metric-card"><p>Times · produtos</p><strong className="word-stat">{data.metrics.teamCount} · {data.metrics.productCount}</strong><span className="metric-note">Sem totais globais ocultos</span></article>
         </section>
 
         <section className="panel team-panel" id="equipe">
@@ -193,12 +200,37 @@ export default async function DashboardPage() {
           </article>
         </section>
 
+        <section className="panel" id="calls">
+          <div className="section-title">
+            <div><p className="eyebrow">Calls autorizadas</p><h3>Últimas análises no seu escopo</h3></div>
+            <span>{data.recentCalls.length} exibidas</span>
+          </div>
+          <div className="team-table-wrap">
+            <table className="team-table">
+              <thead><tr><th>Cliente</th><th>Vendedor</th><th>Time</th><th>Produto</th><th>Score</th><th></th></tr></thead>
+              <tbody>
+                {data.recentCalls.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.customerName}</td>
+                    <td>{item.sellerName}</td>
+                    <td>{item.teamName ?? "—"}</td>
+                    <td>{item.product.toUpperCase()}</td>
+                    <td>{item.score}</td>
+                    <td><a className="text-link" href={`/calls/${item.id}`}>Abrir</a></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section className="panel call-panel" id="call">
           <div className="call-heading">
             <div>
               <p className="eyebrow">Detalhe da call</p>
               <h3>{call.customerName ?? "Cliente não informado"} <span>×</span> {call.sellerName}</h3>
               <p className="call-meta">{call.product.toUpperCase()} · {formatDate(call.startedAt)} · {formatDuration(call.durationSeconds)}</p>
+              <a className="text-link" href={`/calls/${call.id}`}>Abrir detalhe protegido</a>
             </div>
             <div className="call-score"><span>{call.score}</span><small>score</small></div>
           </div>
