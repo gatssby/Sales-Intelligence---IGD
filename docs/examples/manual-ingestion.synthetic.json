@@ -1,0 +1,17 @@
+[
+  {
+    "transcript_url": "https://docs.google.com/document/d/1SYNTHETIC_file_001/edit",
+    "transcript_file_id": "1SYNTHETIC_file_001",
+    "transcript_text": "00:00 Vendedor: Olá, esta é uma transcrição inteiramente sintética para teste.",
+    "seller_code": "V999",
+    "customer_name": "Cliente Sintético",
+    "customer_email": "cliente@example.invalid",
+    "product": "INSIDER",
+    "call_date": "2026-01-02T12:00:00-03:00",
+    "status": "NAO FECHOU",
+    "origin": "Origem sintética",
+    "source_type": "manual_crm_import",
+    "source_external_id": "lote-sintetico-001:item-001",
+    "metadata": {}
+  }
+]

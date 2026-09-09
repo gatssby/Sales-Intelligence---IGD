@@ -13,9 +13,12 @@
     "deploy:production": "bash scripts/deploy-production.sh origin/main",
     "dev": "npm run dev --workspace=@igd/web",
     "build": "npm run build --workspace=@igd/web",
+    "test": "npm run test --workspaces --if-present",
     "typecheck": "tsc --noEmit -p tsconfig.json && npm run typecheck --workspaces --if-present",
     "db:migrate": "tsx scripts/migrate.ts",
-    "demo:seed": "tsx scripts/seed-demo.ts"
+    "demo:seed": "tsx scripts/seed-demo.ts",
+    "calls:import": "tsx scripts/import-calls.ts",
+    "analysis:process": "tsx scripts/process-analysis-queue.ts"
   },
   "dependencies": {
     "openai": "7.12.1",

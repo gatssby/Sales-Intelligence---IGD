@@ -39,3 +39,19 @@ export class OpenAIResponsesAnalyzer implements CallAnalyzer {
     return response.output_parsed;
   }
 }
+
+export function createVercelAiGatewayAnalyzer(options: {
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+} = {}): OpenAIResponsesAnalyzer {
+  const apiKey = options.apiKey ?? process.env.AI_GATEWAY_API_KEY;
+  if (!apiKey) throw new Error("AI_GATEWAY_API_KEY is required to run analysis");
+
+  const client = new OpenAI({
+    apiKey,
+    baseURL: options.baseUrl ?? process.env.AI_GATEWAY_BASE_URL ?? "https://ai-gateway.vercel.sh/v1",
+  });
+  const model = options.model ?? process.env.AI_GATEWAY_MODEL ?? "openai/gpt-5.4";
+  return new OpenAIResponsesAnalyzer(client, model);
+}

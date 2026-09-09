@@ -15,13 +15,15 @@ O primeiro fluxo ponta a ponta está implementado:
 
 Para abrir a demo localmente, siga [docs/demo-runbook.md](docs/demo-runbook.md). A rubrica v0 é demonstrativa e ainda não deve ser tratada como KPI oficial.
 
+A entrada controlada de calls agora é desacoplada da origem e deduplicada por `transcript_file_id`. O contrato e os comandos seguros estão em [docs/manual-call-ingestion.md](docs/manual-call-ingestion.md); a decisão arquitetural está registrada em [ADR 0002](docs/decisions/0002-source-agnostic-call-ingestion.md).
+
 O deploy em `sales-igd.com.br` usa Next.js em container, nginx com HTTPS e autenticação básica, mantendo PostgreSQL e a porta do app limitados ao loopback da VPS. O procedimento de atualização e rollback está em [docs/production-runbook.md](docs/production-runbook.md).
 
 ## Escopo inicial
 
 O MVP deve:
 
-1. descobrir calls/transcrições em múltiplas fontes do Google Drive;
+1. receber calls/transcrições por adaptadores independentes da fonte;
 2. normalizar os metadados da call;
 3. obter a transcrição existente ou encaminhar a gravação para transcrição;
 4. analisar a call com uma rubrica versionada por produto;
@@ -64,7 +66,7 @@ Web App / Dashboard
 
 ### Fase atual — fontes distribuídas
 
-Cada pasta/origem será cadastrada como uma `source_location` associada a um vendedor. O pipeline percorre todas as fontes ativas e grava o `drive_file_id`, `modified_time` e metadados necessários para evitar processamento duplicado.
+Cada pasta/origem poderá ser cadastrada como uma `source_location` associada a um vendedor. Nesta fase não existe discovery automático: lotes manuais passam pelo mesmo limite canônico que um futuro adaptador do Drive usará.
 
 Preferência imediata: compartilhar as pastas relevantes com uma única conta de integração, em vez de manter uma credencial OAuth diferente por vendedor.
 
@@ -138,10 +140,8 @@ infra/
 
 ## Próximos marcos
 
-1. fechar modelo de acesso ao Google Workspace;
-2. definir schema inicial do PostgreSQL;
-3. transformar a rubrica do INSIDER em schema estruturado;
-4. construir workflow n8n de discovery + ingestão;
-5. processar um pequeno conjunto de calls ponta a ponta;
-6. criar uma base humana de referência para validar a qualidade da IA;
-7. construir o primeiro dashboard.
+1. receber e validar o primeiro lote privado controlado;
+2. obter as transcrições autorizadas e conferir uma amostra manual;
+3. executar uma análise por vez pelo AI Gateway;
+4. criar uma base humana de referência para validar a qualidade da IA;
+5. definir o adaptador futuro para o Drive unificado.
