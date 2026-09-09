@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import postgres, { type Sql } from "postgres";
+import postgres, { type Sql, type TransactionSql } from "postgres";
 import type { IngestionInput, IngestionRepository, PersistedCall } from "@igd/core";
 import type { AnalysisOutput } from "@igd/ai";
 
@@ -86,19 +86,22 @@ export class PostgresIngestionRepository implements IngestionRepository {
     return rows[0];
   }
 
-  async upsertCallSource(input: IngestionInput & { transcriptFileId: string }): Promise<PersistedCall> {
-    const rows = await this.sql<{
+  async upsertCallSource(
+    input: IngestionInput & { transcriptFileId: string },
+    executor: Sql | TransactionSql = this.sql,
+  ): Promise<PersistedCall> {
+    const rows = await executor<{
       call_id: string;
       created: boolean;
       transcript_present: boolean;
       official_analysis_completed: boolean;
     }[]>`
       select * from upsert_call_source(
-        ${input.sellerCode}, ${input.customerName}, ${input.customerEmail ?? null}, ${input.product ?? "INSIDER"},
-        ${new Date(input.callDate)}, ${input.status ?? null}, ${input.origin ?? null},
+        ${input.sellerCode}, ${input.customerName ?? null}, ${input.customerEmail ?? null}, ${input.product ?? "INSIDER"},
+        ${input.callDate ? new Date(input.callDate) : null}, ${input.status ?? null}, ${input.origin ?? null},
         ${input.transcriptFileId}, ${input.transcriptUrl ?? null}, ${input.recordingUrl ?? null},
         ${input.sourceType}, ${input.sourceExternalId}, ${input.sourceUri ?? null},
-        ${this.sql.json(JSON.parse(JSON.stringify(input.metadata ?? {})))}
+        ${executor.json(JSON.parse(JSON.stringify(input.metadata ?? {})))}
       )
     `;
     const row = rows[0];
@@ -218,7 +221,12 @@ export class PostgresIngestionRepository implements IngestionRepository {
     });
   }
 
-  async completeAnalysis(runId: string, output: AnalysisOutput): Promise<void> {
+  async completeAnalysis(runId: string, output: AnalysisOutput, metrics: {
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+    costUsd?: number | null;
+    latencyMs?: number | null;
+  } = {}): Promise<void> {
     await this.sql.begin(async (tx) => {
       const runs = await tx<{ call_id: string }[]>`
         select call_id from analysis_runs where id = ${runId} and status = 'running' for update
@@ -229,6 +237,8 @@ export class PostgresIngestionRepository implements IngestionRepository {
       await tx`
         update analysis_runs set
           status = 'completed', score = ${output.overall_score}, result_json = ${tx.json(output)},
+          input_tokens = ${metrics.inputTokens ?? null}, output_tokens = ${metrics.outputTokens ?? null},
+          cost_usd = ${metrics.costUsd ?? null}, latency_ms = ${metrics.latencyMs ?? null},
           is_current = true, error_code = null, finished_at = now()
         where id = ${runId}
       `;

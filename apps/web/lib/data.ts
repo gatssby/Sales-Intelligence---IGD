@@ -3,10 +3,10 @@ import { AnalysisOutputSchema, type AnalysisOutput } from "@igd/ai";
 
 export type DashboardCall = {
   id: string;
-  customerName: string;
+  customerName: string | null;
   sellerName: string;
   product: string;
-  startedAt: string;
+  startedAt: string | null;
   durationSeconds: number | null;
   transcript: string;
   score: number;
@@ -39,10 +39,10 @@ export async function getDashboardData(): Promise<DashboardData> {
     const rows = await sql<
       Array<{
         id: string;
-        customer_name: string;
+        customer_name: string | null;
         seller_name: string;
         product_key: string;
-        started_at: Date;
+        started_at: Date | null;
         duration_seconds: number | null;
         normalized_text: string;
         score: string | number;
@@ -86,7 +86,7 @@ export async function getDashboardData(): Promise<DashboardData> {
         customerName: row.customer_name,
         sellerName: row.seller_name,
         product: row.product_key,
-        startedAt: row.started_at.toISOString(),
+        startedAt: row.started_at?.toISOString() ?? null,
         durationSeconds: row.duration_seconds,
         transcript: row.normalized_text,
         score: Number(row.score),

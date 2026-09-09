@@ -5,7 +5,7 @@ O importador recebe um JSON privado, valida o lote, resolve a identidade pelo Go
 ## Pré-requisitos
 
 - migration `003_source_agnostic_ingestion.sql` aplicada;
-- cada `seller_code` já cadastrado e ativo em `sellers`;
+- cada `seller_code` já cadastrado em `sellers`;
 - `DATABASE_URL` somente no ambiente local/seguro;
 - arquivo de entrada sob `private/`, que é ignorado pelo Git;
 - para buscar o conteúdo de um Google Doc, um `GOOGLE_ACCESS_TOKEN` curto e com acesso ao arquivo; se `transcript_text` vier no lote, nenhuma credencial Google é necessária.
@@ -28,7 +28,7 @@ Depois da conferência, o `--apply` faz upsert somente pelos códigos `V###` inf
 npm run sellers:import -- --apply
 ```
 
-Calls que apontem para um vendedor ausente ou inativo são rejeitadas; o importador de calls nunca inventa um cadastro.
+Calls que apontem para um vendedor ausente são rejeitadas; vendedores históricos podem permanecer inativos sem perder suas calls. O importador de calls nunca inventa um cadastro.
 
 ## Contrato de entrada
 
@@ -66,7 +66,7 @@ MANUAL_INGESTION_FILE='private/calls.json' \
 npm run calls:import
 ```
 
-O relatório informa quantidade de itens, IDs únicos, duplicatas dentro do lote, calls já existentes, calls que seriam criadas e vendedores ativos ausentes. O dry-run não cria calls, sources, transcrições, runs ou eventos.
+O relatório informa quantidade de itens, IDs únicos, duplicatas dentro do lote, calls já existentes, calls que seriam criadas e vendedores ausentes. O dry-run não cria calls, sources, transcrições, runs ou eventos.
 
 ## 2. Importação controlada
 
@@ -107,7 +107,7 @@ AI_GATEWAY_MODEL='openai/gpt-5.4' \
 npm run analysis:process -- --apply --limit=1
 ```
 
-O limite aceito é de 1 a 20. Cada resultado é validado pelo schema, persistido no `analysis_run`, marcado como oficial e refletido automaticamente pelo dashboard, que consulta o PostgreSQL em renderização dinâmica.
+O limite aceito é de 1 a 30. Cada resultado é validado pelo schema, persistido no `analysis_run`, marcado como oficial e refletido automaticamente pelo dashboard, que consulta o PostgreSQL em renderização dinâmica.
 
 ## Retentativa e reanálise
 

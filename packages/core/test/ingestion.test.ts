@@ -6,8 +6,10 @@ import {
   ingestCall,
   normalizeHeader,
   normalizeStatus,
+  parseHistoricalCallDate,
   resolveCallByTranscriptFileId,
   resolveTranscriptIdentity,
+  selectFairRoundRobin,
   upsertCallSource,
 } from "../src/index.js";
 
@@ -28,6 +30,24 @@ test("normalizeStatus makes the no-show rule exact after normalization", () => {
   assert.equal(isNoShowStatus(" NÃO COMPARECEU "), true);
   assert.equal(isNoShowStatus("NÃO FECHOU"), false);
   assert.equal(isNoShowStatus("EM NEGOCIAÇÃO"), false);
+});
+
+test("parseHistoricalCallDate accepts known formats and rejects implausible years", () => {
+  assert.equal(parseHistoricalCallDate("2026-09-08")?.date, "2026-09-08");
+  assert.equal(parseHistoricalCallDate("04//08/2026")?.date, "2026-08-04");
+  assert.equal(parseHistoricalCallDate("01/07/0206"), null);
+});
+
+test("selectFairRoundRobin balances sellers while preserving per-seller recency", () => {
+  const selected = selectFairRoundRobin([
+    { transcriptFileId: "doc-a-old-001", sellerCode: "V100", callDate: "2026-01-01", sourceRow: 20 },
+    { transcriptFileId: "doc-a-new-001", sellerCode: "V100", callDate: "2026-02-01", sourceRow: 30 },
+    { transcriptFileId: "doc-b-old-001", sellerCode: "V200", sourceRow: 40 },
+    { transcriptFileId: "doc-b-new-001", sellerCode: "V200", sourceRow: 80 },
+  ], 4);
+  assert.deepEqual(selected.map((item) => item.transcriptFileId), [
+    "doc-a-new-001", "doc-b-new-001", "doc-a-old-001", "doc-b-old-001",
+  ]);
 });
 
 test("resolveTranscriptIdentity rejects conflicting explicit and URL identities", () => {

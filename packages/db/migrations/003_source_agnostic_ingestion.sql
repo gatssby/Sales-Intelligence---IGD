@@ -204,9 +204,9 @@ begin
 
   select id into v_seller_id
   from sellers
-  where seller_code = p_seller_code and active = true;
+  where seller_code = p_seller_code;
   if v_seller_id is null then
-    raise exception 'active_seller_not_found:%', p_seller_code;
+    raise exception 'seller_not_found:%', p_seller_code;
   end if;
 
   select id into v_call_id

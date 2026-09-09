@@ -2,7 +2,7 @@ import { getDashboardData } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
-const formatDate = (value: string) =>
+const formatDate = (value: string | null) => value ?
   new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",
     month: "short",
@@ -10,7 +10,7 @@ const formatDate = (value: string) =>
     hour: "2-digit",
     minute: "2-digit",
     timeZone: "America/Sao_Paulo",
-  }).format(new Date(value));
+  }).format(new Date(value)) : "Data não informada";
 
 const formatDuration = (seconds: number | null) => {
   if (!seconds) return "—";
@@ -197,7 +197,7 @@ export default async function DashboardPage() {
           <div className="call-heading">
             <div>
               <p className="eyebrow">Detalhe da call</p>
-              <h3>{call.customerName} <span>×</span> {call.sellerName}</h3>
+              <h3>{call.customerName ?? "Cliente não informado"} <span>×</span> {call.sellerName}</h3>
               <p className="call-meta">{call.product.toUpperCase()} · {formatDate(call.startedAt)} · {formatDuration(call.durationSeconds)}</p>
             </div>
             <div className="call-score"><span>{call.score}</span><small>score</small></div>

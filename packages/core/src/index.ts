@@ -18,8 +18,82 @@ export function normalizeStatus(value: unknown): string {
   return normalizeComparable(value);
 }
 
+export function parseHistoricalCallDate(value: unknown, maximumYear = new Date().getUTCFullYear() + 1): {
+  date: string;
+  startedAt: string;
+} | null {
+  const input = String(value ?? "").trim();
+  if (!input) return null;
+  let year: number;
+  let month: number;
+  let day: number;
+  const iso = input.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const brazilian = input.match(/^(\d{1,2})\/{1,2}(\d{1,2})\/(\d{4})$/);
+  if (iso) {
+    [, year, month, day] = iso.map(Number);
+  } else if (brazilian) {
+    day = Number(brazilian[1]);
+    month = Number(brazilian[2]);
+    year = Number(brazilian[3]);
+  } else {
+    return null;
+  }
+  if (year < 2000 || year > maximumYear || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  if (utc.getUTCFullYear() !== year || utc.getUTCMonth() !== month - 1 || utc.getUTCDate() !== day) return null;
+  const date = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return { date, startedAt: `${date}T12:00:00-03:00` };
+}
+
 export function isNoShowStatus(value: unknown): boolean {
   return normalizeStatus(value) === "NAO COMPARECEU";
+}
+
+export type FairCallCandidate = {
+  transcriptFileId: string;
+  sellerCode: string;
+  callDate?: string;
+  sourceRow: number;
+  sourceKey?: string;
+};
+
+export function compareCallRecency(a: FairCallCandidate, b: FairCallCandidate): number {
+  const aDate = parseHistoricalCallDate(a.callDate)?.date;
+  const bDate = parseHistoricalCallDate(b.callDate)?.date;
+  if (aDate && bDate && aDate !== bDate) return bDate.localeCompare(aDate);
+  if (aDate && !bDate) return -1;
+  if (!aDate && bDate) return 1;
+  if (a.sourceRow !== b.sourceRow) return b.sourceRow - a.sourceRow;
+  const sourceKey = String(a.sourceKey ?? "").localeCompare(String(b.sourceKey ?? ""));
+  return sourceKey || a.transcriptFileId.localeCompare(b.transcriptFileId);
+}
+
+export function selectFairRoundRobin<T extends FairCallCandidate>(candidates: T[], limit: number): T[] {
+  if (!Number.isInteger(limit) || limit < 0) throw new Error("invalid_round_robin_limit");
+  const queues = new Map<string, T[]>();
+  for (const candidate of candidates) {
+    const queue = queues.get(candidate.sellerCode) ?? [];
+    queue.push(candidate);
+    queues.set(candidate.sellerCode, queue);
+  }
+  for (const queue of queues.values()) queue.sort(compareCallRecency);
+  const sellers = [...queues.keys()].sort((left, right) => {
+    const comparison = compareCallRecency(queues.get(left)![0], queues.get(right)![0]);
+    return comparison || Number(left.replace(/^V/, "")) - Number(right.replace(/^V/, ""));
+  });
+  const selected: T[] = [];
+  for (let round = 0; selected.length < limit; round += 1) {
+    let added = false;
+    for (const seller of sellers) {
+      const item = queues.get(seller)![round];
+      if (!item) continue;
+      selected.push(item);
+      added = true;
+      if (selected.length === limit) break;
+    }
+    if (!added) break;
+  }
+  return selected;
 }
 
 export function extractGoogleFileId(value: unknown): string | null {
@@ -27,7 +101,7 @@ export function extractGoogleFileId(value: unknown): string | null {
   if (!input) return null;
   if (GOOGLE_FILE_ID_PATTERN.test(input) && input.length >= 10) return input;
 
-  const pathMatch = input.match(/docs\.google\.com\/document\/d\/([A-Za-z0-9_-]+)/i);
+  const pathMatch = input.match(/(?:docs\.google\.com\/document|drive\.google\.com\/file)\/d\/([A-Za-z0-9_-]+)/i);
   if (pathMatch) return pathMatch[1];
 
   try {
@@ -101,10 +175,10 @@ export type IngestionInput = {
   transcriptFileId?: string;
   transcriptText?: string;
   sellerCode: string;
-  customerName: string;
+  customerName?: string;
   customerEmail?: string;
   product?: string;
-  callDate: string;
+  callDate?: string;
   status?: string;
   origin?: string;
   sourceType: string;

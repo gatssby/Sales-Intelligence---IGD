@@ -17,6 +17,8 @@ Para abrir a demo localmente, siga [docs/demo-runbook.md](docs/demo-runbook.md).
 
 A entrada controlada de calls agora é desacoplada da origem e deduplicada por `transcript_file_id`. O contrato e os comandos seguros estão em [docs/manual-call-ingestion.md](docs/manual-call-ingestion.md); a decisão arquitetural está registrada em [ADR 0002](docs/decisions/0002-source-agnostic-call-ingestion.md).
 
+O procedimento específico para validar o JSONL, importar somente o catálogo e construir a fila fair do primeiro lote INSIDER está em [docs/insider-first-batch-runbook.md](docs/insider-first-batch-runbook.md).
+
 O deploy em `sales-igd.com.br` usa Next.js em container, nginx com HTTPS e autenticação básica, mantendo PostgreSQL e a porta do app limitados ao loopback da VPS. O procedimento de atualização e rollback está em [docs/production-runbook.md](docs/production-runbook.md).
 
 ## Escopo inicial

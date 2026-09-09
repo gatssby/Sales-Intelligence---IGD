@@ -39,18 +39,18 @@ const transcriptFetcher = process.env.GOOGLE_ACCESS_TOKEN
 try {
   if (!apply) {
     const existingIds = new Set<string>();
-    let missingActiveSellers = 0;
+    let missingSellers = 0;
     const ids = new Set<string>();
     for (const item of items) {
       const id = resolveTranscriptIdentity({ transcriptFileId: item.transcript_file_id, transcriptUrl: item.transcript_url });
       if (!ids.has(id) && await repository.resolveCallByTranscriptFileId(id)) existingIds.add(id);
       ids.add(id);
       const sellers = await repository.sql`
-        select 1 from sellers where seller_code = ${item.seller_code} and active = true limit 1
+        select 1 from sellers where seller_code = ${item.seller_code} limit 1
       `;
-      if (!sellers.length) missingActiveSellers += 1;
+      if (!sellers.length) missingSellers += 1;
     }
-    console.log(JSON.stringify({ mode: "dry_run", items: items.length, uniqueTranscriptFileIds: ids.size, duplicateTranscriptFileIdsInBatch: items.length - ids.size, existingCalls: existingIds.size, callsToCreate: ids.size - existingIds.size, missingActiveSellers, analysisRequested: false }));
+    console.log(JSON.stringify({ mode: "dry_run", items: items.length, uniqueTranscriptFileIds: ids.size, duplicateTranscriptFileIdsInBatch: items.length - ids.size, existingCalls: existingIds.size, callsToCreate: ids.size - existingIds.size, missingSellers, analysisRequested: false }));
     process.exitCode = 0;
   } else {
     const runRows = await repository.sql<{ id: string }[]>`
@@ -114,8 +114,8 @@ try {
         }
       } catch (error) {
         errors += 1;
-        const errorCode = error instanceof Error && error.message.startsWith("active_seller_not_found")
-          ? "active_seller_not_found"
+        const errorCode = error instanceof Error && error.message.startsWith("seller_not_found")
+          ? "seller_not_found"
           : error instanceof Error && [
               "invalid_transcript_file_id", "transcript_identity_mismatch", "source_identity_conflict",
               "transcript_access_denied", "transcript_not_found", "transcript_fetch_failed", "transcript_empty",
