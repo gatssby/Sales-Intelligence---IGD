@@ -12,7 +12,7 @@
     "demo:check": "tsx scripts/demo.ts --check",
     "dev": "npm run dev --workspace=@igd/web",
     "build": "npm run build --workspace=@igd/web",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck": "tsc --noEmit -p tsconfig.json && npm run typecheck --workspaces --if-present",
     "db:migrate": "tsx scripts/migrate.ts",
     "demo:seed": "tsx scripts/seed-demo.ts"
   },
