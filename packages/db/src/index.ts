@@ -5,6 +5,8 @@ import type { AnalysisAttemptResult, AnalysisOutput, AnalysisStrategy, Benchmark
 
 export * from "./access";
 export * from "./auth";
+export * from "./budget";
+export * from "./lifecycle";
 
 export type RepositoryOptions = {
   provider?: string;

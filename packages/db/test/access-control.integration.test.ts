@@ -52,6 +52,8 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
     returning id, team_id
   `;
   const analysis = {
+    scoreability: "scoreable",
+    unscorable_reason: null,
     overall_score: 80,
     opportunity_quality: "medium",
     opportunity_quality_label: "Synthetic",

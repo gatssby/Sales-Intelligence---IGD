@@ -20,6 +20,8 @@ const dimensions = [
 
 function validOutput(overrides: Partial<AnalysisOutput> = {}): AnalysisOutput {
   return {
+    scoreability: "scoreable",
+    unscorable_reason: null,
     overall_score: 82,
     opportunity_quality: "high",
     opportunity_quality_label: "Alta",
@@ -92,6 +94,50 @@ test("official analysis accepts a grounded primary result above the confidence g
   assert.deepEqual(result.escalationReasons, []);
   assert.equal(result.attempts.length, 1);
   assert.deepEqual(calledModels, ["provider/cheap"]);
+});
+
+test("official analysis preserves an unscorable result without manufacturing score zero", async () => {
+  const gateway: ModelGateway = {
+    async analyze() {
+      return {
+        ...receipt,
+        output: validOutput({
+          scoreability: "unscorable",
+          unscorable_reason: "transcript_too_short_for_rubric",
+          overall_score: null,
+          confidence: 0.9,
+          requires_human_review: true,
+        }),
+        inputTokens: 40,
+        outputTokens: 20,
+        cachedInputTokens: 0,
+        costUsd: 0.001,
+        latencyMs: 100,
+      };
+    },
+  };
+  const result = await createAnalysisEngine({
+    gateway,
+    strategy: {
+      version: "test-v2",
+      confidencePolicyVersion: "insider-confidence-v2",
+      primaryModel: "provider/cheap",
+      escalationModel: "provider/strong",
+      confidenceThreshold: 0.8,
+      maxTechnicalRetries: 0,
+    },
+  }).runOfficial({
+    transcript: "00:01 Cliente: alô?",
+    rubric: "Rubrica sintética",
+    promptVersion: "prompt-v1",
+    expectedDimensionKeys: [...dimensions],
+  });
+
+  assert.equal(result.escalated, false);
+  assert.equal(result.analysisEligibility, "unscorable");
+  assert.equal(result.performanceScore, null);
+  assert.equal(result.humanReviewRequested, true);
+  assert.equal(result.confidencePolicyVersion, "insider-confidence-v2");
 });
 
 test("official analysis emits durable phase and attempt checkpoints before returning", async () => {
@@ -310,7 +356,7 @@ test("official analysis exposes primary and escalation attempts when escalation 
   );
 });
 
-test("official analysis escalates after transient primary retries are exhausted", async () => {
+test("exhausted technical retries fail without becoming semantic escalation", async () => {
   const calledModels: string[] = [];
   const gateway: ModelGateway = {
     async analyze(request) {
@@ -340,18 +386,21 @@ test("official analysis escalates after transient primary retries are exhausted"
     },
   });
 
-  const result = await engine.runOfficial({
-    transcript: "00:15 Vendedor: Qual é o principal objetivo para os próximos meses?",
-    rubric: "Rubrica sintética",
-    promptVersion: "prompt-v1",
-    expectedDimensionKeys: [...dimensions],
-  });
-
-  assert.equal(result.status, "completed");
-  assert.equal(result.finalModel, "provider/strong");
-  assert.deepEqual(result.escalationReasons, ["primary_model_timeout"]);
-  assert.deepEqual(calledModels, ["provider/cheap", "provider/cheap", "provider/strong"]);
-  assert.deepEqual(result.attempts.map((attempt) => attempt.status), ["failed", "failed", "completed"]);
+  await assert.rejects(
+    engine.runOfficial({
+      transcript: "00:15 Vendedor: Qual é o principal objetivo para os próximos meses?",
+      rubric: "Rubrica sintética",
+      promptVersion: "prompt-v1",
+      expectedDimensionKeys: [...dimensions],
+    }),
+    (error) => {
+      assert.ok(error instanceof AnalysisEngineError);
+      assert.equal(error.code, "primary_failed");
+      assert.deepEqual(error.escalationReasons, []);
+      return true;
+    },
+  );
+  assert.deepEqual(calledModels, ["provider/cheap", "provider/cheap"]);
 });
 
 test("benchmark keeps model results isolated and continues after one model fails", async () => {

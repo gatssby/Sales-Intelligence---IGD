@@ -131,6 +131,8 @@ A IA deve produzir objeto validado por schema. Exemplo conceitual:
 
 ```json
 {
+  "scoreability": "scoreable",
+  "unscorable_reason": null,
   "overall_score": 72,
   "opportunity_quality": "qualified",
   "call_status": "lost_by_closer",
@@ -147,7 +149,18 @@ A IA deve produzir objeto validado por schema. Exemplo conceitual:
 
 Campos da planilha do INSIDER devem ser preservados quando forem úteis, mas o novo schema precisa funcionar para outros produtos.
 
-### 6.3 Evidência
+Uma call sem material suficiente usa `scoreability: "unscorable"`, `overall_score: null` e um motivo explícito. Score zero representa performance avaliada, nunca ausência de avaliação.
+
+### 6.3 Lifecycle, confiança e custo
+
+- `analysis_jobs` é o estado operacional durável; `analysis_runs` e `analysis_attempts` preservam o histórico.
+- Claims concorrentes usam lease e `FOR UPDATE SKIP LOCKED`; finalização e recovery são idempotentes.
+- `requires_human_review` permanece visível, mas não dispara escalation sozinho.
+- A policy `insider-confidence-v2` decide escalation por sinais auditáveis de confiabilidade.
+- Antes de cada request, o worker reserva budget na conta global; settlement usa o custo real do Gateway.
+- Requests iniciadas sem receipt ficam em reconciliação e não são repetidas automaticamente.
+
+### 6.4 Evidência
 
 Toda crítica relevante deve, quando possível, carregar:
 
@@ -158,7 +171,7 @@ Toda crítica relevante deve, quando possível, carregar:
 
 O feedback não deve ser somente uma opinião textual genérica.
 
-### 6.4 Rubrica
+### 6.5 Rubrica
 
 Estrutura sugerida:
 

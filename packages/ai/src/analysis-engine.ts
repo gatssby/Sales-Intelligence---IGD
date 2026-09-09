@@ -1,4 +1,5 @@
 import { AnalysisOutputSchema, type AnalysisOutput } from "./schema";
+import { createConfidencePolicy } from "./confidence-policy";
 
 export type AnalysisEngineInput = {
   transcript: string;
@@ -9,6 +10,7 @@ export type AnalysisEngineInput = {
 
 export type AnalysisStrategy = {
   version: string;
+  confidencePolicyVersion?: string;
   primaryModel: string;
   escalationModel: string;
   confidenceThreshold: number;
@@ -67,7 +69,7 @@ export class AnalysisEngineError extends Error {
 export type AnalysisQualitySignals = {
   evidenceGroundingRate: number;
   dimensionCoverageRate: number;
-  scoreDimensionDelta: number;
+  scoreDimensionDelta: number | null;
 };
 
 export type CompletedAnalysisAttempt = ModelExecution & {
@@ -94,6 +96,10 @@ export type OfficialAnalysisExecution = {
   escalated: boolean;
   escalationReasons: string[];
   attempts: AnalysisAttemptResult[];
+  confidencePolicyVersion: string;
+  analysisEligibility: "scoreable" | "unscorable";
+  performanceScore: number | null;
+  humanReviewRequested: boolean;
 };
 
 export type BenchmarkModelResult =
@@ -130,8 +136,13 @@ export type AnalysisEngineObserver = {
   onAttempt?(attempt: AnalysisAttemptResult): Promise<void> | void;
 };
 
+export type OfficialAnalysisResume = {
+  attempts: AnalysisAttemptResult[];
+  escalationReasons: string[];
+};
+
 export interface AnalysisEngine {
-  runOfficial(input: AnalysisEngineInput, observer?: AnalysisEngineObserver): Promise<OfficialAnalysisExecution>;
+  runOfficial(input: AnalysisEngineInput, observer?: AnalysisEngineObserver, resume?: OfficialAnalysisResume): Promise<OfficialAnalysisExecution>;
   runBenchmark(input: AnalysisEngineInput, models: string[]): Promise<BenchmarkExecution>;
 }
 
@@ -156,22 +167,8 @@ function qualitySignals(output: AnalysisOutput, input: AnalysisEngineInput): Ana
   return {
     evidenceGroundingRate: output.evidence.length ? grounded / output.evidence.length : 0,
     dimensionCoverageRate: expectedDimensions.size ? covered / expectedDimensions.size : 1,
-    scoreDimensionDelta: Math.abs(output.overall_score - dimensionAverage),
+    scoreDimensionDelta: output.overall_score === null ? null : Math.abs(output.overall_score - dimensionAverage),
   };
-}
-
-function escalationReasons(
-  output: AnalysisOutput,
-  signals: AnalysisQualitySignals,
-  strategy: AnalysisStrategy,
-): string[] {
-  const reasons: string[] = [];
-  if (output.confidence < strategy.confidenceThreshold) reasons.push("low_confidence");
-  if (output.requires_human_review) reasons.push("human_review_requested");
-  if (signals.evidenceGroundingRate < 0.5) reasons.push("insufficient_grounding");
-  if (signals.dimensionCoverageRate < 1) reasons.push("incomplete_dimensions");
-  if (signals.scoreDimensionDelta > 15) reasons.push("inconsistent_score");
-  return reasons;
 }
 
 export function createAnalysisEngine(options: {
@@ -183,6 +180,13 @@ export function createAnalysisEngine(options: {
   if (!strategy.primaryModel.trim() || !strategy.escalationModel.trim()) throw new Error("analysis_strategy_models_required");
   if (strategy.confidenceThreshold < 0 || strategy.confidenceThreshold > 1) throw new Error("invalid_confidence_threshold");
   if (!Number.isInteger(strategy.maxTechnicalRetries) || strategy.maxTechnicalRetries < 0) throw new Error("invalid_technical_retry_limit");
+  const confidencePolicy = createConfidencePolicy({
+    version: strategy.confidencePolicyVersion ?? "insider-confidence-v2",
+    confidenceThreshold: strategy.confidenceThreshold,
+    minimumGroundingRate: 0.5,
+    requiredDimensionCoverageRate: 1,
+    maximumScoreDimensionDelta: 15,
+  });
 
   return {
     async runBenchmark(input, models) {
@@ -235,8 +239,7 @@ export function createAnalysisEngine(options: {
       }));
       return { purpose: "benchmark", results };
     },
-    async runOfficial(input, observer = {}) {
-      await observer.onPhase?.("analyzing_primary");
+    async runOfficial(input, observer = {}, resume) {
       const finishWithEscalation = async (
         attempts: AnalysisAttemptResult[],
         reasons: string[],
@@ -291,6 +294,12 @@ export function createAnalysisEngine(options: {
         }
         const escalationOutput = escalationParsed.data;
         const escalationSignals = qualitySignals(escalationOutput, input);
+        const escalationDecision = confidencePolicy.evaluate({
+          scoreability: escalationOutput.scoreability,
+          confidence: escalationOutput.confidence,
+          requiresHumanReview: escalationOutput.requires_human_review,
+          ...escalationSignals,
+        });
         const escalationAttempt: CompletedAnalysisAttempt = {
           ...escalationExecution,
           output: escalationOutput,
@@ -307,9 +316,16 @@ export function createAnalysisEngine(options: {
           escalated: true,
           escalationReasons: reasons,
           attempts: [...attempts, escalationAttempt],
+          confidencePolicyVersion: confidencePolicy.version,
+          analysisEligibility: escalationOutput.scoreability,
+          performanceScore: escalationDecision.performanceScore === null ? null : escalationOutput.overall_score,
+          humanReviewRequested: escalationOutput.requires_human_review,
         };
       };
 
+      if (resume) return finishWithEscalation(resume.attempts, resume.escalationReasons);
+
+      await observer.onPhase?.("analyzing_primary");
       const technicalAttempts: FailedAnalysisAttempt[] = [];
       let execution: ModelExecution;
       for (let retry = 0; ; retry += 1) {
@@ -338,7 +354,7 @@ export function createAnalysisEngine(options: {
           technicalAttempts.push(failedAttempt);
           await observer.onAttempt?.(failedAttempt);
           if (!error.retryable || retry >= strategy.maxTechnicalRetries) {
-            return finishWithEscalation(technicalAttempts, [`primary_${error.message}`]);
+            throw new AnalysisEngineError("primary_failed", technicalAttempts, []);
           }
         }
       }
@@ -365,7 +381,13 @@ export function createAnalysisEngine(options: {
       }
       const output = parsed.data;
       const signals = qualitySignals(output, input);
-      const reasons = escalationReasons(output, signals, strategy);
+      const decision = confidencePolicy.evaluate({
+        scoreability: output.scoreability,
+        confidence: output.confidence,
+        requiresHumanReview: output.requires_human_review,
+        ...signals,
+      });
+      const reasons = decision.escalationReasons;
       const primaryAttempt: AnalysisAttemptResult = {
         ...execution,
         output,
@@ -385,6 +407,10 @@ export function createAnalysisEngine(options: {
         escalated: false,
         escalationReasons: [],
         attempts: [...technicalAttempts, primaryAttempt],
+        confidencePolicyVersion: confidencePolicy.version,
+        analysisEligibility: output.scoreability,
+        performanceScore: decision.performanceScore === null ? null : output.overall_score,
+        humanReviewRequested: output.requires_human_review,
       };
     },
   };

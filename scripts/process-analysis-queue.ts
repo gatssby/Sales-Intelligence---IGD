@@ -1,91 +1,251 @@
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { AnalysisEngineError, createAnalysisEngine, createVercelAiGatewayModelGateway } from "@igd/ai";
-import { PostgresAuthRepository, PostgresIngestionRepository } from "@igd/db";
+import {
+  AnalysisEngineError,
+  createAnalysisEngine,
+  createConfidencePolicy,
+  createVercelAiGatewayModelGateway,
+  type AnalysisAttemptResult,
+} from "@igd/ai";
+import {
+  PostgresAuthRepository,
+  PostgresBudgetLedger,
+  PostgresIngestionRepository,
+  PostgresOfficialAnalysisLifecycle,
+  type AnalysisLifecycleStrategy,
+  type ClaimedAnalysisJob,
+} from "@igd/db";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
-const apply = process.argv.includes("--apply");
-const prepare = process.argv.includes("--prepare");
-const prepareOnly = process.argv.includes("--prepare-only");
-const limitArgument = process.argv.find((argument) => argument.startsWith("--limit="));
-const limit = Number(limitArgument?.split("=")[1] ?? "1");
-if (!Number.isInteger(limit) || limit < 1 || limit > 30) throw new Error("--limit must be an integer from 1 to 30");
 
-function loadStrategy() {
-  const primaryModel = process.env.AI_GATEWAY_PRIMARY_MODEL;
-  const escalationModel = process.env.AI_GATEWAY_ESCALATION_MODEL;
-  const confidenceThresholdRaw = process.env.AI_ANALYSIS_CONFIDENCE_THRESHOLD;
-  const confidenceThreshold = Number(confidenceThresholdRaw);
-  const maxTechnicalRetries = Number(process.env.AI_ANALYSIS_MAX_TECHNICAL_RETRIES ?? "1");
-  const version = process.env.AI_ANALYSIS_STRATEGY_VERSION;
-  if (!primaryModel || !escalationModel || !version || !confidenceThresholdRaw?.trim() || !Number.isFinite(confidenceThreshold)) {
-    throw new Error("AI_GATEWAY_PRIMARY_MODEL, AI_GATEWAY_ESCALATION_MODEL, AI_ANALYSIS_CONFIDENCE_THRESHOLD and AI_ANALYSIS_STRATEGY_VERSION are required");
-  }
-  return { version, primaryModel, escalationModel, confidenceThreshold, maxTechnicalRetries };
+const apply = process.argv.includes("--apply");
+const daemon = process.argv.includes("--daemon");
+const prepareOnly = process.argv.includes("--prepare-only");
+const numberArgument = (name: string, fallback: number) => Number(process.argv.find((argument) => argument.startsWith(`--${name}=`))?.split("=")[1] ?? fallback);
+const limit = numberArgument("limit", 1);
+const concurrency = numberArgument("concurrency", daemon ? 2 : 1);
+if (!Number.isInteger(limit) || limit < 1 || limit > 30) throw new Error("--limit must be an integer from 1 to 30");
+if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 3) throw new Error("--concurrency must be an integer from 1 to 3");
+
+const PRIMARY_MODEL = "openai/gpt-5.6-luna";
+const ESCALATION_MODEL = "openai/gpt-5.6-sol";
+const CONFIDENCE_POLICY_VERSION = "insider-confidence-v2";
+const BUDGET_ACCOUNT_ID = process.env.AI_BUDGET_ACCOUNT_ID ?? "sales-intelligence-igd";
+
+function numericEnvironment(name: string, fallback?: number): number {
+  const raw = process.env[name];
+  if ((!raw || !raw.trim()) && fallback === undefined) throw new Error(`${name} is required`);
+  const value = Number(raw?.trim() || fallback);
+  if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be a non-negative number`);
+  return value;
 }
 
+function loadStrategy(): { engine: {
+  version: string; confidencePolicyVersion: string; primaryModel: string; escalationModel: string;
+  confidenceThreshold: number; maxTechnicalRetries: number;
+}; lifecycle: AnalysisLifecycleStrategy } {
+  const primaryModel = process.env.AI_GATEWAY_PRIMARY_MODEL ?? PRIMARY_MODEL;
+  const escalationModel = process.env.AI_GATEWAY_ESCALATION_MODEL ?? ESCALATION_MODEL;
+  if (primaryModel !== PRIMARY_MODEL || escalationModel !== ESCALATION_MODEL) throw new Error("production_model_selection_is_fixed");
+  const confidenceThreshold = numericEnvironment("AI_ANALYSIS_CONFIDENCE_THRESHOLD", 0.5);
+  const maxTechnicalRetries = numericEnvironment("AI_ANALYSIS_MAX_TECHNICAL_RETRIES", 1);
+  const version = process.env.AI_ANALYSIS_STRATEGY_VERSION ?? "insider-cost-quality-v1";
+  const engine = { version, confidencePolicyVersion: CONFIDENCE_POLICY_VERSION, primaryModel, escalationModel, confidenceThreshold, maxTechnicalRetries };
+  return {
+    engine,
+    lifecycle: {
+      strategyVersion: version,
+      confidencePolicyVersion: CONFIDENCE_POLICY_VERSION,
+      primaryModel,
+      escalationModel,
+      rubricVersion: process.env.RUBRIC_VERSION ?? "insider-production-v1",
+      promptVersion: process.env.PROMPT_VERSION ?? "call-analysis-v1",
+      schemaVersion: process.env.SCHEMA_VERSION ?? "analysis-output-v1",
+      confidenceThreshold,
+    },
+  };
+}
+
+class BudgetCeilingError extends Error {}
+class ReceiptReconciliationError extends Error {}
+
 const strategy = loadStrategy();
-const staleMinutes = Number(process.env.AI_ANALYSIS_STALE_AFTER_MINUTES ?? "30");
 const repository = new PostgresIngestionRepository(databaseUrl);
-try {
-  if (prepareOnly) {
-    const prepared = await repository.prepareOfficialBatch(strategy, limit);
-    console.log(JSON.stringify({ mode: "prepare_only", limit, prepared, strategy }));
-  } else if (!apply) {
-    const rows = await repository.sql<{ queued: number; failed: number }[]>`
-      select count(*) filter (where ar.status = 'queued')::integer as queued,
-        count(*) filter (where ar.status = 'failed')::integer as failed
-      from analysis_runs ar
-      where ar.status in ('queued', 'failed')
-        and not exists (select 1 from analysis_runs official where official.call_id = ar.call_id and official.status = 'completed' and official.is_current = true)
-    `;
-    console.log(JSON.stringify({ mode: "dry_run", ...rows[0], requestedLimit: limit, strategy }));
-  } else {
-    await new PostgresAuthRepository(repository.sql).requireSpendActor(
-      process.env.AUTH_ACTOR_EMAIL ?? "",
-      "analysis.process.cli",
-    );
-    const recovery = await repository.recoverStaleAnalysisRuns(staleMinutes);
-    const prepared = prepare ? await repository.prepareOfficialBatch(strategy, limit) : null;
-    const gateway = createVercelAiGatewayModelGateway();
-    let completed = 0;
-    let failed = 0;
-    let skipped = 0;
-    for (let index = 0; index < limit; index += 1) {
-      const job = await repository.claimNextAnalysis();
-      if (!job) { skipped += limit - index; break; }
-      try {
-        const reservationIds: string[] = [];
-        if (!/^[a-z0-9._-]+$/i.test(job.rubricVersion)) throw new Error("invalid_rubric_version");
-        const rubricPath = path.resolve(process.env.ANALYSIS_RUBRIC_FILE ?? `packages/ai/rubrics/${job.rubricVersion}.md`);
-        const rubricConfigPath = path.resolve(process.env.ANALYSIS_RUBRIC_CONFIG ?? "config/products/insider/rubric.v0.json");
-        const [rubric, rubricConfigRaw] = await Promise.all([readFile(rubricPath, "utf8"), readFile(rubricConfigPath, "utf8")]);
-        const rubricConfig = JSON.parse(rubricConfigRaw) as { dimensions: Array<{ key: string }> };
-        const execution = await createAnalysisEngine({ gateway, strategy: job.strategy }).runOfficial({
-          transcript: job.transcript,
-          rubric: `${rubric}\n\nConfiguração versionada:\n${rubricConfigRaw}`,
-          promptVersion: job.promptVersion,
-          expectedDimensionKeys: rubricConfig.dimensions.map((dimension) => dimension.key),
-        }, {
-          onPhase: (phase) => repository.updateAnalysisPhase(job.runId, phase),
-          onRequest: async (request) => { reservationIds.push(await repository.reserveAnalysisRequest(job.runId, request)); },
-          onAttempt: async (attempt) => {
-            const reservationId = reservationIds.shift();
-            if (!reservationId) throw new Error("analysis_request_reservation_missing");
-            await repository.settleAnalysisRequest(job.runId, reservationId, attempt);
-          },
+const lifecycle = new PostgresOfficialAnalysisLifecycle(repository.sql);
+const ledger = new PostgresBudgetLedger(repository.sql);
+const gateway = apply ? createVercelAiGatewayModelGateway() : null;
+const policy = createConfidencePolicy({
+  version: CONFIDENCE_POLICY_VERSION,
+  confidenceThreshold: strategy.engine.confidenceThreshold,
+  minimumGroundingRate: 0.5,
+  requiredDimensionCoverageRate: 1,
+  maximumScoreDimensionDelta: 15,
+});
+const leaseSeconds = numericEnvironment("AI_ANALYSIS_LEASE_SECONDS", 300);
+const retryDelaySeconds = numericEnvironment("AI_ANALYSIS_RETRY_DELAY_SECONDS", 60);
+const primaryReservationUsd = numericEnvironment("AI_BUDGET_PRIMARY_RESERVATION_USD", 0.25);
+const escalationReservationUsd = numericEnvironment("AI_BUDGET_ESCALATION_RESERVATION_USD", 0.75);
+const releaseSha = process.env.RELEASE_SHA ?? null;
+let stopRequested = false;
+let budgetPaused = false;
+
+process.on("SIGTERM", () => { stopRequested = true; });
+process.on("SIGINT", () => { stopRequested = true; });
+
+function policyFor(attempt: Extract<AnalysisAttemptResult, { status: "completed" }>) {
+  return policy.evaluate({
+    scoreability: attempt.output.scoreability,
+    confidence: attempt.output.confidence,
+    requiresHumanReview: attempt.output.requires_human_review,
+    ...attempt.qualitySignals,
+  });
+}
+
+async function processClaim(job: ClaimedAnalysisJob): Promise<"completed" | "failed" | "budget" | "reconciliation"> {
+  const rubricPath = path.resolve(process.env.ANALYSIS_RUBRIC_FILE ?? `packages/ai/rubrics/${strategy.lifecycle.rubricVersion}.md`);
+  const promptPath = path.resolve(process.env.ANALYSIS_PROMPT_FILE ?? `packages/ai/prompts/${strategy.lifecycle.promptVersion}.md`);
+  const rubricConfigPath = path.resolve(process.env.ANALYSIS_RUBRIC_CONFIG ?? "config/products/insider/rubric.v0.json");
+  const [rubric, prompt, rubricConfigRaw] = await Promise.all([readFile(rubricPath, "utf8"), readFile(promptPath, "utf8"), readFile(rubricConfigPath, "utf8")]);
+  const rubricConfig = JSON.parse(rubricConfigRaw) as { dimensions: Array<{ key: string }> };
+  const reservations: Record<"primary" | "escalation", string[]> = { primary: [], escalation: [] };
+  const resume = job.stage === "escalation" ? await lifecycle.getPrimaryResume(job.runId) : null;
+  if (job.stage === "escalation" && !resume) throw new Error("escalation_resume_missing_primary_attempt");
+
+  try {
+    const execution = await createAnalysisEngine({ gateway: gateway!, strategy: strategy.engine }).runOfficial({
+      transcript: job.transcript,
+      rubric: `${rubric}\n\nContrato do prompt:\n${prompt}\n\nConfiguração versionada:\n${rubricConfigRaw}`,
+      promptVersion: strategy.lifecycle.promptVersion,
+      expectedDimensionKeys: rubricConfig.dimensions.map((dimension) => dimension.key),
+    }, {
+      async onPhase(phase) {
+        if (phase === "analyzing_primary") await lifecycle.updateStage({ jobId: job.jobId, runId: job.runId, stage: "primary", phase });
+        if (phase === "escalation_required") await lifecycle.updateStage({ jobId: job.jobId, runId: job.runId, stage: "escalation", phase });
+        if (phase === "analyzing_escalation") await lifecycle.updateStage({ jobId: job.jobId, runId: job.runId, stage: "escalation", phase });
+      },
+      async onRequest(request) {
+        const estimate = request.role === "primary" ? primaryReservationUsd : escalationReservationUsd;
+        const reservation = await ledger.reserve({
+          accountId: BUDGET_ACCOUNT_ID,
+          ownerType: "official",
+          ownerId: job.runId,
+          requestKey: `${request.role}:${randomUUID()}`,
+          role: request.role,
+          model: request.model,
+          estimatedCostUsd: estimate,
         });
-        await repository.completeAnalysis(job.runId, execution);
-        completed += 1;
-      } catch (error) {
-        const errorCode = error instanceof AnalysisEngineError ? error.code : "analysis_worker_error";
-        await repository.failAnalysis(job.runId, errorCode);
-        failed += 1;
-      }
+        if (!reservation.accepted) throw new BudgetCeilingError(reservation.reason);
+        await ledger.markRequestStarted(reservation.reservationId);
+        reservations[request.role].push(reservation.reservationId);
+      },
+      async onAttempt(attempt) {
+        const reservationId = reservations[attempt.role].shift();
+        if (!reservationId) throw new Error("budget_reservation_missing_for_attempt");
+        const decision = attempt.status === "completed" && attempt.role === "primary" ? policyFor(attempt) : null;
+        const recorded = await lifecycle.recordAttempt({
+          jobId: job.jobId,
+          runId: job.runId,
+          budgetReservationId: reservationId,
+          attempt,
+          finalCandidate: attempt.status === "completed" && (attempt.role === "escalation" || decision?.decision !== "escalate"),
+          confidencePolicyVersion: CONFIDENCE_POLICY_VERSION,
+          escalationReasons: decision?.escalationReasons,
+        });
+        if (recorded.reconciliationRequired) throw new ReceiptReconciliationError("gateway_actual_cost_missing");
+      },
+    }, resume ? { attempts: [resume.attempt], escalationReasons: resume.escalationReasons } : undefined);
+    await lifecycle.finalize({ jobId: job.jobId, runId: job.runId, execution });
+    return "completed";
+  } catch (error) {
+    if (error instanceof BudgetCeilingError) {
+      await lifecycle.pauseForBudget({ jobId: job.jobId, runId: job.runId });
+      return "budget";
     }
-    console.log(JSON.stringify({ mode: "apply", limit, recovery, prepared, completed, failed, skipped }));
+    if (error instanceof ReceiptReconciliationError) return "reconciliation";
+    const errorCode = error instanceof AnalysisEngineError ? error.code : "analysis_worker_error";
+    await lifecycle.retryLater({
+      jobId: job.jobId,
+      runId: job.runId,
+      errorCode,
+      delaySeconds: retryDelaySeconds,
+      stage: error instanceof AnalysisEngineError && error.code === "escalation_failed" ? "escalation" : "primary",
+    });
+    return "failed";
   }
+}
+
+async function main(): Promise<void> {
+  const synced = await lifecycle.syncCatalog();
+  if (prepareOnly) {
+    console.log(JSON.stringify({ mode: "prepare_only", synced }));
+    return;
+  }
+  if (!apply) {
+    const rows = await repository.sql<{ ready: number; awaiting_transcript: number; processing: number; paused_budget: number }[]>`
+      select count(*) filter (where status in ('ready','retry_wait'))::integer ready,
+        count(*) filter (where status='awaiting_transcript')::integer awaiting_transcript,
+        count(*) filter (where status='claimed')::integer processing,
+        count(*) filter (where status='paused_budget')::integer paused_budget
+      from analysis_jobs
+    `;
+    console.log(JSON.stringify({ mode: "dry_run", ...rows[0], requestedLimit: limit, concurrency, strategy }));
+    return;
+  }
+
+  await new PostgresAuthRepository(repository.sql).requireSpendActor(process.env.AUTH_ACTOR_EMAIL ?? "", "analysis.process.cli");
+  const baseline = numericEnvironment("AI_BUDGET_EXTERNAL_SPEND_BASELINE_USD");
+  await ledger.configureAccount({
+    accountId: BUDGET_ACCOUNT_ID,
+    limitUsd: numericEnvironment("AI_BUDGET_LIMIT_USD", 15),
+    safetyReserveUsd: numericEnvironment("AI_BUDGET_SAFETY_RESERVE_USD", 3),
+    externalSpendBaselineUsd: baseline,
+  });
+  const staleBefore = new Date(Date.now() - leaseSeconds * 1_000);
+  const reservationRecovery = await ledger.recoverStaleReservations(BUDGET_ACCOUNT_ID, staleBefore);
+  const lifecycleRecovery = await lifecycle.recoverExpiredClaims(new Date());
+  const workerGroupId = `analysis-${process.pid}-${randomUUID().slice(0, 8)}`;
+  await lifecycle.heartbeat({ workerId: workerGroupId, releaseSha, concurrency, status: "starting" });
+  const counters = { claimed: 0, completed: 0, failed: 0, reconciliation: 0 };
+  const heartbeatTimer = setInterval(() => {
+    void lifecycle.heartbeat({ workerId: workerGroupId, releaseSha, concurrency, status: budgetPaused ? "paused_budget" : stopRequested ? "stopping" : "running" });
+  }, 15_000);
+
+  const slot = async (slotIndex: number) => {
+    while (!stopRequested && !budgetPaused) {
+      if (!daemon && counters.claimed >= limit) return;
+      const claimNumber = counters.claimed;
+      counters.claimed += 1;
+      if (!daemon && claimNumber >= limit) return;
+      const job = await lifecycle.claimNext({ workerId: `${workerGroupId}:${slotIndex}`, leaseSeconds, strategy: strategy.lifecycle });
+      if (!job) {
+        counters.claimed -= 1;
+        if (!daemon) return;
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        continue;
+      }
+      const result = await processClaim(job);
+      if (result === "completed") counters.completed += 1;
+      if (result === "failed") counters.failed += 1;
+      if (result === "reconciliation") { counters.reconciliation += 1; stopRequested = true; }
+      if (result === "budget") budgetPaused = true;
+    }
+  };
+
+  try {
+    await lifecycle.heartbeat({ workerId: workerGroupId, releaseSha, concurrency, status: "running" });
+    await Promise.all(Array.from({ length: concurrency }, (_, index) => slot(index + 1)));
+  } finally {
+    clearInterval(heartbeatTimer);
+    await lifecycle.heartbeat({ workerId: workerGroupId, releaseSha, concurrency, status: budgetPaused ? "paused_budget" : "stopped" });
+  }
+  const budget = await ledger.snapshot(BUDGET_ACCOUNT_ID);
+  console.log(JSON.stringify({ mode: daemon ? "daemon" : "apply", synced, reservationRecovery, lifecycleRecovery, ...counters, budget }));
+}
+
+try {
+  await main();
 } finally {
   await repository.close();
 }
