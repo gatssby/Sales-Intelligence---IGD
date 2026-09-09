@@ -1,7 +1,8 @@
-import { getDashboardData } from "@/lib/data";
+import { getDashboardData, getProgressData } from "@/lib/data";
 import { hasCapability } from "@igd/auth";
 import { requireUser } from "@/lib/auth/session";
 import { logoutAction } from "@/app/logout/actions";
+import { LiveProgress } from "@/app/components/LiveProgress";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,7 @@ const performanceStatus = (score: number) => {
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const data = await getDashboardData(user);
+  const [data, progress] = await Promise.all([getDashboardData(user), getProgressData(user)]);
   const call = data.call;
 
   if (!call) {
@@ -50,6 +51,7 @@ export default async function DashboardPage() {
   }
 
   const analysis = call.analysis;
+  const displayScore = call.score ?? 0;
   const dimensions = analysis.dimensions;
   const summary = data.summary!;
   const strongest = [...dimensions].sort((a, b) => b.score - a.score)[0];
@@ -67,7 +69,7 @@ export default async function DashboardPage() {
         <nav>
           <a className="active" href="#executivo"><span>⌁</span> Visão executiva</a>
           <a href="#equipe"><span>◎</span> Equipe</a>
-          <a href="#call"><span>◉</span> Calls</a>
+          <a href="/calls"><span>◉</span> Calls</a>
           <a href="#coaching"><span>↗</span> Coaching</a>
           {hasCapability(user, "users:manage") ? <a href="/admin/users"><span>⚙</span> Usuários e acessos</a> : null}
         </nav>
@@ -97,15 +99,17 @@ export default async function DashboardPage() {
             <h2>Análises oficiais</h2>
             <p>Resultados reais persistidos no PostgreSQL, limitados ao escopo autorizado da conta.</p>
           </div>
-          <div className="hero-orbit"><span>{call.score}</span><small>score geral</small></div>
+          <div className="hero-orbit"><span>{displayScore}</span><small>score geral</small></div>
         </section>
 
         <section className="metrics-grid">
           <article className="metric-card"><p>Calls analisadas</p><strong>{summary.analyzedCalls}</strong><span className="metric-note positive">{summary.sellerCount} vendedores · n = {summary.analyzedCalls}</span></article>
-          <article className="metric-card"><p>Score médio</p><strong>{summary.averageScore}<small>/100</small></strong><span className="metric-note">Rubrica v0 · n = {summary.analyzedCalls}</span></article>
+          <article className="metric-card"><p>Score médio</p><strong>{summary.averageScore}<small>/100</small></strong><span className="metric-note">{call.rubricVersion} · n = {summary.analyzedCalls}</span></article>
           <article className="metric-card"><p>Cobertura IA</p><strong>{Math.round(summary.analyzedCalls / Math.max(summary.transcriptCalls, 1) * 100)}<small>%</small></strong><span className="metric-note positive">{summary.analyzedCalls} de {summary.transcriptCalls} calls com transcript</span></article>
           <article className="metric-card"><p>Oportunidade mais comum</p><strong className="word-stat">{summary.topOpportunityLabel}</strong><span className="metric-note warning">Distribuição real da amostra</span></article>
         </section>
+
+        <LiveProgress initialData={progress} />
 
         <section className="panel team-panel" id="equipe">
           <div className="team-heading">
@@ -117,7 +121,7 @@ export default async function DashboardPage() {
             <div className="team-average"><span>{summary.averageScore}</span><small>média real · n = {summary.analyzedCalls}</small></div>
           </div>
 
-          <div className="demo-disclosure">
+          <div className="live-disclosure">
             Todos os vendedores e scores abaixo vêm das análises oficiais atuais no PostgreSQL. Amostras pequenas exibem seu <strong>n</strong>.
           </div>
 
@@ -171,7 +175,7 @@ export default async function DashboardPage() {
               <span className="status-pill">n = {currentSeller?.calls ?? 1}</span>
             </div>
             <div className="seller-summary">
-              <div className={`score-ring ${scoreTone(call.score)}`}><strong>{call.score}</strong><span>de 100</span></div>
+              <div className={`score-ring ${scoreTone(displayScore)}`}><strong>{displayScore}</strong><span>de 100</span></div>
               <div className="seller-insight">
                 <span className="mini-label">RESUMO</span>
                 <p>{analysis.executive_summary}</p>
@@ -227,7 +231,7 @@ export default async function DashboardPage() {
               <p className="call-meta">{call.product.toUpperCase()} · {formatDate(call.startedAt)} · {formatDuration(call.durationSeconds)}</p>
               <a className="text-link" href={`/calls/${call.id}`}>Abrir detalhe protegido</a>
             </div>
-            <div className="call-score"><span>{call.score}</span><small>score</small></div>
+            <div className="call-score"><span>{displayScore}</span><small>score</small></div>
           </div>
 
           <div className="verdict-grid">
@@ -271,11 +275,11 @@ export default async function DashboardPage() {
               <div><dt>Prompt</dt><dd>{call.promptVersion}</dd></div>
               <div><dt>Analisado em</dt><dd>{formatDate(call.analyzedAt)}</dd></div>
             </dl>
-            <details><summary>Ver transcrição integral</summary><pre>{call.transcript}</pre></details>
+            <a className="text-link" href={`/calls/${call.id}`}>Abrir transcript sob demanda</a>
           </article>
         </section>
 
-        <footer>IGD Sales Intelligence · Dados oficiais atuais · Rubrica demonstrativa ainda não homologada como KPI gerencial.</footer>
+        <footer>IGD Sales Intelligence · Dados oficiais atuais · Resultados versionados e auditáveis.</footer>
       </div>
     </main>
   );

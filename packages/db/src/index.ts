@@ -57,9 +57,9 @@ export class PostgresIngestionRepository implements IngestionRepository {
     this.options = {
       provider: options.provider ?? process.env.AI_PROVIDER ?? "vercel-ai-gateway",
       model: options.model ?? process.env.AI_GATEWAY_MODEL ?? process.env.AI_MODEL ?? "openai/gpt-5.4",
-      rubricVersion: options.rubricVersion ?? process.env.RUBRIC_VERSION ?? "insider-demo-v0",
-      promptVersion: options.promptVersion ?? process.env.PROMPT_VERSION ?? "call-analysis-v0",
-      schemaVersion: options.schemaVersion ?? process.env.SCHEMA_VERSION ?? "analysis-output-v0",
+      rubricVersion: options.rubricVersion ?? process.env.RUBRIC_VERSION ?? "insider-production-v1",
+      promptVersion: options.promptVersion ?? process.env.PROMPT_VERSION ?? "call-analysis-v1",
+      schemaVersion: options.schemaVersion ?? process.env.SCHEMA_VERSION ?? "analysis-output-v1",
     };
   }
 

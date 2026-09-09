@@ -180,8 +180,8 @@ export class PostgresOfficialAnalysisLifecycle {
     finalCandidate: boolean; confidencePolicyVersion: string; escalationReasons?: string[];
   }): Promise<{ reconciliationRequired: boolean }> {
     return this.sql.begin(async (tx) => {
-      const reservations = await tx<{ reserved_usd: string | number }[]>`
-        select reserved_usd from ai_cost_reservations
+      const reservations = await tx<{ reserved_usd: string | number; budget_account_id: string }[]>`
+        select reserved_usd,budget_account_id from ai_cost_reservations
         where id=${input.budgetReservationId} and owner_type='official' and owner_id=${input.runId} and status='request_started'
         for update
       `;
@@ -193,6 +193,16 @@ export class PostgresOfficialAnalysisLifecycle {
           actual_usd=${actual}, cost_source=${input.attempt.costSource}, settled_at=${outcomeUnknown ? null : new Date()}, updated_at=now()
         where id=${input.budgetReservationId}
       `;
+      if (!outcomeUnknown) {
+        await tx`
+          update ai_budget_accounts a set paused=true, pause_reason='actual_cost_exceeded_ceiling', updated_at=now()
+          where a.id=${reservations[0].budget_account_id}
+            and a.external_spend_baseline_usd +
+              coalesce((select sum(r.actual_usd) from ai_cost_reservations r where r.budget_account_id=a.id and r.status='settled'),0) +
+              coalesce((select sum(r.reserved_usd) from ai_cost_reservations r where r.budget_account_id=a.id and r.status in ('reserved','request_started','outcome_unknown')),0)
+              > a.limit_usd-a.safety_reserve_usd
+        `;
+      }
       const offsets = await tx<{ next_attempt: number }[]>`
         select coalesce(max(attempt_number),0)::integer+1 next_attempt from analysis_attempts where analysis_run_id=${input.runId}
       `;

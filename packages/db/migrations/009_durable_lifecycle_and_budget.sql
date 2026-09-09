@@ -34,6 +34,8 @@ create index if not exists analysis_jobs_claim_idx
   on analysis_jobs (status, retry_at, updated_at);
 create index if not exists calls_seller_recency_idx
   on calls (seller_id, started_at desc nulls last, created_at desc);
+create index if not exists calls_catalog_recency_idx
+  on calls (started_at desc nulls last, created_at desc, id desc);
 
 insert into analysis_jobs (call_id, status, stage, last_error_code)
 select c.id,

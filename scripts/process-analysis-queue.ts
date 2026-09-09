@@ -106,7 +106,7 @@ function policyFor(attempt: Extract<AnalysisAttemptResult, { status: "completed"
 async function processClaim(job: ClaimedAnalysisJob): Promise<"completed" | "failed" | "budget" | "reconciliation"> {
   const rubricPath = path.resolve(process.env.ANALYSIS_RUBRIC_FILE ?? `packages/ai/rubrics/${strategy.lifecycle.rubricVersion}.md`);
   const promptPath = path.resolve(process.env.ANALYSIS_PROMPT_FILE ?? `packages/ai/prompts/${strategy.lifecycle.promptVersion}.md`);
-  const rubricConfigPath = path.resolve(process.env.ANALYSIS_RUBRIC_CONFIG ?? "config/products/insider/rubric.v0.json");
+  const rubricConfigPath = path.resolve(process.env.ANALYSIS_RUBRIC_CONFIG ?? "config/products/insider/rubric.v1.json");
   const [rubric, prompt, rubricConfigRaw] = await Promise.all([readFile(rubricPath, "utf8"), readFile(promptPath, "utf8"), readFile(rubricConfigPath, "utf8")]);
   const rubricConfig = JSON.parse(rubricConfigRaw) as { dimensions: Array<{ key: string }> };
   const reservations: Record<"primary" | "escalation", string[]> = { primary: [], escalation: [] };

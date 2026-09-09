@@ -15,10 +15,7 @@ export const AnalysisEvidenceSchema = z.object({
   interpretation: z.string(),
 });
 
-export const AnalysisOutputSchema = z.object({
-  scoreability: z.enum(["scoreable", "unscorable"]),
-  unscorable_reason: z.string().min(1).nullable(),
-  overall_score: z.number().min(0).max(100).nullable(),
+const commonOutputShape = {
   opportunity_quality: z.enum(["high", "medium", "low", "unqualified", "unknown"]),
   opportunity_quality_label: z.string(),
   call_outcome: z.enum(["sold", "not_sold", "disqualified", "follow_up", "unknown"]),
@@ -32,6 +29,13 @@ export const AnalysisOutputSchema = z.object({
   dimensions: z.array(AnalysisDimensionSchema),
   evidence: z.array(AnalysisEvidenceSchema),
   requires_human_review: z.boolean(),
+};
+
+export const AnalysisOutputSchema = z.object({
+  scoreability: z.enum(["scoreable", "unscorable"]),
+  unscorable_reason: z.string().min(1).nullable(),
+  overall_score: z.number().min(0).max(100).nullable(),
+  ...commonOutputShape,
 }).superRefine((output, context) => {
   if (output.scoreability === "scoreable" && output.overall_score === null) {
     context.addIssue({ code: "custom", path: ["overall_score"], message: "scoreable_analysis_requires_score" });
@@ -46,5 +50,16 @@ export const AnalysisOutputSchema = z.object({
     context.addIssue({ code: "custom", path: ["unscorable_reason"], message: "scoreable_analysis_must_not_have_unscorable_reason" });
   }
 });
+
+const LegacyAnalysisOutputSchema = z.object({
+  overall_score: z.number().min(0).max(100),
+  ...commonOutputShape,
+}).transform((output) => ({
+  ...output,
+  scoreability: "scoreable" as const,
+  unscorable_reason: null,
+}));
+
+export const StoredAnalysisOutputSchema = z.union([AnalysisOutputSchema, LegacyAnalysisOutputSchema]);
 
 export type AnalysisOutput = z.infer<typeof AnalysisOutputSchema>;

@@ -138,6 +138,11 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
   await t.test("Admin reads all data and manages accounts", async () => {
     assert.equal((await access.getMetrics(admin)).analyzed_calls, 3);
     assert.equal((await auth.listUsers(admin)).length, 4);
+    const catalog = await access.listCallCatalog(admin, { page: 1, pageSize: 2 });
+    assert.equal(catalog.total, 3);
+    assert.equal(catalog.rows.length, 2);
+    assert.equal("normalized_text" in catalog.rows[0], false, "catalog must not load transcripts");
+    assert.equal((await access.getBacklogProgress(admin)).analyzed, 3);
   });
 
   await t.test("Leader reads only assigned teams, including aggregates and direct IDs", async () => {
@@ -145,6 +150,8 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
     assert.equal((await access.getMetrics(leader)).analyzed_calls, 1);
     assert.equal((await access.getMetrics(leader)).average_score, "80.00");
     assert.equal(await access.getCallById(leader, callIds.beta), null, "URL/ID tampering must not return another team");
+    assert.equal((await access.listCallCatalog(leader, { page: 1, pageSize: 50 })).total, 1);
+    assert.equal(await access.getCallTranscript(leader, callIds.beta), null, "transcript lazy path applies the same scope");
   });
 
   await t.test("Supervisor reads all teams of assigned products and no other product", async () => {

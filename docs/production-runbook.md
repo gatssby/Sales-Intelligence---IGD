@@ -30,7 +30,7 @@ ssh oracle-vps 'sudo cat /root/sales-igd-basic-auth.txt'
 
 Do not paste this credential into the repository, issue tracker or deployment logs. The plaintext handoff file is `root:root 600`; nginx reads only the password hash from a separate `root:www-data 640` file.
 
-## Deploy after merge to main
+## Deploy an immutable validated ref
 
 From a trusted local checkout:
 
@@ -40,11 +40,26 @@ npm run deploy:production
 
 The command fetches GitHub, resolves `origin/main` to an immutable commit, archives only tracked files, uploads the release and rebuilds only the web service. It does not run migrations, seed data, recreate PostgreSQL or merge branches.
 
-To deploy an explicitly approved ref before merge:
+To deploy an explicitly approved branch without merging `main`:
 
 ```bash
-./scripts/deploy-production.sh feat/demo-vertical-slice
+./scripts/deploy-production.sh origin/feat/source-agnostic-ingestion
 ```
+
+The installer builds both `web` and `worker`, but starts only `web`. Apply additive migrations and reconcile `AI_BUDGET_EXTERNAL_SPEND_BASELINE_USD` from Vercel before any paid run. Start a bounded pilot first:
+
+```bash
+ssh oracle-vps 'cd /opt/sales-intelligence && sudo docker compose run --rm worker node --import tsx scripts/migrate.ts'
+ssh oracle-vps 'cd /opt/sales-intelligence && sudo docker compose run --rm worker node --import tsx scripts/process-analysis-queue.ts --apply --limit=10 --concurrency=2'
+```
+
+Only after the 10-call gate is healthy may the durable worker be started:
+
+```bash
+ssh oracle-vps 'cd /opt/sales-intelligence && sudo SALES_RELEASE_SHA=$(readlink current | sed "s#.*/##") docker compose up -d --no-deps worker'
+```
+
+The worker uses PostgreSQL leases, heartbeat rows and global budget reservations. A budget pause is durable and is not cleared by restart.
 
 ## Checks
 
