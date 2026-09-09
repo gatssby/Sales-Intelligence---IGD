@@ -8,7 +8,13 @@ deploy_root="/opt/sales-intelligence"
 
 cd "${repo_root}"
 
-git fetch origin --prune
+if [[ "${deploy_ref}" == origin/* ]]; then
+  deploy_branch="${deploy_ref#origin/}"
+  git check-ref-format --branch "${deploy_branch}" >/dev/null
+  git fetch origin "refs/heads/${deploy_branch}:refs/remotes/origin/${deploy_branch}"
+else
+  git fetch origin --prune
+fi
 release_sha="$(git rev-parse "${deploy_ref}^{commit}")"
 if [[ ! "${release_sha}" =~ ^[0-9a-f]{40}$ ]]; then
   echo "Could not resolve a full commit for ${deploy_ref}." >&2
