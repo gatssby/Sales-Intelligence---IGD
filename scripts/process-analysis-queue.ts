@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { AnalysisOutputSchema, createVercelAiGatewayAnalyzer, getVercelAiGatewayModelPricing } from "@igd/ai";
-import { PostgresIngestionRepository } from "@igd/db";
+import { PostgresAuthRepository, PostgresIngestionRepository } from "@igd/db";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -28,6 +28,10 @@ try {
     `;
     console.log(JSON.stringify({ mode: "dry_run", eligibleQueuedRuns: rows[0].queued, requestedLimit: limit }));
   } else {
+    await new PostgresAuthRepository(repository.sql).requireSpendActor(
+      process.env.AUTH_ACTOR_EMAIL ?? "",
+      "analysis.process.cli",
+    );
     let completed = 0;
     let failed = 0;
     let globalBlock: string | null = null;

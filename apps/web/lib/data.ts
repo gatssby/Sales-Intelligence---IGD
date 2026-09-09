@@ -1,10 +1,13 @@
-import postgres from "postgres";
 import { AnalysisOutputSchema, type AnalysisOutput } from "@igd/ai";
+import type { AuthorizationContext } from "@igd/auth";
+import { ScopedSalesRepository, type ScopedCallRow } from "@igd/db";
+import { getSql } from "@/lib/database";
 
 export type DashboardCall = {
   id: string;
   customerName: string | null;
   sellerName: string;
+  teamName: string | null;
   product: string;
   startedAt: string | null;
   durationSeconds: number | null;
@@ -18,89 +21,62 @@ export type DashboardCall = {
 };
 
 export type DashboardData = {
-  source: "postgres" | "preview";
   call: DashboardCall | null;
+  recentCalls: Array<Pick<DashboardCall, "id" | "customerName" | "sellerName" | "teamName" | "product" | "score" | "startedAt">>;
+  metrics: {
+    analyzedCalls: number;
+    sellerCount: number;
+    teamCount: number;
+    productCount: number;
+    averageScore: number | null;
+  };
 };
 
-const previewData: DashboardData = { source: "preview", call: null };
+function mapCall(row: ScopedCallRow): DashboardCall {
+  return {
+    id: row.id,
+    customerName: row.customer_name,
+    sellerName: row.seller_name,
+    teamName: row.team_name,
+    product: row.product_key,
+    startedAt: row.started_at?.toISOString() ?? null,
+    durationSeconds: row.duration_seconds,
+    transcript: row.normalized_text,
+    score: Number(row.score),
+    analysis: AnalysisOutputSchema.parse(row.result_json),
+    rubricVersion: row.rubric_version,
+    promptVersion: row.prompt_version,
+    model: row.model,
+    analyzedAt: row.analyzed_at.toISOString(),
+  };
+}
 
-export async function getDashboardData(): Promise<DashboardData> {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) return previewData;
+export async function getDashboardData(context: AuthorizationContext): Promise<DashboardData> {
+  const repository = new ScopedSalesRepository(getSql());
+  const [metrics, rows] = await Promise.all([repository.getMetrics(context), repository.listCalls(context, 20)]);
+  const calls = rows.map(mapCall);
+  return {
+    call: calls[0] ?? null,
+    recentCalls: calls.map(({ id, customerName, sellerName, teamName, product, score, startedAt }) => ({
+      id,
+      customerName,
+      sellerName,
+      teamName,
+      product,
+      score,
+      startedAt,
+    })),
+    metrics: {
+      analyzedCalls: metrics.analyzed_calls,
+      sellerCount: metrics.seller_count,
+      teamCount: metrics.team_count,
+      productCount: metrics.product_count,
+      averageScore: metrics.average_score === null ? null : Number(metrics.average_score),
+    },
+  };
+}
 
-  const sql = postgres(databaseUrl, {
-    max: 1,
-    connect_timeout: 5,
-    idle_timeout: 5,
-    ssl: process.env.DATABASE_SSL === "require" ? "require" : false,
-  });
-
-  try {
-    const rows = await sql<
-      Array<{
-        id: string;
-        customer_name: string | null;
-        seller_name: string;
-        product_key: string;
-        started_at: Date | null;
-        duration_seconds: number | null;
-        normalized_text: string;
-        score: string | number;
-        result_json: unknown;
-        rubric_version: string;
-        prompt_version: string;
-        model: string;
-        analyzed_at: Date;
-      }>
-    >`
-      select
-        c.id,
-        c.customer_name,
-        s.display_name as seller_name,
-        c.product_key,
-        c.started_at,
-        c.duration_seconds,
-        t.normalized_text,
-        ar.score,
-        ar.result_json,
-        ar.rubric_version,
-        ar.prompt_version,
-        ar.model,
-        coalesce(ar.finished_at, ar.created_at) as analyzed_at
-      from analysis_runs ar
-      join calls c on c.id = ar.call_id
-      join sellers s on s.id = c.seller_id
-      join transcripts t on t.id = ar.transcript_id
-      where ar.status = 'completed' and ar.is_current = true
-      order by coalesce(ar.finished_at, ar.created_at) desc
-      limit 1
-    `;
-
-    const row = rows[0];
-    if (!row) return previewData;
-
-    return {
-      source: "postgres",
-      call: {
-        id: row.id,
-        customerName: row.customer_name,
-        sellerName: row.seller_name,
-        product: row.product_key,
-        startedAt: row.started_at?.toISOString() ?? null,
-        durationSeconds: row.duration_seconds,
-        transcript: row.normalized_text,
-        score: Number(row.score),
-        analysis: AnalysisOutputSchema.parse(row.result_json),
-        rubricVersion: row.rubric_version,
-        promptVersion: row.prompt_version,
-        model: row.model,
-        analyzedAt: row.analyzed_at.toISOString(),
-      },
-    };
-  } catch (error) {
-    console.error("Dashboard database read failed", error instanceof Error ? error.message : error);
-    return previewData;
-  } finally {
-    await sql.end({ timeout: 1 });
-  }
+export async function getScopedCall(context: AuthorizationContext, callId: string): Promise<DashboardCall | null> {
+  const row = await new ScopedSalesRepository(getSql()).getCallById(context, callId);
+  return row ? mapCall(row) : null;
 }

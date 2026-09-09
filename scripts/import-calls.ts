@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { ingestCall, resolveTranscriptIdentity } from "@igd/core";
-import { PostgresIngestionRepository } from "@igd/db";
+import { PostgresAuthRepository, PostgresIngestionRepository } from "@igd/db";
 import { GoogleDriveTranscriptFetcher } from "@igd/google";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -53,6 +53,12 @@ try {
     console.log(JSON.stringify({ mode: "dry_run", items: items.length, uniqueTranscriptFileIds: ids.size, duplicateTranscriptFileIdsInBatch: items.length - ids.size, existingCalls: existingIds.size, callsToCreate: ids.size - existingIds.size, missingSellers, analysisRequested: false }));
     process.exitCode = 0;
   } else {
+    if (requestAnalysis) {
+      await new PostgresAuthRepository(repository.sql).requireSpendActor(
+        process.env.AUTH_ACTOR_EMAIL ?? "",
+        "analysis.queue.cli",
+      );
+    }
     const runRows = await repository.sql<{ id: string }[]>`
       insert into ingestion_runs (source_type, product, mode, sources_scanned, items_scanned)
       values ('manual_programmatic_batch', ${new Set(items.map((item) => item.product)).size === 1 ? items[0].product : "MIXED"}, 'controlled', 1, ${items.length})

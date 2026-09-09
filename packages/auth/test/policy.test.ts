@@ -1,0 +1,58 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  AuthorizationError,
+  assertCapability,
+  buildAuthorizationContext,
+  canAccessData,
+  generateTemporaryPassword,
+  hashPassword,
+  validateRoleScopes,
+  verifyPassword,
+} from "../src/index";
+
+const base = { userId: "user-synthetic", email: "user@example.invalid", displayName: "Synthetic User" };
+
+test("Admin has every initial capability and global data access", () => {
+  const admin = buildAuthorizationContext({ ...base, role: "ADMIN" });
+  for (const capability of ["users:manage", "settings:manage", "calls:read", "analytics:read", "spend:execute"] as const) {
+    assert.doesNotThrow(() => assertCapability(admin, capability));
+  }
+  assert.equal(canAccessData(admin, { teamId: "team-any", productKey: "any" }), true);
+});
+
+test("Leader only reads explicitly assigned teams", () => {
+  const leader = buildAuthorizationContext({ ...base, role: "LEADER", teamIds: ["team-a"] });
+  assert.equal(canAccessData(leader, { teamId: "team-a", productKey: "alpha" }), true);
+  assert.equal(canAccessData(leader, { teamId: "team-b", productKey: "alpha" }), false);
+  assert.throws(() => assertCapability(leader, "spend:execute"), AuthorizationError);
+});
+
+test("Supervisor reads every team in assigned products and no other product", () => {
+  const supervisor = buildAuthorizationContext({ ...base, role: "SUPERVISOR", productKeys: ["alpha"] });
+  assert.equal(canAccessData(supervisor, { teamId: "team-a", productKey: "ALPHA" }), true);
+  assert.equal(canAccessData(supervisor, { teamId: "team-a", productKey: "beta" }), false);
+});
+
+test("Sales Ops has global read but cannot spend or manage users", () => {
+  const salesOps = buildAuthorizationContext({ ...base, role: "SALES_OPS" });
+  assert.equal(canAccessData(salesOps, { teamId: "team-b", productKey: "beta" }), true);
+  assert.throws(() => assertCapability(salesOps, "users:manage"), AuthorizationError);
+  assert.throws(() => assertCapability(salesOps, "spend:execute"), AuthorizationError);
+});
+
+test("Role/scope validation rejects incoherent combinations", () => {
+  assert.throws(() => validateRoleScopes({ role: "LEADER" }), /leader_requires/);
+  assert.throws(() => validateRoleScopes({ role: "SUPERVISOR", productKeys: [] }), /supervisor_requires/);
+  assert.throws(() => validateRoleScopes({ role: "SALES_OPS", teamIds: ["team-a"] }), /global_role/);
+  assert.doesNotThrow(() => validateRoleScopes({ role: "LEADER", teamIds: ["team-a"] }));
+});
+
+test("Passwords are strongly hashed and temporary passwords are not recoverable from the hash", async () => {
+  const password = generateTemporaryPassword();
+  const hash = await hashPassword(password);
+  assert.notEqual(hash, password);
+  assert.equal(hash.includes(password), false);
+  assert.equal(await verifyPassword(password, hash), true);
+  assert.equal(await verifyPassword(generateTemporaryPassword(), hash), false);
+});
