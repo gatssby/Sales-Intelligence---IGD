@@ -307,28 +307,6 @@ export class PostgresIngestionRepository implements IngestionRepository {
       `;
       const run = runs[0];
       if (!run) throw new Error("analysis_run_not_running");
-      const offsets = await tx<{ next_attempt: number }[]>`
-        select coalesce(max(attempt_number), 0)::integer + 1 as next_attempt
-        from analysis_attempts where analysis_run_id = ${runId}
-      `;
-      let attemptNumber = offsets[0].next_attempt;
-      for (const attempt of execution.attempts) {
-        await tx`
-          insert into analysis_attempts (
-            analysis_run_id, role, attempt_number, provider, model, status, result_json,
-            quality_signals, input_tokens, output_tokens, cached_input_tokens, cost_usd,
-            gateway_actual_cost_usd, estimated_cost_usd, cost_source, latency_ms, error_code, requested_at
-          ) values (
-            ${runId}, ${attempt.role}, ${attemptNumber}, ${attempt.provider}, ${attempt.model}, ${attempt.status},
-            ${attempt.status === "completed" ? tx.json(attempt.output) : null},
-            ${attempt.status === "completed" ? tx.json(attempt.qualitySignals) : null},
-            ${attempt.inputTokens}, ${attempt.outputTokens}, ${attempt.cachedInputTokens}, ${attempt.costUsd},
-            ${attempt.gatewayActualCostUsd}, ${attempt.estimatedCostUsd}, ${attempt.costSource},
-            ${attempt.latencyMs}, ${attempt.status === "failed" ? attempt.errorCode : null}, ${new Date(attempt.requestedAt)}
-          )
-        `;
-        attemptNumber += 1;
-      }
       const inputTokens = execution.attempts.reduce((sum, attempt) => sum + (attempt.inputTokens ?? 0), 0);
       const outputTokens = execution.attempts.reduce((sum, attempt) => sum + (attempt.outputTokens ?? 0), 0);
       const costUsd = execution.attempts.some((attempt) => attempt.costUsd !== null)
@@ -346,6 +324,34 @@ export class PostgresIngestionRepository implements IngestionRepository {
         where id = ${runId}
       `;
       await tx`update calls set status = 'analyzed', updated_at = now() where id = ${run.call_id}`;
+    });
+  }
+
+  async updateAnalysisPhase(runId: string, phase: "analyzing_primary" | "escalation_required" | "analyzing_escalation"): Promise<void> {
+    await this.sql`update analysis_runs set phase = ${phase} where id = ${runId} and status = 'running'`;
+  }
+
+  async recordAnalysisAttempt(runId: string, attempt: AnalysisAttemptResult): Promise<void> {
+    await this.sql.begin(async (tx) => {
+      await tx`select id from analysis_runs where id = ${runId} and status = 'running' for update`;
+      const offsets = await tx<{ next_attempt: number }[]>`
+        select coalesce(max(attempt_number), 0)::integer + 1 as next_attempt
+        from analysis_attempts where analysis_run_id = ${runId}
+      `;
+      await tx`
+        insert into analysis_attempts (
+          analysis_run_id, role, attempt_number, provider, model, status, result_json,
+          quality_signals, input_tokens, output_tokens, cached_input_tokens, cost_usd,
+          gateway_actual_cost_usd, estimated_cost_usd, cost_source, latency_ms, error_code, requested_at
+        ) values (
+          ${runId}, ${attempt.role}, ${offsets[0].next_attempt}, ${attempt.provider}, ${attempt.model}, ${attempt.status},
+          ${attempt.status === "completed" ? tx.json(attempt.output) : null},
+          ${attempt.status === "completed" ? tx.json(attempt.qualitySignals) : null},
+          ${attempt.inputTokens}, ${attempt.outputTokens}, ${attempt.cachedInputTokens}, ${attempt.costUsd},
+          ${attempt.gatewayActualCostUsd}, ${attempt.estimatedCostUsd}, ${attempt.costSource},
+          ${attempt.latencyMs}, ${attempt.status === "failed" ? attempt.errorCode : null}, ${new Date(attempt.requestedAt)}
+        )
+      `;
     });
   }
 
@@ -376,34 +382,6 @@ export class PostgresIngestionRepository implements IngestionRepository {
     });
   }
 
-  async failAnalysisWithAttempts(runId: string, errorCode: string, attempts: AnalysisAttemptResult[]): Promise<void> {
-    await this.sql.begin(async (tx) => {
-      const offsets = await tx<{ next_attempt: number }[]>`
-        select coalesce(max(attempt_number), 0)::integer + 1 as next_attempt
-        from analysis_attempts where analysis_run_id = ${runId}
-      `;
-      let attemptNumber = offsets[0].next_attempt;
-      for (const attempt of attempts) {
-        await tx`
-          insert into analysis_attempts (
-            analysis_run_id, role, attempt_number, provider, model, status, result_json,
-            quality_signals, input_tokens, output_tokens, cached_input_tokens, cost_usd,
-            gateway_actual_cost_usd, estimated_cost_usd, cost_source, latency_ms, error_code, requested_at
-          ) values (
-            ${runId}, ${attempt.role}, ${attemptNumber}, ${attempt.provider}, ${attempt.model}, ${attempt.status},
-            ${attempt.status === "completed" ? tx.json(attempt.output) : null},
-            ${attempt.status === "completed" ? tx.json(attempt.qualitySignals) : null},
-            ${attempt.inputTokens}, ${attempt.outputTokens}, ${attempt.cachedInputTokens}, ${attempt.costUsd},
-            ${attempt.gatewayActualCostUsd}, ${attempt.estimatedCostUsd}, ${attempt.costSource},
-            ${attempt.latencyMs}, ${attempt.status === "failed" ? attempt.errorCode : null}, ${new Date(attempt.requestedAt)}
-          )
-        `;
-        attemptNumber += 1;
-      }
-    });
-    await this.failAnalysis(runId, errorCode);
-  }
-
   async createBenchmarkRun(input: {
     name: string; phase: string; selectionMethod: string; modelIds: string[]; metadata?: Record<string, unknown>;
   }): Promise<string> {
@@ -424,16 +402,17 @@ export class PostgresIngestionRepository implements IngestionRepository {
     benchmarkRunId: string,
     item: BenchmarkCall,
     result: BenchmarkModelResult,
+    executor: Sql | TransactionSql = this.sql,
   ): Promise<void> {
-    await this.sql`
+    await executor`
       insert into benchmark_results (
         benchmark_run_id, call_id, transcript_id, provider, model, status,
         result_json, quality_signals, input_tokens, output_tokens, cached_input_tokens,
         cost_usd, gateway_actual_cost_usd, estimated_cost_usd, cost_source, latency_ms, error_code, requested_at
       ) values (
         ${benchmarkRunId}, ${item.callId}, ${item.transcriptId}, ${result.provider}, ${result.model}, ${result.status},
-        ${result.status === "completed" ? this.sql.json(result.output) : null},
-        ${result.status === "completed" ? this.sql.json(result.qualitySignals) : null},
+        ${result.status === "completed" ? executor.json(result.output) : null},
+        ${result.status === "completed" ? executor.json(result.qualitySignals) : null},
         ${result.inputTokens}, ${result.outputTokens}, ${result.cachedInputTokens}, ${result.costUsd},
         ${result.gatewayActualCostUsd}, ${result.estimatedCostUsd}, ${result.costSource},
         ${result.latencyMs}, ${result.status === "failed" ? result.errorCode : null}, ${new Date(result.requestedAt)}
@@ -446,6 +425,42 @@ export class PostgresIngestionRepository implements IngestionRepository {
         estimated_cost_usd = excluded.estimated_cost_usd, cost_source = excluded.cost_source,
         latency_ms = excluded.latency_ms, error_code = excluded.error_code, requested_at = excluded.requested_at
     `;
+  }
+
+  async claimBenchmarkAttempt(benchmarkRunId: string, item: BenchmarkCall, model: string, estimatedCostUsd: number): Promise<string | null> {
+    const provider = model.split("/")[0] || "unknown";
+    const rows = await this.sql<{ id: string }[]>`
+      insert into benchmark_attempts (
+        benchmark_run_id, call_id, transcript_id, provider, model,
+        rubric_version, prompt_version, schema_version, status, estimated_cost_usd, cost_source
+      ) values (
+        ${benchmarkRunId}, ${item.callId}, ${item.transcriptId}, ${provider}, ${model},
+        ${this.options.rubricVersion}, ${this.options.promptVersion}, ${this.options.schemaVersion},
+        'reserved', ${estimatedCostUsd}, 'estimated'
+      )
+      on conflict (call_id, transcript_id, model, rubric_version, prompt_version, schema_version) do nothing
+      returning id
+    `;
+    return rows[0]?.id ?? null;
+  }
+
+  async settleBenchmarkAttempt(
+    attemptId: string,
+    benchmarkRunId: string,
+    item: BenchmarkCall,
+    result: BenchmarkModelResult,
+  ): Promise<void> {
+    await this.sql.begin(async (tx) => {
+      await tx`
+        update benchmark_attempts set
+          status = ${result.status}, gateway_actual_cost_usd = ${result.gatewayActualCostUsd},
+          estimated_cost_usd = coalesce(${result.estimatedCostUsd}, estimated_cost_usd),
+          input_tokens = ${result.inputTokens}, output_tokens = ${result.outputTokens},
+          cached_input_tokens = ${result.cachedInputTokens}, cost_source = ${result.costSource}, finished_at = now()
+        where id = ${attemptId} and status = 'reserved'
+      `;
+      await this.persistBenchmarkResult(benchmarkRunId, item, result, tx);
+    });
   }
 
   async hasCompletedBenchmarkResult(callId: string, transcriptId: string, model: string): Promise<boolean> {

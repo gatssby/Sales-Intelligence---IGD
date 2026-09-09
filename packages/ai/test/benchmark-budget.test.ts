@@ -21,3 +21,11 @@ test("invalid benchmark budget fails before any provider call", () => {
   assert.throws(() => createBenchmarkBudgetGuard({ maxCostUsd: 0, alreadySpentUsd: 0 }), /invalid_benchmark_budget/);
   assert.throws(() => createBenchmarkBudgetGuard({ maxCostUsd: 1, alreadySpentUsd: 2 }), /benchmark_budget_already_exceeded/);
 });
+
+test("a rejected persistent claim releases its in-memory reservation", () => {
+  const guard = createBenchmarkBudgetGuard({ maxCostUsd: 4, alreadySpentUsd: 1 });
+  assert.equal(guard.reserve(0.5), true);
+  guard.cancel(0.5);
+  assert.equal(guard.snapshot().reservedCostUsd, 0);
+  assert.equal(guard.snapshot().projectedCostUsd, 1);
+});

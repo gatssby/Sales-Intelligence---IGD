@@ -13,9 +13,15 @@ export function selectBenchmarkCalls<T extends { characterCount: number }>(input
   if (sampleSize === 1) return [nonExtreme[0]];
   if (sampleSize === 3) {
     const targets = [0, 34_000, 70_000];
-    return targets.map((target, index) => index === 0
-      ? nonExtreme[0]
-      : [...nonExtreme].sort((a, b) => Math.abs(a.characterCount - target) - Math.abs(b.characterCount - target))[0]);
+    const remaining = [...nonExtreme];
+    return targets.flatMap((target, index) => {
+      if (!remaining.length) return [];
+      const selected = index === 0
+        ? remaining[0]
+        : [...remaining].sort((a, b) => Math.abs(a.characterCount - target) - Math.abs(b.characterCount - target))[0];
+      remaining.splice(remaining.indexOf(selected), 1);
+      return [selected];
+    });
   }
 
   return Array.from({ length: sampleSize }, (_, index) =>

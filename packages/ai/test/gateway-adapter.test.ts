@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateModelCost, parseGatewayModelPricing } from "../src/index.js";
+import { calculateModelCost, mapGatewayError, parseGatewayModelPricing } from "../src/index.js";
 
 test("model pricing converts official per-token Gateway metadata into attempt cost", () => {
   const pricing = parseGatewayModelPricing({
@@ -24,4 +24,14 @@ test("cached input is not double charged at the full input price", () => {
 test("unavailable pricing remains explicit instead of inventing a cost", () => {
   assert.equal(parseGatewayModelPricing({ input: "unknown", output: "0.2" }), null);
   assert.equal(calculateModelCost({ inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 }, null), null);
+});
+
+test("AI SDK statusCode and isRetryable shapes preserve technical retries", () => {
+  const limited = mapGatewayError({ statusCode: 429, isRetryable: true }, 25);
+  assert.equal(limited.message, "rate_limited");
+  assert.equal(limited.retryable, true);
+
+  const transient = mapGatewayError({ isRetryable: true }, 30);
+  assert.equal(transient.message, "provider_retryable_error");
+  assert.equal(transient.retryable, true);
 });

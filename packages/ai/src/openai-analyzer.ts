@@ -125,16 +125,22 @@ export async function getVercelAiGatewayModelPricing(options: {
   return parseGatewayModelPricing(selected?.pricing);
 }
 
-function mapGatewayError(error: unknown, latencyMs: number): ModelGatewayError {
+export function mapGatewayError(error: unknown, latencyMs: number): ModelGatewayError {
   if (error instanceof Error && /timeout/i.test(`${error.name}:${error.message}`)) {
     return new ModelGatewayError("model_timeout", { retryable: true, latencyMs });
   }
-  const status = typeof error === "object" && error && "status" in error ? Number(error.status) : null;
+  const status = typeof error === "object" && error
+    ? "statusCode" in error ? Number(error.statusCode)
+      : "status" in error ? Number(error.status)
+        : null
+    : null;
+  const sdkRetryable = typeof error === "object" && error && "isRetryable" in error && error.isRetryable === true;
   if (status === 401) return new ModelGatewayError("authentication_failed", { retryable: false, latencyMs });
   if (status === 403) return new ModelGatewayError("access_denied", { retryable: false, latencyMs });
   if (status === 408) return new ModelGatewayError("model_timeout", { retryable: true, latencyMs });
   if (status === 429) return new ModelGatewayError("rate_limited", { retryable: true, latencyMs });
   if (status !== null && status >= 500) return new ModelGatewayError("provider_unavailable", { retryable: true, latencyMs });
+  if (sdkRetryable) return new ModelGatewayError("provider_retryable_error", { retryable: true, latencyMs });
   return new ModelGatewayError("model_execution_failed", { retryable: false, latencyMs });
 }
 

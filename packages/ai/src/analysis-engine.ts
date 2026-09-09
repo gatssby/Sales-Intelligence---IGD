@@ -124,8 +124,13 @@ export type BenchmarkExecution = {
   results: BenchmarkModelResult[];
 };
 
+export type AnalysisEngineObserver = {
+  onPhase?(phase: "analyzing_primary" | "escalation_required" | "analyzing_escalation"): Promise<void> | void;
+  onAttempt?(attempt: AnalysisAttemptResult): Promise<void> | void;
+};
+
 export interface AnalysisEngine {
-  runOfficial(input: AnalysisEngineInput): Promise<OfficialAnalysisExecution>;
+  runOfficial(input: AnalysisEngineInput, observer?: AnalysisEngineObserver): Promise<OfficialAnalysisExecution>;
   runBenchmark(input: AnalysisEngineInput, models: string[]): Promise<BenchmarkExecution>;
 }
 
@@ -229,11 +234,14 @@ export function createAnalysisEngine(options: {
       }));
       return { purpose: "benchmark", results };
     },
-    async runOfficial(input) {
+    async runOfficial(input, observer = {}) {
+      await observer.onPhase?.("analyzing_primary");
       const finishWithEscalation = async (
         attempts: AnalysisAttemptResult[],
         reasons: string[],
       ): Promise<OfficialAnalysisExecution> => {
+        await observer.onPhase?.("escalation_required");
+        await observer.onPhase?.("analyzing_escalation");
         let escalationExecution: ModelExecution;
         try {
           escalationExecution = await gateway.analyze({ ...input, model: strategy.escalationModel, purpose: "official-analysis", role: "escalation" });
@@ -255,6 +263,7 @@ export function createAnalysisEngine(options: {
             latencyMs: error.latencyMs,
             requestedAt: error.receipt?.requestedAt ?? new Date().toISOString(),
           };
+          await observer.onAttempt?.(failed);
           throw new AnalysisEngineError("escalation_failed", [...attempts, failed], reasons);
         }
         const escalationParsed = AnalysisOutputSchema.safeParse(escalationExecution.output);
@@ -275,24 +284,27 @@ export function createAnalysisEngine(options: {
             latencyMs: escalationExecution.latencyMs,
             requestedAt: escalationExecution.requestedAt,
           };
+          await observer.onAttempt?.(failed);
           throw new AnalysisEngineError("escalation_failed", [...attempts, failed], reasons);
         }
         const escalationOutput = escalationParsed.data;
         const escalationSignals = qualitySignals(escalationOutput, input);
+        const escalationAttempt: CompletedAnalysisAttempt = {
+          ...escalationExecution,
+          output: escalationOutput,
+          role: "escalation",
+          model: strategy.escalationModel,
+          status: "completed",
+          qualitySignals: escalationSignals,
+        };
+        await observer.onAttempt?.(escalationAttempt);
         return {
           status: "completed",
           output: escalationOutput,
           finalModel: strategy.escalationModel,
           escalated: true,
           escalationReasons: reasons,
-          attempts: [...attempts, {
-            ...escalationExecution,
-            output: escalationOutput,
-            role: "escalation",
-            model: strategy.escalationModel,
-            status: "completed",
-            qualitySignals: escalationSignals,
-          }],
+          attempts: [...attempts, escalationAttempt],
         };
       };
 
@@ -304,7 +316,7 @@ export function createAnalysisEngine(options: {
           break;
         } catch (error) {
           if (!(error instanceof ModelGatewayError)) throw error;
-          technicalAttempts.push({
+          const failedAttempt: FailedAnalysisAttempt = {
             role: "primary",
             model: strategy.primaryModel,
             provider: error.receipt?.provider ?? providerFromModel(strategy.primaryModel),
@@ -319,7 +331,9 @@ export function createAnalysisEngine(options: {
             costSource: error.receipt?.costSource ?? "unavailable",
             latencyMs: error.latencyMs,
             requestedAt: error.receipt?.requestedAt ?? new Date().toISOString(),
-          });
+          };
+          technicalAttempts.push(failedAttempt);
+          await observer.onAttempt?.(failedAttempt);
           if (!error.retryable || retry >= strategy.maxTechnicalRetries) {
             return finishWithEscalation(technicalAttempts, [`primary_${error.message}`]);
           }
@@ -327,7 +341,7 @@ export function createAnalysisEngine(options: {
       }
       const parsed = AnalysisOutputSchema.safeParse(execution.output);
       if (!parsed.success) {
-        return finishWithEscalation([...technicalAttempts, {
+        const failedAttempt: FailedAnalysisAttempt = {
           role: "primary",
           model: strategy.primaryModel,
           provider: execution.provider,
@@ -342,7 +356,9 @@ export function createAnalysisEngine(options: {
           costSource: execution.costSource,
           latencyMs: execution.latencyMs,
           requestedAt: execution.requestedAt,
-        }], ["primary_schema_invalid"]);
+        };
+        await observer.onAttempt?.(failedAttempt);
+        return finishWithEscalation([...technicalAttempts, failedAttempt], ["primary_schema_invalid"]);
       }
       const output = parsed.data;
       const signals = qualitySignals(output, input);
@@ -355,6 +371,7 @@ export function createAnalysisEngine(options: {
         status: "completed",
         qualitySignals: signals,
       };
+      await observer.onAttempt?.(primaryAttempt);
       if (reasons.length) {
         return finishWithEscalation([...technicalAttempts, primaryAttempt], reasons);
       }

@@ -505,4 +505,3 @@ Cada linha abaixo deriva do snapshot de `/v1/models` no timestamp desta nota. `D
 - O catálogo não oferece uma declaração uniforme de idiomas nem garantia uniforme de JSON Schema. Português, qualidade e schema precisam de medição real.
 - Context window é limite combinado dependente da API/modelo. O preflight deve reservar espaço para prompt, schema, reasoning e output.
 - Preços-base não incluem necessariamente recursos opcionais, tiers, variações regionais/fast, web search ou retries.
-

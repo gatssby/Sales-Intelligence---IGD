@@ -15,7 +15,7 @@ The original broad run was stopped twice after the all-model barrier made provid
 
 The Vercel CLI identified the active key named `Sales Intelligence - IGD` and reported aggregate spend of **$3.73990898** at the decision checkpoint, against a key budget of $15. The database had $0.884713 in token-price estimates for persisted benchmark results. The gap includes requests that completed at the Gateway after the runner had been interrupted but before their outputs crossed the old persistence barrier, plus API probes. The CLI value is therefore the conservative reconciliation floor.
 
-`BENCHMARK_MAX_COST_USD` is now a required logical benchmark cap. New requests reserve their projected cost before starting, completed combinations are reused, concurrency is limited to 1–4, and the runner rebuilds spend from persisted receipts with an optional reconciled Vercel floor. The key-level $15 quota was not changed.
+`BENCHMARK_MAX_COST_USD` is now a required logical benchmark cap. New requests reserve their projected cost before starting, completed combinations are reused, concurrency is limited to 1–4, and the runner rebuilds spend from persisted receipts. Key-level spend from the Vercel CLI is stored only as reconciliation metadata and does not drive the hot-path guard. The key-level $15 quota was not changed.
 
 ## Screening evidence
 

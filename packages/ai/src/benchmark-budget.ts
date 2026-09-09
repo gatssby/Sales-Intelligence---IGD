@@ -24,6 +24,9 @@ export function createBenchmarkBudgetGuard(input: { maxCostUsd: number; alreadyS
       reservedCostUsd = Math.max(0, reservedCostUsd - estimatedCostUsd);
       actualIncrementalCostUsd += actualCostUsd ?? estimatedCostUsd;
     },
+    cancel(estimatedCostUsd: number): void {
+      reservedCostUsd = Math.max(0, reservedCostUsd - estimatedCostUsd);
+    },
     snapshot(): BenchmarkBudgetSnapshot {
       return {
         maxCostUsd: input.maxCostUsd,

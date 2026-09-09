@@ -25,3 +25,15 @@ test("broad screening excludes extreme transcripts and stays deterministic", () 
     ["short", "medium", "long"],
   );
 });
+
+test("three-call screening never selects the same call twice", () => {
+  const candidates = [
+    { id: "a", characterCount: 1_000 },
+    { id: "b", characterCount: 1_100 },
+    { id: "c", characterCount: 1_200 },
+  ];
+
+  const selected = selectBenchmarkCalls({ candidates, phase: "screening-a", sampleSize: 3 });
+  assert.equal(selected.length, 3);
+  assert.equal(new Set(selected.map((item) => item.id)).size, 3);
+});

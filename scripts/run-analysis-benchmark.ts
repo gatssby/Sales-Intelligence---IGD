@@ -15,6 +15,8 @@ const sampleSize = Number(process.env.AI_BENCHMARK_SAMPLE_SIZE ?? "3");
 const concurrency = Number(process.env.AI_BENCHMARK_CONCURRENCY ?? "3");
 const maxCostUsd = Number(process.env.BENCHMARK_MAX_COST_USD);
 const reconciledSpendUsd = Number(process.env.BENCHMARK_RECONCILED_SPEND_USD ?? "0");
+const rubricVersion = process.env.RUBRIC_VERSION ?? "insider-demo-v0";
+const promptVersion = process.env.PROMPT_VERSION ?? "call-analysis-v0";
 const maxOutputTokens = Number(process.env.AI_ANALYSIS_MAX_OUTPUT_TOKENS ?? "2000");
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
 if (!models.length) throw new Error("AI_BENCHMARK_MODELS is required");
@@ -45,18 +47,32 @@ try {
   if (selected.length !== sampleSize) throw new Error("benchmark_sample_unavailable");
 
   const [rubric, rubricConfigRaw] = await Promise.all([
-    readFile("packages/ai/rubrics/insider-demo-v0.md", "utf8"), readFile("config/products/insider/rubric.v0.json", "utf8"),
+    readFile(process.env.ANALYSIS_RUBRIC_FILE ?? `packages/ai/rubrics/${rubricVersion}.md`, "utf8"),
+    readFile(process.env.ANALYSIS_RUBRIC_CONFIG ?? "config/products/insider/rubric.v0.json", "utf8"),
   ]);
   const rubricConfig = JSON.parse(rubricConfigRaw) as { dimensions: Array<{ key: string }> };
   const persistedSpend = await repository.sql<{ spend: number }[]>`
-    select coalesce(sum(coalesce(gateway_actual_cost_usd, estimated_cost_usd, cost_usd)), 0)::float as spend
-    from benchmark_results
+    with reserved as (
+      select coalesce(sum(coalesce(gateway_actual_cost_usd, estimated_cost_usd)), 0) spend
+      from benchmark_attempts
+    ), legacy as (
+      select coalesce(sum(coalesce(result.gateway_actual_cost_usd, result.estimated_cost_usd, result.cost_usd)), 0) spend
+      from benchmark_results result
+      join benchmark_runs run on run.id = result.benchmark_run_id
+      where not exists (
+        select 1 from benchmark_attempts attempt
+        where attempt.call_id = result.call_id and attempt.transcript_id = result.transcript_id
+          and attempt.model = result.model and attempt.rubric_version = run.rubric_version
+          and attempt.prompt_version = run.prompt_version and attempt.schema_version = run.schema_version
+      )
+    )
+    select (reserved.spend + legacy.spend)::float spend from reserved cross join legacy
   `;
-  const alreadySpentUsd = Math.max(persistedSpend[0].spend, reconciledSpendUsd);
+  const alreadySpentUsd = persistedSpend[0].spend;
   const guard = createBenchmarkBudgetGuard({ maxCostUsd, alreadySpentUsd });
   const runId = await repository.createBenchmarkRun({
     name: `INSIDER ${phase}`, phase, selectionMethod: phase.includes("stress") ? "extreme_context_stress" : "deterministic_non_extreme_targets",
-    modelIds: models, metadata: { sampleSize, concurrency, maxOutputTokens, characterCounts: selected.map((item) => item.characterCount), alreadySpentUsd, maxCostUsd },
+    modelIds: models, metadata: { sampleSize, concurrency, maxOutputTokens, characterCounts: selected.map((item) => item.characterCount), alreadySpentUsd, maxCostUsd, keySpendSanityCheckUsd: reconciledSpendUsd },
   });
   const engine = createAnalysisEngine({
     gateway,
@@ -75,13 +91,15 @@ try {
         ? estimatedInputTokens * pricing.input + maxOutputTokens * pricing.output
         : 0.25;
       if (!guard.reserve(estimatedCost)) { budgetSkipped += 1; continue; }
+      const attemptId = await repository.claimBenchmarkAttempt(runId, job.item, job.model, estimatedCost);
+      if (!attemptId) { guard.cancel(estimatedCost); reused += 1; continue; }
       inFlight += 1;
       const execution = await engine.runBenchmark({
         transcript: job.item.transcript, rubric: `${rubric}\n\nConfiguração versionada:\n${rubricConfigRaw}`,
-        promptVersion: "call-analysis-v0", expectedDimensionKeys: rubricConfig.dimensions.map((dimension) => dimension.key),
+        promptVersion, expectedDimensionKeys: rubricConfig.dimensions.map((dimension) => dimension.key),
       }, [job.model]);
       const result = execution.results[0];
-      await repository.persistBenchmarkResult(runId, job.item, result);
+      await repository.settleBenchmarkAttempt(attemptId, runId, job.item, result);
       guard.settle(estimatedCost, result.gatewayActualCostUsd ?? result.estimatedCostUsd);
       inFlight -= 1;
       if (result.status === "completed") completed += 1; else failed += 1;

@@ -10,6 +10,7 @@ The first vertical slice started with six tables and now adds source-agnostic in
 - `analysis_runs`: append-only, versioned structured analysis history.
 - `analysis_attempts`: provider calls made inside one official run, including primary, technical retry and escalation receipts.
 - `benchmark_runs` / `benchmark_results`: isolated experiments that cannot become current or feed KPIs.
+- `benchmark_attempts`: durable request reservations and cost receipts used to rebuild benchmark spend after interruption.
 - `call_sources`: one or more discovery origins for the same canonical call.
 - `ingestion_runs`: aggregate audit record for a controlled input batch.
 - `ingestion_events`: sparse diagnostic events tied to an ingestion run.

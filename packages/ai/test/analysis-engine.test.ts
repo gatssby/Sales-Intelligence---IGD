@@ -94,6 +94,53 @@ test("official analysis accepts a grounded primary result above the confidence g
   assert.deepEqual(calledModels, ["provider/cheap"]);
 });
 
+test("official analysis emits durable phase and attempt checkpoints before returning", async () => {
+  const checkpoints: string[] = [];
+  const gateway: ModelGateway = {
+    async analyze(request) {
+      return {
+        ...receipt,
+        output: request.role === "primary"
+          ? validOutput({ confidence: 0.2 })
+          : validOutput({ confidence: 0.95 }),
+        inputTokens: 10,
+        outputTokens: 5,
+        cachedInputTokens: 0,
+        costUsd: 0.001,
+        latencyMs: 10,
+      };
+    },
+  };
+  const engine = createAnalysisEngine({
+    gateway,
+    strategy: {
+      version: "test-v1",
+      primaryModel: "provider/cheap",
+      escalationModel: "provider/strong",
+      confidenceThreshold: 0.8,
+      maxTechnicalRetries: 0,
+    },
+  });
+
+  await engine.runOfficial({
+    transcript: "00:15 Vendedor: Qual é o principal objetivo para os próximos meses?",
+    rubric: "Rubrica sintética",
+    promptVersion: "prompt-v1",
+    expectedDimensionKeys: [...dimensions],
+  }, {
+    onPhase(phase) { checkpoints.push(`phase:${phase}`); },
+    onAttempt(attempt) { checkpoints.push(`attempt:${attempt.role}:${attempt.status}`); },
+  });
+
+  assert.deepEqual(checkpoints, [
+    "phase:analyzing_primary",
+    "attempt:primary:completed",
+    "phase:escalation_required",
+    "phase:analyzing_escalation",
+    "attempt:escalation:completed",
+  ]);
+});
+
 test("official analysis escalates exactly once when primary confidence is below the calibrated threshold", async () => {
   const calledModels: string[] = [];
   const gateway: ModelGateway = {

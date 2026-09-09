@@ -15,10 +15,11 @@ if (!Number.isInteger(limit) || limit < 1 || limit > 30) throw new Error("--limi
 function loadStrategy() {
   const primaryModel = process.env.AI_GATEWAY_PRIMARY_MODEL;
   const escalationModel = process.env.AI_GATEWAY_ESCALATION_MODEL;
-  const confidenceThreshold = Number(process.env.AI_ANALYSIS_CONFIDENCE_THRESHOLD);
+  const confidenceThresholdRaw = process.env.AI_ANALYSIS_CONFIDENCE_THRESHOLD;
+  const confidenceThreshold = Number(confidenceThresholdRaw);
   const maxTechnicalRetries = Number(process.env.AI_ANALYSIS_MAX_TECHNICAL_RETRIES ?? "1");
   const version = process.env.AI_ANALYSIS_STRATEGY_VERSION;
-  if (!primaryModel || !escalationModel || !version || !Number.isFinite(confidenceThreshold)) {
+  if (!primaryModel || !escalationModel || !version || !confidenceThresholdRaw?.trim() || !Number.isFinite(confidenceThreshold)) {
     throw new Error("AI_GATEWAY_PRIMARY_MODEL, AI_GATEWAY_ESCALATION_MODEL, AI_ANALYSIS_CONFIDENCE_THRESHOLD and AI_ANALYSIS_STRATEGY_VERSION are required");
   }
   return { version, primaryModel, escalationModel, confidenceThreshold, maxTechnicalRetries };
@@ -59,13 +60,15 @@ try {
           rubric: `${rubric}\n\nConfiguração versionada:\n${rubricConfigRaw}`,
           promptVersion: job.promptVersion,
           expectedDimensionKeys: rubricConfig.dimensions.map((dimension) => dimension.key),
+        }, {
+          onPhase: (phase) => repository.updateAnalysisPhase(job.runId, phase),
+          onAttempt: (attempt) => repository.recordAnalysisAttempt(job.runId, attempt),
         });
         await repository.completeAnalysis(job.runId, execution);
         completed += 1;
       } catch (error) {
-        const attempts = error instanceof AnalysisEngineError ? error.attempts : [];
         const errorCode = error instanceof AnalysisEngineError ? error.code : "analysis_worker_error";
-        await repository.failAnalysisWithAttempts(job.runId, errorCode, attempts);
+        await repository.failAnalysis(job.runId, errorCode);
         failed += 1;
       }
     }
