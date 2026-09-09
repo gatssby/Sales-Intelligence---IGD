@@ -12,6 +12,24 @@ O importador recebe um JSON privado, valida o lote, resolve a identidade pelo Go
 
 Nunca coloque transcrições, clientes, e-mails, tokens ou IDs privados nos arquivos versionados.
 
+## 0. Cadastro controlado de vendedores
+
+Sem a automação da planilha de times, importe primeiro o arquivo privado de vendedores no formato do exemplo sintético [sellers.synthetic.json](examples/sellers.synthetic.json). O dry-run mostra quantos códigos já existem:
+
+```bash
+DATABASE_URL='postgresql://...' \
+SELLER_REGISTRY_FILE='private/sellers.json' \
+npm run sellers:import
+```
+
+Depois da conferência, o `--apply` faz upsert somente pelos códigos `V###` informados:
+
+```bash
+npm run sellers:import -- --apply
+```
+
+Calls que apontem para um vendedor ausente ou inativo são rejeitadas; o importador de calls nunca inventa um cadastro.
+
 ## Contrato de entrada
 
 O arquivo contém um array de até 100 itens:

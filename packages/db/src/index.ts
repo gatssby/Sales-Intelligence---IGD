@@ -22,6 +22,18 @@ export type QueuedAnalysisJob = {
   schemaVersion: string;
 };
 
+export type SellerRegistryInput = {
+  sellerCode: string;
+  sellerName: string;
+  product: string;
+  teamName?: string;
+  role?: string;
+  seniority?: string;
+  leaderCode?: string;
+  leaderName?: string;
+  active: boolean;
+};
+
 export class PostgresIngestionRepository implements IngestionRepository {
   readonly sql: Sql;
   readonly options: Required<RepositoryOptions>;
@@ -46,6 +58,32 @@ export class PostgresIngestionRepository implements IngestionRepository {
       select id from calls where transcript_file_id = ${transcriptFileId} limit 1
     `;
     return rows[0] ?? null;
+  }
+
+  async upsertSeller(input: SellerRegistryInput): Promise<{ id: string; created: boolean }> {
+    const rows = await this.sql<{ id: string; created: boolean }[]>`
+      insert into sellers (
+        display_name, external_reference, seller_code, product, team_name, role,
+        seniority, leader_code, leader_name, active
+      ) values (
+        ${input.sellerName}, ${input.sellerCode}, ${input.sellerCode}, ${input.product},
+        ${input.teamName ?? null}, ${input.role ?? null}, ${input.seniority ?? null},
+        ${input.leaderCode ?? null}, ${input.leaderName ?? null}, ${input.active}
+      )
+      on conflict (seller_code) where seller_code is not null
+      do update set
+        display_name = excluded.display_name,
+        product = excluded.product,
+        team_name = excluded.team_name,
+        role = excluded.role,
+        seniority = excluded.seniority,
+        leader_code = excluded.leader_code,
+        leader_name = excluded.leader_name,
+        active = excluded.active,
+        updated_at = now()
+      returning id, (xmax = 0) as created
+    `;
+    return rows[0];
   }
 
   async upsertCallSource(input: IngestionInput & { transcriptFileId: string }): Promise<PersistedCall> {

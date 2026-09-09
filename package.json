@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && npm run typecheck --workspaces --if-present",
     "db:migrate": "tsx scripts/migrate.ts",
     "demo:seed": "tsx scripts/seed-demo.ts",
+    "sellers:import": "tsx scripts/import-sellers.ts",
     "calls:import": "tsx scripts/import-calls.ts",
     "analysis:process": "tsx scripts/process-analysis-queue.ts"
   },
