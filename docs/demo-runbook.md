@@ -16,15 +16,37 @@ The private seed file contains the real transcript and Drive identifiers. It is 
 
 ## Local run
 
-1. Open the database tunnel:
+The private database settings must exist at `apps/web/.env.local`. This file is ignored by Git and the demo command restricts it to owner-only permissions.
 
-   ```bash
-   ssh -N -L 5433:127.0.0.1:5432 oracle-vps
-   ```
+From the repository root, run:
 
-2. Copy `.env.example` to `apps/web/.env.local` and fill the private database credentials.
-3. Run `npm install` and `npm run dev`.
-4. Open `http://localhost:3000`.
+```bash
+npm run demo
+```
+
+The command:
+
+1. loads `apps/web/.env.local` without printing its values;
+2. requires the database URL to use `127.0.0.1:5433`;
+3. reuses or opens `5433 -> oracle-vps:5432` through SSH;
+4. tests the PostgreSQL connection;
+5. confirms a valid `analysis_run` with `status = completed` and `is_current = true`;
+6. restarts only a previous dashboard process from this repository on port 3000;
+7. starts Next.js on `127.0.0.1:3000`.
+
+Wait for `Demo ready`, keep the terminal open, then open [http://127.0.0.1:3000](http://127.0.0.1:3000) in Safari. Press `Ctrl+C` after the presentation; the command also closes the SSH tunnel that it opened.
+
+If dependencies are not installed yet, run `npm install` once before `npm run demo`.
+
+To check the tunnel, database and analysis without starting Next.js:
+
+```bash
+npm run demo:check
+```
+
+## Why Safari previously showed the empty state
+
+The Next.js process was listening on port 3000, but there was no listener on local port 5433. The database query failed and the dashboard intentionally returned the same empty state used when `DATABASE_URL` is absent. The Playwright view had been loaded while the SSH tunnel was active, so it continued to show the previously rendered data. The new command performs the database checks before starting Next.js and does not report the demo as ready when data is unavailable.
 
 ## What n8n replaces next
 

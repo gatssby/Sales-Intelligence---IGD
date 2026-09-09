@@ -8,6 +8,8 @@
     "packages/*"
   ],
   "scripts": {
+    "demo": "tsx scripts/demo.ts",
+    "demo:check": "tsx scripts/demo.ts --check",
     "dev": "npm run dev --workspace=@igd/web",
     "build": "npm run build --workspace=@igd/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
