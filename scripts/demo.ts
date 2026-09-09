@@ -269,9 +269,24 @@ async function main(): Promise<void> {
   console.log(`Demo ready: http://${webHost}:${webPort}`);
   console.log("Keep this terminal open during the presentation. Press Ctrl+C to stop the dashboard and its SSH tunnel.");
 
-  const exitCode = await new Promise<number>((resolveExit) => web?.once("exit", (code) => resolveExit(code ?? 1)));
+  const runtimeExit = await Promise.race([
+    new Promise<{ source: "web"; code: number }>((resolveExit) =>
+      web?.once("exit", (code) => resolveExit({ source: "web", code: code ?? 1 })),
+    ),
+    tunnel
+      ? new Promise<{ source: "tunnel"; code: number }>((resolveExit) =>
+          tunnel?.once("exit", (code) => resolveExit({ source: "tunnel", code: code ?? 1 })),
+        )
+      : new Promise<never>(() => undefined),
+  ]);
+
+  if (runtimeExit.source === "tunnel") {
+    await stopChild(web);
+    throw new Error(`SSH tunnel stopped during the demo (code ${runtimeExit.code}). Run npm run demo again.`);
+  }
+
   await stopChild(tunnel);
-  process.exitCode = exitCode;
+  process.exitCode = runtimeExit.code;
 }
 
 process.on("SIGINT", () => void shutdown(0));
