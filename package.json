@@ -10,6 +10,7 @@
   "scripts": {
     "demo": "tsx scripts/demo.ts",
     "demo:check": "tsx scripts/demo.ts --check",
+    "deploy:production": "bash scripts/deploy-production.sh origin/main",
     "dev": "npm run dev --workspace=@igd/web",
     "build": "npm run build --workspace=@igd/web",
     "typecheck": "tsc --noEmit -p tsconfig.json && npm run typecheck --workspaces --if-present",

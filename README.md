@@ -15,6 +15,8 @@ O primeiro fluxo ponta a ponta está implementado:
 
 Para abrir a demo localmente, siga [docs/demo-runbook.md](docs/demo-runbook.md). A rubrica v0 é demonstrativa e ainda não deve ser tratada como KPI oficial.
 
+O deploy em `sales-igd.com.br` usa Next.js em container, nginx com HTTPS e autenticação básica, mantendo PostgreSQL e a porta do app limitados ao loopback da VPS. O procedimento de atualização e rollback está em [docs/production-runbook.md](docs/production-runbook.md).
+
 ## Escopo inicial
 
 O MVP deve:
