@@ -2,6 +2,19 @@
 
 Plataforma de inteligência comercial para analisar calls de vendas da IGD com IA, gerar feedback baseado em evidências e consolidar performance por vendedor, produto e período.
 
+## Estado atual — vertical slice de demonstração
+
+O primeiro fluxo ponta a ponta está implementado:
+
+- PostgreSQL 16 isolado na VPS, acessível somente por túnel SSH;
+- schema mínimo de seis entidades com histórico de análises;
+- seed privado e idempotente para uma call real (o conteúdo não entra no repositório);
+- rubrica `insider-demo-v0`, prompt e saída Zod versionados;
+- adapter para Structured Outputs da OpenAI Responses API;
+- dashboard Next.js com visão executiva, scorecard do vendedor, detalhe da call, evidências e coaching.
+
+Para abrir a demo localmente, siga [docs/demo-runbook.md](docs/demo-runbook.md). A rubrica v0 é demonstrativa e ainda não deve ser tratada como KPI oficial.
+
 ## Escopo inicial
 
 O MVP deve:
