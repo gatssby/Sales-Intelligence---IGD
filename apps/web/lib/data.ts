@@ -20,9 +20,12 @@ export type DashboardCall = {
 export type DashboardData = {
   source: "postgres" | "preview";
   call: DashboardCall | null;
+  summary: { analyzedCalls: number; transcriptCalls: number; sellerCount: number; averageScore: number; topOpportunityLabel: string } | null;
+  sellers: Array<{ sellerCode: string | null; sellerName: string; score: number; calls: number }>;
+  dimensions: Array<{ key: string; label: string; score: number; calls: number }>;
 };
 
-const previewData: DashboardData = { source: "preview", call: null };
+const previewData: DashboardData = { source: "preview", call: null, summary: null, sellers: [], dimensions: [] };
 
 export async function getDashboardData(): Promise<DashboardData> {
   const databaseUrl = process.env.DATABASE_URL;
@@ -36,7 +39,7 @@ export async function getDashboardData(): Promise<DashboardData> {
   });
 
   try {
-    const rows = await sql<
+    const [rows, summaries, sellers, dimensions] = await Promise.all([sql<
       Array<{
         id: string;
         customer_name: string | null;
@@ -65,7 +68,7 @@ export async function getDashboardData(): Promise<DashboardData> {
         ar.result_json,
         ar.rubric_version,
         ar.prompt_version,
-        ar.model,
+        coalesce(ar.final_model, ar.model) as model,
         coalesce(ar.finished_at, ar.created_at) as analyzed_at
       from analysis_runs ar
       join calls c on c.id = ar.call_id
@@ -74,7 +77,34 @@ export async function getDashboardData(): Promise<DashboardData> {
       where ar.status = 'completed' and ar.is_current = true
       order by coalesce(ar.finished_at, ar.created_at) desc
       limit 1
-    `;
+    `, sql<Array<{ analyzed_calls: number; transcript_calls: number; seller_count: number; average_score: string | number; top_opportunity_label: string }>>`
+      with official as (
+        select ar.*, c.seller_id from analysis_runs ar join calls c on c.id = ar.call_id
+        where ar.status = 'completed' and ar.is_current = true
+      ), opportunity as (
+        select result_json->>'opportunity_quality' quality, count(*) amount
+        from official group by 1 order by amount desc, quality limit 1
+      )
+      select count(*)::integer analyzed_calls,
+        (select count(distinct call_id)::integer from transcripts) transcript_calls,
+        count(distinct seller_id)::integer seller_count,
+        coalesce(round(avg(score)), 0) average_score,
+        coalesce((select case quality
+          when 'high' then 'Alta' when 'medium' then 'Média' when 'low' then 'Baixa'
+          when 'unqualified' then 'Desqualificada' else 'Não identificada' end from opportunity), 'Não disponível') top_opportunity_label
+      from official
+    `, sql<Array<{ seller_code: string | null; seller_name: string; score: string | number; calls: number }>>`
+      select s.seller_code, s.display_name seller_name, round(avg(ar.score)) score, count(*)::integer calls
+      from analysis_runs ar join calls c on c.id=ar.call_id join sellers s on s.id=c.seller_id
+      where ar.status='completed' and ar.is_current=true
+      group by s.id,s.seller_code,s.display_name order by avg(ar.score) desc,s.display_name
+    `, sql<Array<{ key: string; label: string; score: string | number; calls: number }>>`
+      select dimension->>'key' key, max(dimension->>'label') label,
+        round(avg((dimension->>'score')::numeric)) score, count(*)::integer calls
+      from analysis_runs ar cross join lateral jsonb_array_elements(ar.result_json->'dimensions') dimension
+      where ar.status='completed' and ar.is_current=true
+      group by dimension->>'key' order by avg((dimension->>'score')::numeric) desc
+    `]);
 
     const row = rows[0];
     if (!row) return previewData;
@@ -96,6 +126,15 @@ export async function getDashboardData(): Promise<DashboardData> {
         model: row.model,
         analyzedAt: row.analyzed_at.toISOString(),
       },
+      summary: {
+        analyzedCalls: summaries[0].analyzed_calls,
+        transcriptCalls: summaries[0].transcript_calls,
+        sellerCount: summaries[0].seller_count,
+        averageScore: Number(summaries[0].average_score),
+        topOpportunityLabel: summaries[0].top_opportunity_label,
+      },
+      sellers: sellers.map((seller) => ({ sellerCode: seller.seller_code, sellerName: seller.seller_name, score: Number(seller.score), calls: seller.calls })),
+      dimensions: dimensions.map((dimension) => ({ key: dimension.key, label: dimension.label, score: Number(dimension.score), calls: dimension.calls })),
     };
   } catch (error) {
     console.error("Dashboard database read failed", error instanceof Error ? error.message : error);

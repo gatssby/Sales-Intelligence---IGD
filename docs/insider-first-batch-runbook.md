@@ -58,4 +58,4 @@ Dentro de cada vendedor, a ordem é data válida descendente e depois `source_ro
 
 O fetch recebe somente candidatos da fila até obter o tamanho controlado do lote. Eventos `TRANSCRIPT_FETCH_STARTED`, `TRANSCRIPT_FETCHED` e `FAILED_TRANSCRIPT_ACCESS` registram o ciclo sem colocar conteúdo nos logs.
 
-O worker `analysis:process` exige `--apply`, limita cada execução a no máximo 30 itens e persiste tokens, custo calculado pela tabela vigente do Gateway e latência. A primeira execução real também é o gate do Gateway: erros globais 401/403 encerram imediatamente o lote e deixam os demais runs na fila. Um lote maior deve ser dividido deliberadamente.
+O worker `analysis:process` exige `--apply`, limita cada execução a no máximo 30 itens e persiste tokens, receipt real do Gateway (com estimativa explicitamente marcada como fallback) e latência. Primary, retries e escalation ficam em `analysis_attempts`; somente o resultado final aceito vira `current`. Um lote maior deve ser dividido deliberadamente.

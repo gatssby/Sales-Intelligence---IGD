@@ -46,16 +46,11 @@ export default async function DashboardPage() {
 
   const analysis = call.analysis;
   const dimensions = analysis.dimensions;
+  const summary = data.summary!;
   const strongest = [...dimensions].sort((a, b) => b.score - a.score)[0];
   const weakest = [...dimensions].sort((a, b) => a.score - b.score)[0];
-  const teamPerformance = [
-    { name: call.sellerName, score: call.score, calls: 1, source: "Dado atual" as const },
-    { name: "Vendedor A", score: 88, calls: 24, source: "Simulação" as const },
-    { name: "Vendedor B", score: 79, calls: 19, source: "Simulação" as const },
-    { name: "Vendedor C", score: 63, calls: 22, source: "Simulação" as const },
-    { name: "Vendedor D", score: 52, calls: 17, source: "Simulação" as const },
-  ].sort((a, b) => b.score - a.score);
-  const illustrativeAverage = Math.round(teamPerformance.reduce((sum, seller) => sum + seller.score, 0) / teamPerformance.length);
+  const teamPerformance = data.sellers.map((seller) => ({ ...seller, name: seller.sellerName, source: "Dado atual" as const }));
+  const currentSeller = teamPerformance.find((seller) => seller.name === call.sellerName);
 
   return (
     <main className="dashboard-shell">
@@ -83,7 +78,7 @@ export default async function DashboardPage() {
             <h1>Visão executiva</h1>
           </div>
           <div className="top-actions">
-            <span className="live-badge"><i /> 1 call real</span>
+            <span className="live-badge"><i /> {summary.analyzedCalls} calls reais</span>
             <button type="button">Últimos 30 dias⌄</button>
             <div className="avatar">IG</div>
           </div>
@@ -91,18 +86,18 @@ export default async function DashboardPage() {
 
         <section className="hero" id="executivo">
           <div>
-            <span className="kicker">AMOSTRA ATUAL: 1 CALL</span>
-            <h2>Análise da call</h2>
-            <p>Resultados da call analisada, com referências aos trechos usados na avaliação.</p>
+            <span className="kicker">AMOSTRA ATUAL: {summary.analyzedCalls} CALLS</span>
+            <h2>Análises oficiais</h2>
+            <p>Resultados reais persistidos no PostgreSQL, com rastreabilidade por call.</p>
           </div>
           <div className="hero-orbit"><span>{call.score}</span><small>score geral</small></div>
         </section>
 
         <section className="metrics-grid">
-          <article className="metric-card"><p>Calls analisadas</p><strong>1</strong><span className="metric-note positive">1 análise concluída</span></article>
-          <article className="metric-card"><p>Score médio</p><strong>{call.score}<small>/100</small></strong><span className="metric-note">Rubrica v0 · demo</span></article>
-          <article className="metric-card"><p>Cobertura IA</p><strong>100<small>%</small></strong><span className="metric-note positive">1 de 1 call ingerida</span></article>
-          <article className="metric-card"><p>Oportunidade</p><strong className="word-stat">Baixa</strong><span className="metric-note warning">Desqualificada com evidência</span></article>
+          <article className="metric-card"><p>Calls analisadas</p><strong>{summary.analyzedCalls}</strong><span className="metric-note positive">{summary.sellerCount} vendedores · n = {summary.analyzedCalls}</span></article>
+          <article className="metric-card"><p>Score médio</p><strong>{summary.averageScore}<small>/100</small></strong><span className="metric-note">Rubrica v0 · n = {summary.analyzedCalls}</span></article>
+          <article className="metric-card"><p>Cobertura IA</p><strong>{Math.round(summary.analyzedCalls / Math.max(summary.transcriptCalls, 1) * 100)}<small>%</small></strong><span className="metric-note positive">{summary.analyzedCalls} de {summary.transcriptCalls} calls com transcript</span></article>
+          <article className="metric-card"><p>Oportunidade mais comum</p><strong className="word-stat">{summary.topOpportunityLabel}</strong><span className="metric-note warning">Distribuição real da amostra</span></article>
         </section>
 
         <section className="panel team-panel" id="equipe">
@@ -110,13 +105,13 @@ export default async function DashboardPage() {
             <div>
               <p className="eyebrow">Desempenho do time</p>
               <h3>Comparativo geral dos vendedores</h3>
-              <p>Modelo da visão gerencial que será preenchida com todas as calls analisadas.</p>
+              <p>Somente análises oficiais atuais; benchmarks não entram nos indicadores.</p>
             </div>
-            <div className="team-average"><span>{illustrativeAverage}</span><small>média ilustrativa</small></div>
+            <div className="team-average"><span>{summary.averageScore}</span><small>média real · n = {summary.analyzedCalls}</small></div>
           </div>
 
           <div className="demo-disclosure">
-            Somente a linha identificada como <strong>Dado atual</strong> vem do PostgreSQL. Os demais vendedores e números são simulações para demonstrar o relatório futuro.
+            Todos os vendedores e scores abaixo vêm das análises oficiais atuais no PostgreSQL. Amostras pequenas exibem seu <strong>n</strong>.
           </div>
 
           <div className="team-comparison">
@@ -166,13 +161,13 @@ export default async function DashboardPage() {
           <article className="panel seller-card">
             <div className="panel-heading">
               <div><p className="eyebrow">Avaliação do vendedor</p><h3>{call.sellerName}</h3></div>
-              <span className="status-pill">1 call</span>
+              <span className="status-pill">n = {currentSeller?.calls ?? 1}</span>
             </div>
             <div className="seller-summary">
               <div className={`score-ring ${scoreTone(call.score)}`}><strong>{call.score}</strong><span>de 100</span></div>
               <div className="seller-insight">
                 <span className="mini-label">RESUMO</span>
-                <p>Na amostra atual, o vendedor identificou falta de prioridade. Precisa aprofundar a descoberta antes de apresentar uma solução.</p>
+                <p>{analysis.executive_summary}</p>
               </div>
             </div>
             <div className="dimension-list">
@@ -189,7 +184,7 @@ export default async function DashboardPage() {
             <div className="panel-heading"><div><p className="eyebrow">Resumo dos critérios</p><h3>Força e ponto de melhoria</h3></div><span className="spark">↗</span></div>
             <div className="signal positive-signal"><span>01</span><div><small>FORÇA</small><strong>{strongest?.label}</strong><p>{strongest?.rationale}</p></div></div>
             <div className="signal warning-signal"><span>02</span><div><small>MENOR NOTA</small><strong>{weakest?.label}</strong><p>{weakest?.rationale}</p></div></div>
-            <div className="signal"><span>03</span><div><small>FOCO DE TREINO</small><strong>Perguntas abertas</strong><p>Explorar contexto, impacto e urgência antes de apresentar caminhos.</p></div></div>
+            <div className="signal"><span>03</span><div><small>FOCO DE TREINO</small><strong>Próxima ação</strong><p>{analysis.coaching_actions[0] ?? "Aguardar mais evidências para recomendar coaching."}</p></div></div>
           </article>
         </section>
 
@@ -248,7 +243,7 @@ export default async function DashboardPage() {
           </article>
         </section>
 
-        <footer>IGD Sales Intelligence · Rubrica demonstrativa, ainda não homologada como KPI gerencial.</footer>
+        <footer>IGD Sales Intelligence · Dados oficiais atuais · Rubrica demonstrativa ainda não homologada como KPI gerencial.</footer>
       </div>
     </main>
   );

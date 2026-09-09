@@ -103,11 +103,14 @@ Para executar uma única análise com o Vercel AI Gateway:
 ```bash
 DATABASE_URL='postgresql://...' \
 AI_GATEWAY_API_KEY='...' \
-AI_GATEWAY_MODEL='openai/gpt-5.4' \
+AI_GATEWAY_PRIMARY_MODEL='openai/gpt-5.6-luna' \
+AI_GATEWAY_ESCALATION_MODEL='openai/gpt-5.6-sol' \
+AI_ANALYSIS_CONFIDENCE_THRESHOLD='0.5' \
+AI_ANALYSIS_STRATEGY_VERSION='insider-cost-quality-v1' \
 npm run analysis:process -- --apply --limit=1
 ```
 
-O limite aceito é de 1 a 30. Cada resultado é validado pelo schema, persistido no `analysis_run`, marcado como oficial e refletido automaticamente pelo dashboard, que consulta o PostgreSQL em renderização dinâmica.
+O limite aceito é de 1 a 30. Cada resultado atravessa a mesma strategy usada em produção, é validado pelo schema, persiste os attempts e receipts, marca somente o resultado final como oficial e aparece automaticamente no dashboard. Os slugs e o threshold são configuração, não constantes espalhadas pelo worker.
 
 ## Retentativa e reanálise
 

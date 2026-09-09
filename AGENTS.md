@@ -2,6 +2,16 @@
 
 Este repositório pode ser modificado por múltiplos agentes de IA. As regras abaixo são obrigatórias para reduzir conflitos e manter decisões auditáveis.
 
+## Agent skills
+
+### Issue tracker
+
+Issues são rastreadas no GitHub em `gatssby/Sales-Intelligence---IGD`. Consulte `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+O repositório usa um único contexto de domínio em `CONTEXT.md` e preserva ADRs em `docs/decisions/`. Consulte `docs/agents/domain.md`.
+
 ## Workflow de Git
 
 - `main` representa o estado estável do projeto.

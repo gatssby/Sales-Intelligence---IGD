@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import postgres, { type Sql, type TransactionSql } from "postgres";
 import type { IngestionInput, IngestionRepository, PersistedCall } from "@igd/core";
-import type { AnalysisOutput } from "@igd/ai";
+import type { AnalysisAttemptResult, AnalysisOutput, AnalysisStrategy, BenchmarkModelResult } from "@igd/ai";
 
 export type RepositoryOptions = {
   provider?: string;
@@ -20,6 +20,15 @@ export type QueuedAnalysisJob = {
   rubricVersion: string;
   promptVersion: string;
   schemaVersion: string;
+  strategy: AnalysisStrategy;
+};
+
+export type BenchmarkCall = {
+  callId: string;
+  transcriptId: string;
+  transcript: string;
+  sellerCode: string | null;
+  characterCount: number;
 };
 
 export type SellerRegistryInput = {
@@ -181,6 +190,10 @@ export class PostgresIngestionRepository implements IngestionRepository {
         rubric_version: string;
         prompt_version: string;
         schema_version: string;
+        strategy_version: string;
+        primary_model: string;
+        escalation_model: string;
+        confidence_threshold: string | number;
       }[]>`
         select
           ar.id as run_id,
@@ -191,9 +204,17 @@ export class PostgresIngestionRepository implements IngestionRepository {
           ar.rubric_version,
           ar.prompt_version,
           ar.schema_version
+          , ar.strategy_version
+          , ar.primary_model
+          , ar.escalation_model
+          , ar.confidence_threshold
         from analysis_runs ar
         join transcripts t on t.id = ar.transcript_id
         where ar.status = 'queued'
+          and ar.strategy_version is not null
+          and ar.primary_model is not null
+          and ar.escalation_model is not null
+          and ar.confidence_threshold is not null
           and not exists (
             select 1 from analysis_runs official
             where official.call_id = ar.call_id
@@ -206,7 +227,7 @@ export class PostgresIngestionRepository implements IngestionRepository {
       `;
       const job = jobs[0];
       if (!job) return null;
-      await tx`update analysis_runs set status = 'running', started_at = now() where id = ${job.run_id}`;
+      await tx`update analysis_runs set status = 'running', phase = 'analyzing_primary', started_at = now() where id = ${job.run_id}`;
       await tx`update calls set status = 'analyzing', updated_at = now() where id = ${job.call_id}`;
       return {
         runId: job.run_id,
@@ -217,28 +238,110 @@ export class PostgresIngestionRepository implements IngestionRepository {
         rubricVersion: job.rubric_version,
         promptVersion: job.prompt_version,
         schemaVersion: job.schema_version,
+        strategy: {
+          version: job.strategy_version,
+          primaryModel: job.primary_model,
+          escalationModel: job.escalation_model,
+          confidenceThreshold: Number(job.confidence_threshold),
+          maxTechnicalRetries: Number(process.env.AI_ANALYSIS_MAX_TECHNICAL_RETRIES ?? "1"),
+        },
       };
     });
   }
 
-  async completeAnalysis(runId: string, output: AnalysisOutput, metrics: {
-    inputTokens?: number | null;
-    outputTokens?: number | null;
-    costUsd?: number | null;
-    latencyMs?: number | null;
-  } = {}): Promise<void> {
+  async prepareOfficialBatch(strategy: AnalysisStrategy, limit = 30): Promise<{ prepared: number; retried: number }> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 30) throw new Error("invalid_official_batch_limit");
+    return this.sql.begin(async (tx) => {
+      const candidates = await tx<{ id: string; status: string; provider: string; model: string; error_code: string | null }[]>`
+        select ar.id, ar.status, ar.provider, ar.model, ar.error_code
+        from analysis_runs ar
+        where ar.status in ('queued', 'failed')
+          and ar.is_current = false
+          and exists (select 1 from transcripts t where t.id = ar.transcript_id)
+          and not exists (
+            select 1 from analysis_runs official
+            where official.call_id = ar.call_id and official.status = 'completed' and official.is_current = true
+          )
+        order by ar.created_at
+        limit ${limit}
+        for update
+      `;
+      let retried = 0;
+      for (const row of candidates) {
+        if (row.status === "failed") {
+          retried += 1;
+          await tx`
+            insert into analysis_attempts (
+              analysis_run_id, role, attempt_number, provider, model, status, error_code
+            ) select
+              ${row.id}, 'primary',
+              coalesce((select max(attempt_number) + 1 from analysis_attempts where analysis_run_id = ${row.id}), 1),
+              ${row.provider}, ${row.model}, 'failed', ${row.error_code ?? "previous_technical_failure"}
+            where not exists (select 1 from analysis_attempts where analysis_run_id = ${row.id})
+          `;
+        }
+        await tx`
+          update analysis_runs set
+            status = 'queued', phase = 'queued', strategy_version = ${strategy.version},
+            primary_model = ${strategy.primaryModel}, escalation_model = ${strategy.escalationModel},
+            confidence_threshold = ${strategy.confidenceThreshold}, final_model = null,
+            escalated = false, escalation_reasons = '{}', error_code = null,
+            started_at = null, finished_at = null
+          where id = ${row.id}
+        `;
+      }
+      return { prepared: candidates.length, retried };
+    });
+  }
+
+  async completeAnalysis(runId: string, execution: {
+    output: AnalysisOutput;
+    finalModel: string;
+    escalated: boolean;
+    escalationReasons: string[];
+    attempts: AnalysisAttemptResult[];
+  }): Promise<void> {
     await this.sql.begin(async (tx) => {
       const runs = await tx<{ call_id: string }[]>`
         select call_id from analysis_runs where id = ${runId} and status = 'running' for update
       `;
       const run = runs[0];
       if (!run) throw new Error("analysis_run_not_running");
+      const offsets = await tx<{ next_attempt: number }[]>`
+        select coalesce(max(attempt_number), 0)::integer + 1 as next_attempt
+        from analysis_attempts where analysis_run_id = ${runId}
+      `;
+      let attemptNumber = offsets[0].next_attempt;
+      for (const attempt of execution.attempts) {
+        await tx`
+          insert into analysis_attempts (
+            analysis_run_id, role, attempt_number, provider, model, status, result_json,
+            quality_signals, input_tokens, output_tokens, cached_input_tokens, cost_usd,
+            gateway_actual_cost_usd, estimated_cost_usd, cost_source, latency_ms, error_code, requested_at
+          ) values (
+            ${runId}, ${attempt.role}, ${attemptNumber}, ${attempt.provider}, ${attempt.model}, ${attempt.status},
+            ${attempt.status === "completed" ? tx.json(attempt.output) : null},
+            ${attempt.status === "completed" ? tx.json(attempt.qualitySignals) : null},
+            ${attempt.inputTokens}, ${attempt.outputTokens}, ${attempt.cachedInputTokens}, ${attempt.costUsd},
+            ${attempt.gatewayActualCostUsd}, ${attempt.estimatedCostUsd}, ${attempt.costSource},
+            ${attempt.latencyMs}, ${attempt.status === "failed" ? attempt.errorCode : null}, ${new Date(attempt.requestedAt)}
+          )
+        `;
+        attemptNumber += 1;
+      }
+      const inputTokens = execution.attempts.reduce((sum, attempt) => sum + (attempt.inputTokens ?? 0), 0);
+      const outputTokens = execution.attempts.reduce((sum, attempt) => sum + (attempt.outputTokens ?? 0), 0);
+      const costUsd = execution.attempts.some((attempt) => attempt.costUsd !== null)
+        ? execution.attempts.reduce((sum, attempt) => sum + (attempt.costUsd ?? 0), 0)
+        : null;
+      const latencyMs = execution.attempts.reduce((sum, attempt) => sum + attempt.latencyMs, 0);
       await tx`update analysis_runs set is_current = false where call_id = ${run.call_id} and is_current = true`;
       await tx`
         update analysis_runs set
-          status = 'completed', score = ${output.overall_score}, result_json = ${tx.json(output)},
-          input_tokens = ${metrics.inputTokens ?? null}, output_tokens = ${metrics.outputTokens ?? null},
-          cost_usd = ${metrics.costUsd ?? null}, latency_ms = ${metrics.latencyMs ?? null},
+          status = 'completed', phase = 'completed', score = ${execution.output.overall_score},
+          result_json = ${tx.json(execution.output)}, input_tokens = ${inputTokens}, output_tokens = ${outputTokens},
+          cost_usd = ${costUsd}, latency_ms = ${latencyMs}, final_model = ${execution.finalModel},
+          escalated = ${execution.escalated}, escalation_reasons = ${execution.escalationReasons},
           is_current = true, error_code = null, finished_at = now()
         where id = ${runId}
       `;
@@ -251,7 +354,7 @@ export class PostgresIngestionRepository implements IngestionRepository {
     await this.sql.begin(async (tx) => {
       const runs = await tx<{ call_id: string }[]>`
         update analysis_runs
-        set status = 'failed', error_code = ${safeCode}, is_current = false, finished_at = now()
+        set status = 'failed', phase = 'failed', error_code = ${safeCode}, is_current = false, finished_at = now()
         where id = ${runId} and status = 'running'
         returning call_id
       `;
@@ -271,5 +374,102 @@ export class PostgresIngestionRepository implements IngestionRepository {
         where id = ${runs[0].call_id}
       `;
     });
+  }
+
+  async failAnalysisWithAttempts(runId: string, errorCode: string, attempts: AnalysisAttemptResult[]): Promise<void> {
+    await this.sql.begin(async (tx) => {
+      const offsets = await tx<{ next_attempt: number }[]>`
+        select coalesce(max(attempt_number), 0)::integer + 1 as next_attempt
+        from analysis_attempts where analysis_run_id = ${runId}
+      `;
+      let attemptNumber = offsets[0].next_attempt;
+      for (const attempt of attempts) {
+        await tx`
+          insert into analysis_attempts (
+            analysis_run_id, role, attempt_number, provider, model, status, result_json,
+            quality_signals, input_tokens, output_tokens, cached_input_tokens, cost_usd,
+            gateway_actual_cost_usd, estimated_cost_usd, cost_source, latency_ms, error_code, requested_at
+          ) values (
+            ${runId}, ${attempt.role}, ${attemptNumber}, ${attempt.provider}, ${attempt.model}, ${attempt.status},
+            ${attempt.status === "completed" ? tx.json(attempt.output) : null},
+            ${attempt.status === "completed" ? tx.json(attempt.qualitySignals) : null},
+            ${attempt.inputTokens}, ${attempt.outputTokens}, ${attempt.cachedInputTokens}, ${attempt.costUsd},
+            ${attempt.gatewayActualCostUsd}, ${attempt.estimatedCostUsd}, ${attempt.costSource},
+            ${attempt.latencyMs}, ${attempt.status === "failed" ? attempt.errorCode : null}, ${new Date(attempt.requestedAt)}
+          )
+        `;
+        attemptNumber += 1;
+      }
+    });
+    await this.failAnalysis(runId, errorCode);
+  }
+
+  async createBenchmarkRun(input: {
+    name: string; phase: string; selectionMethod: string; modelIds: string[]; metadata?: Record<string, unknown>;
+  }): Promise<string> {
+    const rows = await this.sql<{ id: string }[]>`
+      insert into benchmark_runs (
+        name, phase, status, rubric_version, prompt_version, schema_version,
+        selection_method, model_ids, metadata
+      ) values (
+        ${input.name}, ${input.phase}, 'running', ${this.options.rubricVersion}, ${this.options.promptVersion},
+        ${this.options.schemaVersion}, ${input.selectionMethod}, ${input.modelIds},
+        ${this.sql.json(JSON.parse(JSON.stringify(input.metadata ?? {})))}
+      ) returning id
+    `;
+    return rows[0].id;
+  }
+
+  async persistBenchmarkResult(
+    benchmarkRunId: string,
+    item: BenchmarkCall,
+    result: BenchmarkModelResult,
+  ): Promise<void> {
+    await this.sql`
+      insert into benchmark_results (
+        benchmark_run_id, call_id, transcript_id, provider, model, status,
+        result_json, quality_signals, input_tokens, output_tokens, cached_input_tokens,
+        cost_usd, gateway_actual_cost_usd, estimated_cost_usd, cost_source, latency_ms, error_code, requested_at
+      ) values (
+        ${benchmarkRunId}, ${item.callId}, ${item.transcriptId}, ${result.provider}, ${result.model}, ${result.status},
+        ${result.status === "completed" ? this.sql.json(result.output) : null},
+        ${result.status === "completed" ? this.sql.json(result.qualitySignals) : null},
+        ${result.inputTokens}, ${result.outputTokens}, ${result.cachedInputTokens}, ${result.costUsd},
+        ${result.gatewayActualCostUsd}, ${result.estimatedCostUsd}, ${result.costSource},
+        ${result.latencyMs}, ${result.status === "failed" ? result.errorCode : null}, ${new Date(result.requestedAt)}
+      )
+      on conflict (benchmark_run_id, call_id, model) do update set
+        status = excluded.status, result_json = excluded.result_json, quality_signals = excluded.quality_signals,
+        input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
+        cached_input_tokens = excluded.cached_input_tokens, cost_usd = excluded.cost_usd,
+        gateway_actual_cost_usd = excluded.gateway_actual_cost_usd,
+        estimated_cost_usd = excluded.estimated_cost_usd, cost_source = excluded.cost_source,
+        latency_ms = excluded.latency_ms, error_code = excluded.error_code, requested_at = excluded.requested_at
+    `;
+  }
+
+  async hasCompletedBenchmarkResult(callId: string, transcriptId: string, model: string): Promise<boolean> {
+    const rows = await this.sql`
+      select 1
+      from benchmark_results result
+      join benchmark_runs run on run.id = result.benchmark_run_id
+      where result.call_id = ${callId}
+        and result.transcript_id = ${transcriptId}
+        and result.model = ${model}
+        and result.status = 'completed'
+        and run.rubric_version = ${this.options.rubricVersion}
+        and run.prompt_version = ${this.options.promptVersion}
+        and run.schema_version = ${this.options.schemaVersion}
+      limit 1
+    `;
+    return rows.length > 0;
+  }
+
+  async finishBenchmarkRun(benchmarkRunId: string, status: "completed" | "failed", metadata?: Record<string, unknown>): Promise<void> {
+    await this.sql`
+      update benchmark_runs set status = ${status}, finished_at = now(),
+        metadata = metadata || ${this.sql.json(JSON.parse(JSON.stringify(metadata ?? {})))}
+      where id = ${benchmarkRunId}
+    `;
   }
 }
