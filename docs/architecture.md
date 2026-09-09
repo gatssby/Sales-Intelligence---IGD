@@ -1,0 +1,330 @@
+# Architecture
+
+## 1. Objetivo
+
+Construir uma plataforma de Sales Intelligence que consiga receber calls de vendedores da IGD vindas de múltiplas origens, analisar cada call com IA e transformar a análise em dados auditáveis e comparáveis.
+
+O sistema deve suportar múltiplos produtos, múltiplos times e múltiplas versões de rubrica/modelo sem exigir reescrita do pipeline.
+
+---
+
+## 2. Decisão principal
+
+A arquitetura será dividida em cinco camadas:
+
+1. **Sources** — Google Drive, transcrições, gravações e futuramente CRM/Calendly.
+2. **Orchestration** — n8n.
+3. **Domain/Data** — aplicação + PostgreSQL.
+4. **AI Evaluation** — camada provider-agnostic com saída estruturada.
+5. **Presentation** — dashboard web.
+
+O n8n não será fonte de verdade e não deverá conter as principais regras de avaliação comercial.
+
+---
+
+## 3. Ingestão do Google Drive
+
+### 3.1 Situação transitória
+
+Enquanto as calls permanecerem nas contas/pastas individuais dos vendedores, teremos uma tabela `source_locations` com, no mínimo:
+
+- `id`
+- `seller_id`
+- `provider`
+- `account_reference`
+- `folder_id`
+- `active`
+- `last_cursor` ou `last_synced_at`
+- `metadata`
+
+### 3.2 Estratégia de acesso preferida
+
+Ordem recomendada:
+
+1. **Curto prazo:** vendedores compartilham a pasta raiz relevante com uma conta única de integração.
+2. **Escala:** Google Workspace Service Account com Domain-Wide Delegation, caso TI/admin permita.
+3. **Estado final:** Shared Drive corporativo para artefatos de calls.
+
+Não manter uma credencial OAuth independente para cada vendedor se pudermos evitar.
+
+### 3.3 Polling
+
+Para robustez, usar **Schedule Trigger + consulta ao Drive** em vez de depender exclusivamente de um trigger por pasta.
+
+O workflow deve:
+
+1. carregar `source_locations` ativas;
+2. consultar arquivos novos/alterados desde o último checkpoint;
+3. registrar cada arquivo pelo ID do Google Drive;
+4. detectar o papel do artefato: gravação, transcrição, notas ou outro;
+5. atualizar checkpoint apenas após persistência bem-sucedida.
+
+Se a árvore possuir subpastas, o pipeline deve fazer descoberta explícita/recursiva ou usar o feed de mudanças apropriado. Não assumir que observar uma pasta raiz captura automaticamente alterações em toda a árvore.
+
+---
+
+## 4. Modelo de processamento
+
+### 4.1 Estados
+
+- `DISCOVERED`
+- `METADATA_READY`
+- `TRANSCRIPT_READY`
+- `ANALYSIS_QUEUED`
+- `ANALYZING`
+- `ANALYZED`
+- `BLOCKED`
+- `NEEDS_REVIEW`
+- `FAILED_RETRYABLE`
+- `FAILED_PERMANENT`
+
+### 4.2 Idempotência
+
+Nenhum workflow deve depender apenas de “não vi esse arquivo antes”.
+
+Chaves recomendadas:
+
+- artefato: `provider + external_file_id`
+- versão do artefato: `external_file_id + modified_time/checksum`
+- análise: `call_id + transcript_version + rubric_version + prompt_version + model_version`
+
+---
+
+## 5. Transcrição
+
+Prioridade:
+
+1. usar transcrição já existente;
+2. usar documento/nota exportável para texto;
+3. transcrever gravação apenas quando necessário.
+
+A transcrição normalizada deve permitir, quando disponível:
+
+- texto integral;
+- timestamps;
+- identificação de speaker;
+- origem;
+- idioma;
+- versão.
+
+Gravações não precisam ser copiadas para o banco. O banco deve armazenar metadados e referência ao artefato; cópia para storage próprio só deve ocorrer quando houver necessidade operacional clara.
+
+---
+
+## 6. Análise por IA
+
+### 6.1 Provider abstraction
+
+A aplicação não deve depender diretamente de um modelo específico. Criar interface do tipo:
+
+```ts
+interface CallAnalyzer {
+  analyze(input: AnalysisInput): Promise<AnalysisOutput>
+}
+```
+
+Adapters podem existir para OpenAI, Gemini ou outros providers.
+
+### 6.2 Structured output
+
+A IA deve produzir objeto validado por schema. Exemplo conceitual:
+
+```json
+{
+  "overall_score": 72,
+  "opportunity_quality": "qualified",
+  "call_status": "lost_by_closer",
+  "confidence": 0.88,
+  "strengths": [],
+  "critical_failures": [],
+  "objections": [],
+  "coaching_actions": [],
+  "dimensions": [],
+  "evidence": [],
+  "requires_human_review": false
+}
+```
+
+Campos da planilha do INSIDER devem ser preservados quando forem úteis, mas o novo schema precisa funcionar para outros produtos.
+
+### 6.3 Evidência
+
+Toda crítica relevante deve, quando possível, carregar:
+
+- timestamp;
+- speaker;
+- trecho curto ou referência;
+- afirmação sustentada pela evidência.
+
+O feedback não deve ser somente uma opinião textual genérica.
+
+### 6.4 Rubrica
+
+Estrutura sugerida:
+
+```text
+core rubric
+  + product rubric
+  + qualification rules
+  + compliance rules
+```
+
+Exemplos de dimensões globais:
+
+- abertura e rapport;
+- descoberta;
+- qualificação;
+- diagnóstico;
+- apresentação de valor;
+- oferta;
+- tratamento de objeções;
+- fechamento;
+- próximos passos;
+- aderência a processo/política.
+
+Produto pode adicionar ou alterar pesos e critérios.
+
+---
+
+## 7. Banco de dados
+
+Entidades principais:
+
+- `users`
+- `teams`
+- `sellers`
+- `products`
+- `source_locations`
+- `calls`
+- `call_artifacts`
+- `transcripts`
+- `rubrics`
+- `rubric_versions`
+- `prompt_versions`
+- `analysis_runs`
+- `analysis_results`
+- `analysis_dimensions`
+- `analysis_evidence`
+- `human_reviews`
+
+### Princípio de histórico
+
+Reanálise nunca sobrescreve a anterior. O dashboard pode apontar para a execução considerada `current`, mas todas as execuções permanecem auditáveis.
+
+---
+
+## 8. Dashboard MVP
+
+### Executivo
+
+- calls descobertas;
+- calls analisadas;
+- cobertura da IA;
+- taxa de venda/conversão quando disponível;
+- média de score;
+- qualidade das oportunidades;
+- principais causas de perda;
+- principais falhas dos closers;
+- evolução temporal.
+
+### Vendedor
+
+- score médio;
+- tendência;
+- dimensões mais fortes/fracas;
+- padrões recorrentes;
+- calls recentes;
+- coaching recomendado.
+
+### Call
+
+- metadados;
+- transcrição;
+- score;
+- feedback;
+- evidências/timestamps;
+- objeções;
+- falhas críticas;
+- versões de modelo/rubrica/prompt;
+- histórico de reanálises/revisões humanas.
+
+### Admin
+
+- vendedores;
+- produtos;
+- fontes de Drive;
+- rubricas;
+- modelos;
+- status de ingestão;
+- erros/bloqueios.
+
+---
+
+## 9. O que reaproveitar da planilha INSIDER
+
+A planilha já mostra conceitos que devem continuar no produto:
+
+- uma linha por call;
+- separação entre qualidade da oportunidade e qualidade da condução;
+- nota do closer;
+- evidência;
+- minuto crítico;
+- análise de levantada;
+- status de arquivo/material;
+- tokens/custo/modelo;
+- histórico JSON versionado;
+- mapeamento de aliases dos vendedores;
+- indicadores de cobertura da IA.
+
+Não migrar neste primeiro momento toda a parte de produtividade diária/CRM. O MVP deve permanecer focado em **Sales Call Intelligence**.
+
+---
+
+## 10. Validação da IA
+
+Antes de transformar scores em KPI gerencial, criar uma pequena base “golden set” revisada por humanos.
+
+Sugestão inicial:
+
+- calls de vários closers;
+- calls ganhas e perdidas;
+- oportunidades boas e ruins;
+- produtos diferentes;
+- casos claros e casos ambíguos.
+
+Comparar IA vs. avaliação humana por dimensão e revisar prompt/rubrica.
+
+A qualidade do avaliador é um produto do sistema e deve ser medida como tal.
+
+---
+
+## 11. Segurança
+
+Transcrições contêm PII e informações comerciais sensíveis.
+
+Regras mínimas:
+
+- nunca versionar transcrições reais no GitHub;
+- nunca versionar tokens/credentials/IDs sensíveis;
+- acesso ao dashboard por autenticação;
+- autorização por papel;
+- logs sem conteúdo integral de calls;
+- política de retenção;
+- rastrear quem reanalisou/revisou uma call;
+- secrets em secret manager/env seguro.
+
+---
+
+## 12. Próxima implementação
+
+Primeiro vertical slice:
+
+1. criar banco;
+2. cadastrar 1 vendedor + 1 pasta Drive + 1 produto;
+3. descobrir uma transcrição;
+4. persistir a call;
+5. analisar com schema estruturado;
+6. persistir resultado/evidências;
+7. exibir uma página de detalhe da call.
+
+Somente depois expandir para todos os vendedores e dashboards agregados.
