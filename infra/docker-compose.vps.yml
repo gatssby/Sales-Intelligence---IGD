@@ -21,6 +21,7 @@ services:
     build:
       context: ${SALES_APP_SOURCE:-./current}
       dockerfile: Dockerfile
+      target: runner
     image: sales-intelligence-web:current
     container_name: sales-intelligence-web
     restart: unless-stopped
