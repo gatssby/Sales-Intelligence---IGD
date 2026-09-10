@@ -58,19 +58,13 @@ Os caminhos existentes são:
 
 Nos comandos CLI com `--apply`, defina `AUTH_ACTOR_EMAIL` para uma conta Admin ativa. A validação de `spend:execute` ocorre antes de criar job, reivindicar execução ou chamar provider. Dry-runs permanecem sem custo e não exigem ator.
 
-## Transição segura do Basic Auth
+## Basic Auth legado aposentado
 
-Esta entrega não altera nginx nem produção.
+Em 2026-09-09, após validação da autenticação individual, das rotas privadas, das APIs, dos papéis, dos escopos e dos bloqueios de gasto, as diretivas de Basic Auth foram removidas do virtual host de `sales-igd.com.br`. A autenticação individual da aplicação passou a ser a única camada de acesso dos usuários.
 
-1. concluir a autenticação da aplicação e revisar o PR;
-2. aplicar a migração em ambiente isolado;
-3. criar controladamente o primeiro Admin;
-4. validar login, logout, troca de senha, papéis, escopos e bloqueios com dados sintéticos;
-5. opcionalmente manter Basic Auth + login da aplicação durante uma janela de transição;
-6. remover Basic Auth somente em PR/deploy separado e explicitamente aprovado;
-7. confirmar login individual antes de encerrar a janela de rollback.
+O arquivo `htpasswd` legado e uma cópia timestampada da configuração nginx anterior permanecem na VPS somente para rollback operacional. Eles não devem ser reutilizados como acesso normal nem ter seu conteúdo copiado para logs, documentação, tickets ou Git.
 
-Rollback: mantenha uma cópia protegida da configuração nginx anterior, preserve o arquivo `htpasswd`, restaure o release imutável anterior se o login falhar e não apague as tabelas de autenticação. Elas são aditivas e não modificam o histórico de calls/análises.
+Rollback: restaure a cópia nginx anterior, valide com `nginx -t` e faça reload gracioso. Não apague nem reverta as tabelas de autenticação da aplicação; elas preservam usuários, sessões, escopos e auditoria.
 
 ## Validação local
 

@@ -19,9 +19,9 @@ A entrada controlada de calls agora é desacoplada da origem e deduplicada por `
 
 O procedimento específico para validar o JSONL, importar somente o catálogo e construir a fila fair do primeiro lote INSIDER está em [docs/insider-first-batch-runbook.md](docs/insider-first-batch-runbook.md).
 
-O deploy em `sales-igd.com.br` usa Next.js em container, nginx com HTTPS e autenticação básica, mantendo PostgreSQL e a porta do app limitados ao loopback da VPS. O procedimento de atualização e rollback está em [docs/production-runbook.md](docs/production-runbook.md).
+O deploy em `sales-igd.com.br` usa Next.js em container e nginx com HTTPS, mantendo PostgreSQL e a porta do app limitados ao loopback da VPS. O procedimento de atualização e rollback está em [docs/production-runbook.md](docs/production-runbook.md).
 
-A autenticação individual e o controle de acesso por papel/escopo estão documentados em [docs/authentication-access-control.md](docs/authentication-access-control.md). A camada da aplicação é aditiva: o Basic Auth do nginx permanece até uma transição futura, separada e explicitamente aprovada.
+A autenticação individual da aplicação é a camada principal de acesso. O controle por papel/escopo e a aposentadoria do Basic Auth legado do nginx estão documentados em [docs/authentication-access-control.md](docs/authentication-access-control.md).
 
 ## Escopo inicial
 

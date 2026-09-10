@@ -1,8 +1,8 @@
-# ADR 0003 — Autenticação da aplicação e controle de acesso
+# ADR 0004 — Autenticação da aplicação e controle de acesso
 
 ## Status
 
-Aceita para implementação; transição de produção ainda não aprovada.
+Aceita; transição de produção concluída em 2026-09-09.
 
 ## Contexto
 
@@ -24,4 +24,4 @@ O dashboard nasceu protegido por uma única credencial no nginx. Esse controle n
 
 Novas páginas e APIs devem receber um contexto de autorização e usar capacidades explícitas. Novos caminhos que possam aumentar custos devem passar por `spend:execute` antes de criar job ou chamar provider. A matriz poderá ganhar capacidades sem reescrever verificações de papel em cada tela.
 
-O Basic Auth do nginx permanece como camada externa. Sua remoção não faz parte desta decisão nem desta implementação e exige etapa separada, aprovação explícita e plano de rollback.
+Após uma transição operacional separada e explicitamente aprovada, o Basic Auth legado do nginx foi aposentado. A autenticação individual da aplicação é a camada principal. O arquivo `htpasswd` e a configuração nginx anterior permanecem protegidos na VPS somente para rollback operacional.

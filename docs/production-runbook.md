@@ -4,7 +4,7 @@
 
 ```text
 Internet
-  -> nginx :443 (TLS + Basic Auth)
+  -> nginx :443 (TLS reverse proxy)
   -> 127.0.0.1:3100
   -> sales-intelligence-web :3000
   -> postgres :5432 on the private Compose network
@@ -20,15 +20,10 @@ Production paths on `oracle-vps`:
 - `/opt/sales-intelligence/current`: current immutable release symlink;
 - `/opt/sales-intelligence/releases/<commit>`: release contents;
 - `/etc/nginx/sites-available/sales-igd.com.br`: reverse proxy;
-- `/etc/nginx/.htpasswd-sales-igd`: Basic Auth hash.
+- `/etc/nginx/.htpasswd-sales-igd`: legacy Basic Auth file, retained only for rollback;
+- `/etc/nginx/sites-available/sales-igd.com.br.before-basic-auth-removal.<timestamp>.bak`: protected pre-removal nginx backup.
 
-The initial Basic Auth username and generated password are stored only in a root-readable file on the VPS. Retrieve them from an authorized terminal with:
-
-```bash
-ssh oracle-vps 'sudo cat /root/sales-igd-basic-auth.txt'
-```
-
-Do not paste this credential into the repository, issue tracker or deployment logs. The plaintext handoff file is `root:root 600`; nginx reads only the password hash from a separate `root:www-data 640` file.
+Basic Auth is not active. Do not read, rotate, delete or reuse the legacy password files during routine operations. Their contents must never be copied into the repository, issue tracker, documentation or deployment logs.
 
 ## Deploy an immutable validated ref
 
@@ -68,13 +63,16 @@ The worker uses renewable PostgreSQL leases, heartbeat rows and global budget re
 ```bash
 ssh oracle-vps 'cd /opt/sales-intelligence && sudo docker compose ps'
 curl -I https://sales-igd.com.br
+curl -I https://sales-igd.com.br/login
 curl -I https://www.sales-igd.com.br
 ```
 
 Expected behavior:
 
-- the primary domain returns `401` without credentials;
-- valid credentials return the dashboard;
+- `/login` returns `200` without a `WWW-Authenticate: Basic` header;
+- unauthenticated dashboard pages redirect to `/login`;
+- unauthenticated data and spend APIs return `401`;
+- individual application credentials create the session used by protected routes;
 - `www` redirects to `https://sales-igd.com.br`;
 - both containers report healthy;
 - host ports 3100 and 5432 listen only on `127.0.0.1`.
@@ -85,11 +83,17 @@ The system `certbot.timer` performs automatic renewal. A non-destructive renewal
 ssh oracle-vps 'sudo certbot renew --dry-run --cert-name sales-igd.com.br'
 ```
 
-## Future transition from shared Basic Auth
+## Retired shared Basic Auth
 
-Application authentication does not automatically replace the nginx Basic Auth layer. Follow the gated transition in [authentication-access-control.md](authentication-access-control.md): migrate the schema, bootstrap the first administrator, validate individual accounts in an isolated environment, optionally run both layers, and remove nginx Basic Auth only in a separate explicitly approved change.
+The shared nginx Basic Auth was retired on 2026-09-09 after application login, session invalidation, page/API authorization, role scopes and spend guards were validated. Application authentication is now the primary access layer.
 
-If application login fails during a future transition, restore the previous immutable release and keep `/etc/nginx/.htpasswd-sales-igd` enabled. Database authentication tables are additive and do not require deleting operational or analysis data for rollback.
+For an immediate operational rollback, select the exact timestamped backup created before removal and restore it only after inspecting the path:
+
+```bash
+ssh oracle-vps 'sudo cp --preserve=all /etc/nginx/sites-available/sales-igd.com.br.before-basic-auth-removal.<timestamp>.bak /etc/nginx/sites-available/sales-igd.com.br && sudo nginx -t && sudo systemctl reload nginx'
+```
+
+The legacy `/etc/nginx/.htpasswd-sales-igd` file remains in place for that rollback. Do not delete application authentication tables or operational data.
 
 ## Rollback
 
