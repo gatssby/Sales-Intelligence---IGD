@@ -189,11 +189,19 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
       insert into ai_budget_accounts (id,limit_usd,safety_reserve_usd,external_spend_baseline_usd)
       values ('sales-intelligence-igd',15,0.1,5.9)
     `;
-    assert.equal((await access.getAiSpendSummary(admin, {
+    const seller = await sql<{ id: string }[]>`select id from sellers order by created_at limit 1`;
+    const pending = await sql<{ id: string }[]>`
+      insert into calls (seller_id,external_key,product_key,status)
+      values (${seller[0].id},'synthetic-admin-spend-pending','alpha','metadata_ready') returning id
+    `;
+    await sql`insert into analysis_jobs (call_id,status,stage) values (${pending[0].id},'awaiting_transcript','transcript')`;
+    const summary = await access.getAiSpendSummary(admin, {
       accountId: "sales-intelligence-igd",
       strategyVersion: "insider-cost-quality-v1",
       confidencePolicyVersion: "insider-confidence-v2",
-    })).budgetUsd, 15);
+    });
+    assert.equal(summary.budgetUsd, 15);
+    assert.equal(summary.eligibleBacklog, 1);
     for (const user of [leader, supervisor, salesOps]) {
       await assert.rejects(() => access.getAiSpendSummary(user, {
         accountId: "sales-intelligence-igd",

@@ -373,7 +373,7 @@ export class ScopedSalesRepository {
         select count(*)::integer eligible
         from analysis_jobs j
         where j.status in ('ready','retry_wait','awaiting_transcript','paused_budget')
-          and not (j.status='awaiting_transcript' and j.last_error_code like 'transcript_access%')
+          and not (j.status='awaiting_transcript' and coalesce(j.last_error_code,'') like 'transcript_access%')
           and not exists (
             select 1 from analysis_runs ar
             where ar.call_id=j.call_id and ar.status='completed' and ar.is_current=true
