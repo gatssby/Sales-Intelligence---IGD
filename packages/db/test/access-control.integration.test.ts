@@ -26,10 +26,13 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
     await sql.unsafe(await readFile(path.join(migrationsDir, file), "utf8"));
   }
   await sql.unsafe(`
-    truncate table admin_audit_events, auth_login_attempts, auth_sessions, user_product_scopes,
+    truncate table drive_discovery_heartbeats, drive_discovery_state, drive_document_sources,
+      drive_documents, call_participants, team_leaderships, person_team_memberships,
+      ai_cost_reservations, analysis_request_reservations, ai_budget_accounts,
+      person_aliases, admin_audit_events, auth_login_attempts, auth_sessions, user_product_scopes,
       user_team_scopes, user_credentials, app_users, ingestion_events, ingestion_runs,
       call_sources, analysis_runs, transcripts, call_artifacts, calls, source_locations,
-      sellers, teams, products restart identity cascade
+      sellers, people, teams, fronts, products restart identity cascade
   `);
 
   await sql`
@@ -96,6 +99,10 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
       )
     `;
   }
+  await sql`
+    update calls set team_id=${northId}
+    where customer_name='Customer Alpha East Synthetic'
+  `;
 
   const auth = new PostgresAuthRepository(sql);
   const bootstrapPassword = generateTemporaryPassword();
@@ -146,17 +153,19 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
   });
 
   await t.test("Leader reads only assigned teams, including aggregates and direct IDs", async () => {
-    assert.deepEqual((await access.listCalls(leader)).map((call) => call.product_key), ["alpha"]);
-    assert.equal((await access.getMetrics(leader)).analyzed_calls, 1);
-    assert.equal((await access.getMetrics(leader)).average_score, "80.00");
+    const visible = await access.listCalls(leader);
+    assert.deepEqual(visible.map((call) => call.product_key), ["alpha", "alpha"]);
+    assert.deepEqual(new Set(visible.map((call) => call.team_name)), new Set(["North"]), "Call snapshot controls historical team scope");
+    assert.equal((await access.getMetrics(leader)).analyzed_calls, 2);
+    assert.equal((await access.getMetrics(leader)).average_score, "77.50");
     assert.equal(await access.getCallById(leader, callIds.beta), null, "URL/ID tampering must not return another team");
-    assert.equal((await access.listCallCatalog(leader, { page: 1, pageSize: 50 })).total, 1);
+    assert.equal((await access.listCallCatalog(leader, { page: 1, pageSize: 50 })).total, 2);
     assert.equal(await access.getCallTranscript(leader, callIds.beta), null, "transcript lazy path applies the same scope");
   });
 
   await t.test("Supervisor reads all teams of assigned products and no other product", async () => {
     assert.deepEqual((await access.listCalls(supervisor)).map((call) => call.product_key), ["alpha", "alpha"]);
-    assert.equal((await access.getMetrics(supervisor)).team_count, 2);
+    assert.equal((await access.getMetrics(supervisor)).team_count, 1);
     assert.equal(await access.getCallById(supervisor, callIds.beta), null);
   });
 

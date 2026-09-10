@@ -7,6 +7,7 @@ export * from "./access";
 export * from "./ai-spend";
 export * from "./auth";
 export * from "./budget";
+export * from "./drive-discovery";
 export * from "./lifecycle";
 
 export type RepositoryOptions = {

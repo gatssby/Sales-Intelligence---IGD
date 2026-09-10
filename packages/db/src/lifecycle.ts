@@ -27,6 +27,8 @@ export type ClaimedTranscriptJob = {
   callId: string;
   transcriptFileId: string;
   transcriptUrl: string | null;
+  transcriptMimeType: string | null;
+  transcriptResourceKey: string | null;
   workerId: string;
   attemptCount: number;
 };
@@ -62,6 +64,7 @@ export class PostgresOfficialAnalysisLifecycle {
           else null
         end
       from calls c
+      where c.analysis_eligible=true
       on conflict (call_id) do update set
         status=case
           when excluded.status='ready' and analysis_jobs.status in ('awaiting_transcript','failed_terminal') then 'ready'
@@ -84,24 +87,31 @@ export class PostgresOfficialAnalysisLifecycle {
     return this.sql.begin(async (tx) => {
       const rows = await tx<{
         job_id: string; call_id: string; transcript_file_id: string;
-        transcript_url: string | null; attempt_count: number;
+        transcript_url: string | null; transcript_mime_type: string | null;
+        transcript_resource_key: string | null; attempt_count: number;
       }[]>`
-        select j.id job_id, j.call_id, c.transcript_file_id, source.transcript_url, j.attempt_count
+        select j.id job_id, j.call_id, c.transcript_file_id, source.transcript_url,
+          coalesce(source.transcript_mime_type,d.mime_type) transcript_mime_type,
+          coalesce(source.transcript_resource_key,d.raw_metadata->>'resource_key') transcript_resource_key,
+          j.attempt_count
         from analysis_jobs j
         join calls c on c.id=j.call_id
         join sellers s on s.id=c.seller_id
         left join lateral (
-          select transcript_url from call_sources
+          select transcript_url,metadata->>'mime_type' transcript_mime_type,metadata->>'resource_key' transcript_resource_key
+          from call_sources
           where call_id=c.id and transcript_file_id=c.transcript_file_id
           order by last_seen_at desc limit 1
         ) source on true
+        left join drive_documents d on d.google_file_id=c.transcript_file_id
         where j.status='awaiting_transcript' and j.stage='transcript'
           and (j.retry_at is null or j.retry_at <= now())
           and c.transcript_file_id is not null
-        order by s.active desc,
+        order by coalesce(c.started_at, c.created_at) desc,
+          s.active desc,
           (lower(coalesce(c.product_key,s.product,''))='insider' and lower(coalesce(s.role,'')) like '%closer%') desc,
           (select max(j2.last_transcript_attempt_at) from analysis_jobs j2 join calls c2 on c2.id=j2.call_id where c2.seller_id=s.id) asc nulls first,
-          coalesce(c.started_at, c.created_at) desc, c.id
+          c.id
         for update of j, s skip locked
         limit 1
       `;
@@ -119,6 +129,8 @@ export class PostgresOfficialAnalysisLifecycle {
         callId: job.call_id,
         transcriptFileId: job.transcript_file_id,
         transcriptUrl: job.transcript_url,
+        transcriptMimeType: job.transcript_mime_type,
+        transcriptResourceKey: job.transcript_resource_key,
         workerId: input.workerId,
         attemptCount,
       };
@@ -225,10 +237,11 @@ export class PostgresOfficialAnalysisLifecycle {
             select 1 from analysis_runs current
             where current.call_id=c.id and current.status='completed' and current.is_current=true
           )
-        order by s.active desc,
+        order by coalesce(c.started_at, c.created_at) desc,
+          s.active desc,
           (lower(coalesce(c.product_key,s.product,''))='insider' and lower(coalesce(s.role,'')) like '%closer%') desc,
           (select max(j2.last_claimed_at) from analysis_jobs j2 join calls c2 on c2.id=j2.call_id where c2.seller_id=s.id) asc nulls first,
-          coalesce(c.started_at, c.created_at) desc, c.id
+          c.id
         for update of j, s skip locked
         limit 1
       `;

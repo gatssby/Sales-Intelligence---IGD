@@ -81,7 +81,7 @@ function scopePredicate(sql: Sql, context: AuthorizationContext): PendingQuery<n
   if (context.scope.kind === "GLOBAL") return sql`true`;
   if (context.scope.kind === "TEAMS") {
     if (context.scope.teamIds.length === 0) return sql`false`;
-    return sql`s.team_id in ${sql(context.scope.teamIds)}`;
+    return sql`coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id) in ${sql(context.scope.teamIds)}`;
   }
   if (context.scope.productKeys.length === 0) return sql`false`;
   return sql`lower(c.product_key) in ${sql(context.scope.productKeys)}`;
@@ -101,7 +101,7 @@ export class ScopedSalesRepository {
       select
         count(*)::integer as analyzed_calls,
         count(distinct c.seller_id)::integer as seller_count,
-        count(distinct s.team_id)::integer as team_count,
+        count(distinct coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id))::integer as team_count,
         count(distinct lower(c.product_key))::integer as product_count,
         round(avg(ar.score), 2) as average_score
       from analysis_runs ar
@@ -169,14 +169,14 @@ export class ScopedSalesRepository {
     const predicate = scopePredicate(this.sql, context);
     return this.sql<ScopedCallRow[]>`
       select
-        c.id, c.customer_name, s.display_name as seller_name, s.team_id,
+        c.id, c.customer_name, s.display_name as seller_name, coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id) team_id,
         tteam.display_name as team_name, c.product_key, c.started_at, c.duration_seconds,
         ar.score, ar.result_json, ar.rubric_version,
         ar.prompt_version, ar.model, coalesce(ar.finished_at, ar.created_at) as analyzed_at
       from analysis_runs ar
       join calls c on c.id = ar.call_id
       join sellers s on s.id = c.seller_id
-      left join teams tteam on tteam.id = s.team_id
+      left join teams tteam on tteam.id = coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
       where ar.status = 'completed' and ar.is_current = true and ar.score is not null and ${predicate}
       order by coalesce(ar.finished_at, ar.created_at) desc
       limit ${Math.max(1, Math.min(limit, 100))}
@@ -188,14 +188,14 @@ export class ScopedSalesRepository {
     const predicate = scopePredicate(this.sql, context);
     const rows = await this.sql<ScopedCallRow[]>`
       select
-        c.id, c.customer_name, s.display_name as seller_name, s.team_id,
+        c.id, c.customer_name, s.display_name as seller_name, coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id) team_id,
         tteam.display_name as team_name, c.product_key, c.started_at, c.duration_seconds,
         ar.score, ar.result_json, ar.rubric_version,
         ar.prompt_version, ar.model, coalesce(ar.finished_at, ar.created_at) as analyzed_at
       from analysis_runs ar
       join calls c on c.id = ar.call_id
       join sellers s on s.id = c.seller_id
-      left join teams tteam on tteam.id = s.team_id
+      left join teams tteam on tteam.id = coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
       where c.id = ${callId}
         and ar.status = 'completed' and ar.is_current = true and ${predicate}
       limit 1
@@ -221,7 +221,7 @@ export class ScopedSalesRepository {
           ar.rubric_version, ar.prompt_version, ar.schema_version, ar.confidence_policy_version,
           ar.latency_ms, ar.cost_usd, ar.human_review_requested, ar.unscorable_reason
         from calls c join sellers s on s.id=c.seller_id
-        left join teams t on t.id=s.team_id
+        left join teams t on t.id=coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
         left join analysis_jobs j on j.call_id=c.id
         left join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ar.is_current=true
         where ${predicate}
@@ -249,7 +249,7 @@ export class ScopedSalesRepository {
         ar.rubric_version, ar.prompt_version, ar.schema_version, ar.confidence_policy_version,
         ar.latency_ms, ar.cost_usd, ar.human_review_requested, ar.unscorable_reason
       from calls c join sellers s on s.id=c.seller_id
-      left join teams t on t.id=s.team_id
+      left join teams t on t.id=coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
       left join analysis_jobs j on j.call_id=c.id
       left join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ar.is_current=true
       where c.id=${callId} and ${predicate} limit 1

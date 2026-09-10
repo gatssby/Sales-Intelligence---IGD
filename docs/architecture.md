@@ -13,20 +13,20 @@ O sistema deve suportar múltiplos produtos, múltiplos times e múltiplas vers�
 A arquitetura será dividida em cinco camadas:
 
 1. **Sources** — Google Drive, transcrições, gravações e futuramente CRM/Calendly.
-2. **Orchestration** — n8n.
+2. **Discovery/Orchestration** — scanner durável da aplicação; n8n permanece opcional para integrações externas futuras.
 3. **Domain/Data** — aplicação + PostgreSQL.
 4. **AI Evaluation** — camada provider-agnostic com saída estruturada.
 5. **Presentation** — dashboard web.
 
-O n8n não será fonte de verdade e não deverá conter as principais regras de avaliação comercial.
+PostgreSQL permanece a fonte de verdade. Discovery, attribution, reconciliação e fila ficam em código versionado; n8n não participa do fluxo definitivo do Drive.
 
 ---
 
 ## 3. Ingestão do Google Drive
 
-### 3.1 Situação transitória
+### 3.1 Sources explícitas e catálogo pré-Call
 
-Enquanto as calls permanecerem nas contas/pastas individuais dos vendedores, teremos uma tabela `source_locations` com, no mínimo:
+`source_locations` registra roots do Drive. `Shared with me` é inventário de candidatos, não autorização automática para ingerir toda a conta. `drive_documents` cataloga cada arquivo pelo ID estável antes de uma Call existir.
 
 - `id`
 - `seller_id`
@@ -47,17 +47,18 @@ Ordem recomendada:
 
 Não manter uma credencial OAuth independente para cada vendedor se pudermos evitar.
 
-### 3.3 Polling
+### 3.3 Bootstrap, incremental e recuperação
 
-Para robustez, usar **Schedule Trigger + consulta ao Drive** em vez de depender exclusivamente de um trigger por pasta.
+O scanner captura um start page token, percorre roots habilitadas recursivamente e depois consome a Changes API com cursor PostgreSQL. Um full scan periódico repara desvios. Leases por scanner/source e unique constraints tornam restart e concorrência idempotentes.
 
-O workflow deve:
+O scanner deve:
 
-1. carregar `source_locations` ativas;
-2. consultar arquivos novos/alterados desde o último checkpoint;
+1. inventariar roots candidatas sem habilitá-las;
+2. carregar `source_locations` habilitadas;
 3. registrar cada arquivo pelo ID do Google Drive;
-4. detectar o papel do artefato: gravação, transcrição, notas ou outro;
-5. atualizar checkpoint apenas após persistência bem-sucedida.
+4. classificar deterministicamente e resolver attribution/data/organização;
+5. reconciliar `call_sources` pela identidade canônica;
+6. avançar o cursor apenas após persistência bem-sucedida.
 
 Se a árvore possuir subpastas, o pipeline deve fazer descoberta explícita/recursiva ou usar o feed de mudanças apropriado. Não assumir que observar uma pasta raiz captura automaticamente alterações em toda a árvore.
 

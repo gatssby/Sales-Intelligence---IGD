@@ -238,7 +238,9 @@ async function fetchClaimedTranscript(job: ClaimedTranscriptJob): Promise<"ready
   if (!transcriptFetcher) throw new Error("transcript_fetcher_unavailable");
   let text: string;
   try {
-    text = await transcriptFetcher.fetch(job.transcriptFileId, job.transcriptUrl ?? undefined);
+    text = job.transcriptMimeType
+      ? await transcriptFetcher.fetchByMimeType(job.transcriptFileId, job.transcriptMimeType, job.transcriptResourceKey)
+      : await transcriptFetcher.fetch(job.transcriptFileId, job.transcriptUrl ?? undefined);
   } catch (error) {
     const errorCode = error instanceof Error ? error.message : "transcript_fetch_failed";
     if (errorCode === "google_authentication_required") {

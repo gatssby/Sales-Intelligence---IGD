@@ -169,6 +169,11 @@ integration("global budget and official lifecycle remain safe across workers and
         insert into calls (seller_id, external_key, product_key, status, transcript_file_id)
         values (${sellers[0].id}, 'synthetic-transcript-fetch', 'insider', 'metadata_ready', 'syntheticTranscript9901') returning id
       `;
+      await sql`
+        insert into drive_documents(google_file_id,mime_type,name,document_type,transcript_status,raw_metadata)
+        values ('syntheticTranscript9901','text/vtt','Synthetic transcript','transcript','identified',
+          ${sql.json({ resource_key: "synthetic-resource-key" })})
+      `;
       const lifecycle = new PostgresOfficialAnalysisLifecycle(sql);
       await lifecycle.syncCatalog();
       const claims = await Promise.all([
@@ -178,6 +183,8 @@ integration("global budget and official lifecycle remain safe across workers and
       const claimed = claims.find(Boolean);
       assert.equal(claims.filter(Boolean).length, 1);
       assert.equal(claimed?.callId, calls[0].id);
+      assert.equal(claimed?.transcriptMimeType, "text/vtt");
+      assert.equal(claimed?.transcriptResourceKey, "synthetic-resource-key");
 
       await sql`
         insert into transcripts (call_id, raw_text, normalized_text, content_sha256, source)

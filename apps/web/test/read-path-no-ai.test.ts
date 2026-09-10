@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const files = [
   "../app/api/progress/route.ts",
   "../app/api/admin/ai-spend/route.ts",
+  "../app/api/admin/drive-discovery/route.ts",
   "../app/api/calls/route.ts",
   "../app/api/calls/[id]/route.ts",
   "../app/api/calls/[id]/transcript/route.ts",

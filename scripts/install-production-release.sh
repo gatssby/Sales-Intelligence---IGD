@@ -31,7 +31,7 @@ fi
 install -m 0644 "${release_dir}/infra/docker-compose.vps.yml" "${compose_file}.new"
 docker compose -f "${compose_file}.new" config --quiet
 
-SALES_APP_SOURCE="${release_dir}" docker compose -f "${compose_file}.new" build web worker
+SALES_APP_SOURCE="${release_dir}" docker compose -f "${compose_file}.new" build web worker discovery
 
 if [[ -f "${compose_file}" ]]; then
   cp -a "${compose_file}" "${compose_file}.previous"

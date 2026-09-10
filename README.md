@@ -17,6 +17,8 @@ Para abrir a demo localmente, siga [docs/demo-runbook.md](docs/demo-runbook.md).
 
 A entrada controlada de calls agora é desacoplada da origem e deduplicada por `transcript_file_id`. O contrato e os comandos seguros estão em [docs/manual-call-ingestion.md](docs/manual-call-ingestion.md); a decisão arquitetural está registrada em [ADR 0002](docs/decisions/0002-source-agnostic-call-ingestion.md).
 
+A descoberta autônoma do Google Drive usa o mesmo OAuth renovável, registra documentos antes de criar calls e reconcilia origens legadas pelo mesmo `transcript_file_id`. O fluxo, os defaults seguros e a operação estão em [docs/drive-discovery.md](docs/drive-discovery.md) e no [ADR 0007](docs/decisions/0007-drive-discovery-and-temporal-attribution.md).
+
 O procedimento específico para validar o JSONL, importar somente o catálogo e construir a fila fair do primeiro lote INSIDER está em [docs/insider-first-batch-runbook.md](docs/insider-first-batch-runbook.md).
 
 O deploy em `sales-igd.com.br` usa Next.js em container e nginx com HTTPS, mantendo PostgreSQL e a porta do app limitados ao loopback da VPS. O procedimento de atualização e rollback está em [docs/production-runbook.md](docs/production-runbook.md).
@@ -42,12 +44,13 @@ A planilha **Central de Auditoria de Calls — INSIDER** será usada como refer�
 Google Drive(s)
       │
       ▼
-    n8n  ── descoberta / ingestão / retries
+Drive Discovery ── Shared with me / roots / Changes API
       │
       ▼
 PostgreSQL ── source of truth
       │
-      ├── calls / sellers / products
+      ├── drive_documents / people / organização temporal
+      ├── calls / call_sources / products
       ├── artifacts / transcripts
       ├── analysis_runs / evidence
       └── prompt + rubric versions
@@ -61,16 +64,16 @@ Web App / Dashboard
 
 ### Responsabilidades
 
-- **n8n:** orquestração, polling do Drive, obtenção de arquivos, disparo de jobs e retries.
+- **Drive discovery:** daemon idempotente, OAuth renovável, catálogo pré-Call, attribution e reconciliação.
 - **PostgreSQL:** fonte única de verdade e controle de idempotência/status.
 - **AI layer:** provider-agnostic, saída validada por schema e rubricas versionadas.
 - **Web app:** dashboard, filtros, detalhe das calls, coaching e administração.
 
 ## Google Drive
 
-### Fase atual — fontes distribuídas
+### Fontes distribuídas
 
-Cada pasta/origem poderá ser cadastrada como uma `source_location` associada a um vendedor. Nesta fase não existe discovery automático: lotes manuais passam pelo mesmo limite canônico que um futuro adaptador do Drive usará.
+Cada pasta/origem relevante é cadastrada como `source_location`. O scanner inventaria novas pastas compartilhadas como candidates, percorre apenas roots habilitadas e mantém compatibilidade com os lotes manuais legados.
 
 Preferência imediata: compartilhar as pastas relevantes com uma única conta de integração, em vez de manter uma credencial OAuth diferente por vendedor.
 
@@ -122,9 +125,6 @@ packages/
   ai/                  # providers, prompts, schemas e validação
 config/
   products/            # rubricas versionadas por produto
-n8n/
-  workflows/           # exports JSON versionados
-  docs/
 docs/
   architecture.md
   data-model.md
@@ -134,7 +134,7 @@ infra/
 
 ## Princípios
 
-- n8n não é banco nem source of truth.
+- PostgreSQL é o source of truth; n8n não é dependência do discovery definitivo.
 - lógica crítica fica em código versionado.
 - prompts/rubricas têm versão explícita.
 - toda conclusão relevante da IA deve apontar evidência da call quando possível.

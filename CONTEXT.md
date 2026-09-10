@@ -4,6 +4,14 @@ O domínio transforma transcrições de calls comerciais em avaliações auditá
 
 ## Calls e transcrições
 
+**Drive Source**:
+Pasta-raiz do Google Drive explicitamente habilitada para descoberta. Um item em Compartilhados comigo é apenas candidato a Drive Source até aprovação.
+_Evite_: pasta de vendedor, árvore do banco
+
+**Drive Document**:
+Arquivo catalogado pelo ID estável do Google antes de necessariamente ser reconhecido como Transcript ou vinculado a uma Call.
+_Evite_: Call, nome do arquivo, link do CRM
+
 **Call**:
 Conversa comercial canônica identificada, neste MVP, pelo `transcript_file_id` do Google Drive. Uma Call pode ter múltiplas origens sem mudar de identidade.
 _Evite_: reunião, linha do CRM
@@ -11,6 +19,30 @@ _Evite_: reunião, linha do CRM
 **Transcript**:
 Versão persistida do conteúdo textual de uma Call, identificada também por hash do conteúdo. Uma Call pode ganhar novas versões de Transcript sem apagar as anteriores.
 _Evite_: notas, documento
+
+**Person**:
+Identidade canônica de uma pessoa da IGD, com códigos, e-mails e aliases como evidências que apontam para a mesma identidade.
+_Evite_: usuário da aplicação, líder como pessoa separada
+
+**Seller Profile**:
+Perfil comercial compatível associado a uma Person e usado pelo catálogo legado de vendedores.
+_Evite_: identidade duplicada da pessoa
+
+**Primary Closer**:
+Person especificamente atribuída como responsável principal por uma Call. Outros participantes IGD permanecem participantes e não viram Primary Closer por presença.
+_Evite_: primeiro participante encontrado
+
+**Attribution**:
+Decisão auditável que liga um Drive Document a uma Person, com método, confiança e estado de revisão.
+_Evite_: palpite sem provenance
+
+**Team Membership**:
+Relação temporal entre Person e Team, válida desde `valid_from` até `valid_to` exclusivo. A atribuição organizacional de uma Call usa a relação válida na data da Call.
+_Evite_: time atual aplicado ao histórico
+
+**Team Leadership**:
+Relação temporal em que uma Person exerce liderança sobre um Team.
+_Evite_: Leader como entidade de pessoa separada
 
 ## Avaliação
 

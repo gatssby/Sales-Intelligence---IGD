@@ -18,6 +18,11 @@ The first vertical slice started with six tables and now adds source-agnostic in
 - `ingestion_runs`: aggregate audit record for a controlled input batch.
 - `ingestion_events`: sparse diagnostic events tied to an ingestion run.
 - `products` and `teams`: normalized authorization scope dimensions.
+- `people` and `person_aliases`: canonical IGD identities and deterministic lookup evidence; `sellers` remains the compatible commercial profile.
+- `fronts`, `person_team_memberships` and `team_leaderships`: separate organization dimensions with temporal validity.
+- `drive_documents` and `drive_document_sources`: pre-Call registry keyed by Google file ID plus source/path provenance.
+- `drive_discovery_state` and `drive_discovery_heartbeats`: Changes API cursor, leases and autonomous scanner health.
+- `call_participants`: IGD people present in a Call, independent from `calls.primary_closer_id`.
 - `app_users` and `user_credentials`: individual identity, role, account state and bcrypt hash.
 - `user_team_scopes` and `user_product_scopes`: explicit Leader and Supervisor data boundaries.
 - `auth_sessions`: revocable, server-side opaque sessions.
@@ -25,6 +30,8 @@ The first vertical slice started with six tables and now adds source-agnostic in
 - `admin_audit_events`: security-relevant administrative and blocked-spend events.
 
 `calls.transcript_file_id` is the canonical identity for this MVP and has a database-level unique index. `call_sources` keeps source identity separate, allowing a later `google_meet_drive` discovery to reuse a call first received through `manual_crm_import`.
+
+Drive-discovered calls also snapshot the resolved temporal membership, team, front, attribution method/confidence and call-time method/confidence. Legacy rows keep `team_id` temporally unknown and use a separately labelled `legacy_team_snapshot_id` only to freeze the pre-migration authorization/display fallback without claiming historical truth.
 
 `analysis_runs.result_json` preserves the complete provider result while `score` supports fast aggregation. A partial unique index guarantees at most one current analysis per call without deleting previous runs. Ingestion never queues another analysis when a completed current run already exists.
 
