@@ -93,7 +93,7 @@ export default async function DashboardPage() {
             <h1>Visão executiva</h1>
           </div>
           <div className="top-actions">
-            <span className="live-badge"><i /> {summary.analyzedCalls} calls reais</span>
+            <span className="live-badge"><i /> {summary.analyzedCalls} calls analisadas</span>
             <button type="button" aria-label="Período exibido: todo o histórico">Todo o histórico</button>
             <div className="avatar" title={`${user.displayName} · ${user.role}`}>{user.displayName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</div>
             <form action={logoutAction}><button type="submit">Sair</button></form>
@@ -102,17 +102,17 @@ export default async function DashboardPage() {
 
         <section className="hero" id="executivo">
           <div>
-            <span className="kicker">AMOSTRA ATUAL: {summary.analyzedCalls} CALLS</span>
+            <span className="kicker">TOTAL: {summary.analyzedCalls} CALLS</span>
             <h2>Performance comercial</h2>
           </div>
           <div className="hero-orbit"><span>{displayScore}</span><small>score geral</small></div>
         </section>
 
         <section className="metrics-grid">
-          <article className="metric-card"><p>Calls analisadas</p><strong>{summary.analyzedCalls}</strong><span className="metric-note positive">{summary.sellerCount} vendedores · n = {summary.analyzedCalls}</span></article>
-          <article className="metric-card"><p>Score médio</p><strong>{summary.averageScore}<small>/100</small></strong><span className="metric-note">n = {summary.analyzedCalls}</span></article>
+          <article className="metric-card"><p>Calls analisadas</p><strong>{summary.analyzedCalls}</strong><span className="metric-note positive">{summary.sellerCount} vendedores </span></article>
+          <article className="metric-card"><p>Score médio</p><strong>{summary.averageScore}<small>/100</small></strong><span className="metric-note">Total do time</span></article>
           <article className="metric-card"><p>Cobertura IA</p><strong>{Math.round(summary.analyzedCalls / Math.max(summary.transcriptCalls, 1) * 100)}<small>%</small></strong><span className="metric-note positive">{summary.analyzedCalls} de {summary.transcriptCalls} calls com transcript</span></article>
-          <article className="metric-card"><p>Oportunidade mais comum</p><strong className="word-stat">{summary.topOpportunityLabel}</strong><span className="metric-note warning">Distribuição real da amostra</span></article>
+          <article className="metric-card"><p>Oportunidade mais comum</p><strong className="word-stat">{summary.topOpportunityLabel}</strong><span className="metric-note">No período</span></article>
         </section>
 
         <LiveProgress initialData={progress} initialAiSpend={aiSpend} />
@@ -123,32 +123,13 @@ export default async function DashboardPage() {
               <p className="eyebrow">Desempenho do time</p>
               <h3>Comparativo geral dos vendedores</h3>
             </div>
-            <div className="team-average"><span>{summary.averageScore}</span><small>média real · n = {summary.analyzedCalls}</small></div>
+            <div className="team-average"><span>{summary.averageScore}</span><small>média real </small></div>
           </div>
 
           <div className="team-comparison">
-            <div className="ranking-chart" aria-label="Gráfico comparativo de score por vendedor">
-              <div className="chart-scale"><span>0</span><span>50</span><span>100</span></div>
-              {teamPerformance.map((seller) => {
-                const status = performanceStatus(seller.score);
-                return (
-                  <div className="chart-row" key={`${seller.source}-${seller.name}`}>
-                    <div><strong>{seller.name}</strong><small>{seller.source}</small></div>
-                    <div className="chart-track"><i className={status.tone} style={{ width: `${seller.score}%` }} /></div>
-                    <span>{seller.score}</span>
-                  </div>
-                );
-              })}
-              <div className="chart-legend">
-                <span><i className="good" /> Bom desempenho</span>
-                <span><i className="developing" /> Em desenvolvimento</span>
-                <span><i className="attention" /> Precisa melhorar</span>
-              </div>
-            </div>
-
             <div className="team-table-wrap">
               <table className="team-table">
-                <thead><tr><th>Posição</th><th>Vendedor</th><th>Score</th><th>Calls</th><th>Situação</th><th>Origem</th></tr></thead>
+                <thead><tr><th>Posição</th><th>Vendedor</th><th>Score</th><th>Calls</th><th>Situação</th></tr></thead>
                 <tbody>
                   {teamPerformance.map((seller, index) => {
                     const status = performanceStatus(seller.score);
@@ -159,7 +140,7 @@ export default async function DashboardPage() {
                         <td>{seller.score}</td>
                         <td>{seller.calls}</td>
                         <td><span className={`performance-pill ${status.tone}`}>{status.label}</span></td>
-                        <td><span className={`source-pill ${seller.source === "Dado atual" ? "current" : "simulated"}`}>{seller.source}</span></td>
+                        
                       </tr>
                     );
                   })}
@@ -173,7 +154,7 @@ export default async function DashboardPage() {
           <article className="panel seller-card">
             <div className="panel-heading">
               <div><p className="eyebrow">Avaliação do vendedor</p><h3>{call.sellerName}</h3></div>
-              <span className="status-pill">n = {currentSeller?.calls ?? 1}</span>
+              <span className="status-pill">{currentSeller?.calls ?? 1} calls avaliadas</span>
             </div>
             <div className="seller-summary">
               <div className={`score-ring ${scoreTone(displayScore)}`}><strong>{displayScore}</strong><span>de 100</span></div>
