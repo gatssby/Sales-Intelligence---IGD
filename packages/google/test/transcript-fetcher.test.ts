@@ -75,6 +75,19 @@ test("exports the canonical Google Doc with the token provider", async () => {
   assert.equal(authorization, "Bearer synthetic-access");
 });
 
+test("downloads plain transcript blobs and forwards a resource key", async () => {
+  let observedUrl = "";
+  let observedHeader: string | null = null;
+  const fetcher = new GoogleDriveTranscriptFetcher({ async getAccessToken() { return "synthetic-access"; } }, async (input, init) => {
+    observedUrl = String(input);
+    observedHeader = new Headers(init?.headers).get("X-Goog-Drive-Resource-Keys");
+    return new Response("Speaker: Synthetic text", { status: 200 });
+  });
+  assert.equal(await fetcher.fetchByMimeType("plainTranscript9001", "text/plain", "resource-key-1"), "Speaker: Synthetic text");
+  assert.match(observedUrl, /alt=media/);
+  assert.equal(observedHeader, "plainTranscript9001/resource-key-1");
+});
+
 test("forces one token refresh after a Drive 401", async () => {
   const requests: Array<{ forceRefresh: boolean }> = [];
   const tokenProvider: GoogleAccessTokenProvider = {

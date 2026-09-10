@@ -41,7 +41,7 @@ To deploy an explicitly approved branch without merging `main`:
 ./scripts/deploy-production.sh origin/feat/source-agnostic-ingestion
 ```
 
-The installer builds both `web` and `worker`, but starts only `web`. Before paid work, configure the Gateway key. The read-only Vercel management inputs `VERCEL_AI_GATEWAY_KEY_ID`, `VERCEL_TOKEN` and, when applicable, `VERCEL_TEAM_ID`, enable periodic aggregate reconciliation but are not required on every request. Apply additive migrations and set the initial `AI_BUDGET_EXTERNAL_SPEND_BASELINE_USD`, `AI_BUDGET_LIMIT_USD=15` and a small `AI_BUDGET_SAFETY_RESERVE_USD` (initially `0.10`), then start a bounded 10-Call checkpoint:
+The installer builds `web`, `worker` and the discovery image, but starts only `web`. Before paid work, configure the Gateway key. The read-only Vercel management inputs `VERCEL_AI_GATEWAY_KEY_ID`, `VERCEL_TOKEN` and, when applicable, `VERCEL_TEAM_ID`, enable periodic aggregate reconciliation but are not required on every request. Apply additive migrations and set the initial `AI_BUDGET_EXTERNAL_SPEND_BASELINE_USD`, `AI_BUDGET_LIMIT_USD=15` and a small `AI_BUDGET_SAFETY_RESERVE_USD` (initially `0.10`), then start a bounded 10-Call checkpoint:
 
 ```bash
 ssh oracle-vps 'cd /opt/sales-intelligence && sudo docker compose run --rm worker node --import tsx scripts/migrate.ts'
@@ -57,6 +57,32 @@ ssh oracle-vps 'cd /opt/sales-intelligence && sudo SALES_RELEASE_SHA=$(readlink 
 ```
 
 The worker uses renewable PostgreSQL leases, heartbeat rows and global budget reservations shared with benchmark tooling. Its lease must remain at least 60 seconds longer than `AI_GATEWAY_TIMEOUT_MS`. It fetches transcripts just in time with read-only Google OAuth (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` and `GOOGLE_OAUTH_REFRESH_TOKEN`), one per concurrency slot, rather than downloading the full catalog. Access tokens are renewed automatically, cached only in process memory and never persisted. Per-file retries are bounded by `TRANSCRIPT_MAX_ATTEMPTS`; a systemic Google authentication failure stops the worker and leaves the Call retryable. A budget pause, including provider 402, is durable, remains healthy/observable, and is not cleared by restart.
+
+## Start Drive discovery safely
+
+After the additive migration, validate OAuth and `Shared with me` without writes:
+
+```bash
+ssh oracle-vps 'cd /opt/sales-intelligence && sudo docker compose run --rm discovery node --import tsx scripts/drive-discovery.ts'
+```
+
+For the first catalog checkpoint, keep these values in `app.env`:
+
+```text
+DRIVE_DISCOVERY_CONTENT_READ_LIMIT=0
+DRIVE_DISCOVERY_PERSIST_TRANSCRIPTS=false
+DRIVE_DISCOVERY_AUTO_QUEUE=false
+```
+
+Run one catalog cycle, inspect the aggregate snapshot and only then start the restart-safe daemon:
+
+```bash
+ssh oracle-vps 'cd /opt/sales-intelligence && sudo docker compose run --rm discovery node --import tsx scripts/drive-discovery.ts --apply'
+ssh oracle-vps 'cd /opt/sales-intelligence && sudo docker compose run --rm discovery node --import tsx scripts/report-drive-discovery.ts'
+ssh oracle-vps 'cd /opt/sales-intelligence && sudo SALES_RELEASE_SHA=$(readlink current | sed "s#.*/##") docker compose up -d --no-deps discovery'
+```
+
+Discovery does not imply analysis. Enabling content persistence or `DRIVE_DISCOVERY_AUTO_QUEUE=true` is a separate checkpoint; never raise the existing AI budget as part of Drive rollout.
 
 ## Checks
 
@@ -74,7 +100,7 @@ Expected behavior:
 - unauthenticated data and spend APIs return `401`;
 - individual application credentials create the session used by protected routes;
 - `www` redirects to `https://sales-igd.com.br`;
-- both containers report healthy;
+- web, worker, discovery and PostgreSQL report healthy;
 - host ports 3100 and 5432 listen only on `127.0.0.1`.
 
 The system `certbot.timer` performs automatic renewal. A non-destructive renewal check can be run with:
