@@ -622,7 +622,8 @@ export class PostgresDriveDiscoveryRepository {
       select
         (select count(*)::integer from source_locations where provider='google_drive' and source_type='folder' and registration_status='enabled') drive_sources,
         (select count(*)::integer from drive_documents) documents_discovered,
-        (select count(*)::integer from drive_documents where transcript_status in ('candidate','identified','ready','processed')) transcript_candidates,
+        (select count(*)::integer from drive_documents
+          where document_type='transcript' and transcript_status not in ('ignored','inaccessible')) transcript_candidates,
         (select count(*)::integer from drive_documents where call_id is not null) linked_calls,
         (select count(*)::integer from drive_documents where primary_closer_id is not null) closer_resolved,
         (select count(*)::integer from drive_documents where document_type='transcript' and primary_closer_id is null and transcript_status<>'ignored') closer_unresolved,
