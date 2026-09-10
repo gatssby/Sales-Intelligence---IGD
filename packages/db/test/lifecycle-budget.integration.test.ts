@@ -50,6 +50,20 @@ integration("global budget and official lifecycle remain safe across workers and
       assert.equal((await ledger.snapshot("sales-intelligence-igd")).projectedSpendUsd, 9.9);
     });
 
+    await t.test("the account pauses normally when remaining credit cannot fund the next request", async () => {
+      const ledger = new PostgresBudgetLedger(sql);
+      const accountId = "sales-intelligence-igd-exhaustion";
+      await ledger.configureAccount({ accountId, limitUsd: 15, safetyReserveUsd: 0.1, externalSpendBaselineUsd: 14.8 });
+      const reservation = await ledger.reserve({
+        accountId, ownerType: "official", ownerId: randomUUID(), requestKey: "primary:exhaustion",
+        role: "primary", model: "openai/gpt-5.6-luna", estimatedCostUsd: 0.11,
+      });
+      assert.deepEqual(reservation, { accepted: false, reservationId: null, reason: "budget_ceiling" });
+      const snapshot = await ledger.snapshot(accountId);
+      assert.equal(snapshot.paused, true);
+      assert.equal(snapshot.pauseReason, "budget_ceiling");
+    });
+
     await t.test("settlement releases unused reservation and stale requests stay conservative", async () => {
       const ledger = new PostgresBudgetLedger(sql);
       const accountId = "sales-intelligence-igd-settlement";
@@ -240,6 +254,60 @@ integration("global budget and official lifecycle remain safe across workers and
         select status, is_current, score from analysis_runs where id=${claimed!.runId}
       `;
       assert.deepEqual({ status: current[0].status, current: current[0].is_current, score: Number(current[0].score) }, { status: "completed", current: true, score: 78 });
+    });
+
+    await t.test("provider 402 releases the unbilled request and pauses without failing the Call", async () => {
+      const sellers = await sql<{ id: string }[]>`
+        insert into sellers (display_name, external_reference, seller_code, product, active)
+        values ('Budget Seller Synthetic', 'SYN-BUDGET-402', 'V9903', 'INSIDER', true) returning id
+      `;
+      const calls = await sql<{ id: string }[]>`
+        insert into calls (seller_id, external_key, product_key, status, transcript_file_id)
+        values (${sellers[0].id}, 'synthetic-budget-402', 'insider', 'transcript_ready', 'syntheticTranscript9903') returning id
+      `;
+      await sql`
+        insert into transcripts (call_id, raw_text, normalized_text, content_sha256, source)
+        values (${calls[0].id}, 'Synthetic budget transcript', 'Synthetic budget transcript', ${"6".repeat(64)}, 'synthetic_test')
+      `;
+      const lifecycle = new PostgresOfficialAnalysisLifecycle(sql);
+      await lifecycle.syncCatalog();
+      const strategy = {
+        strategyVersion: "insider-cost-quality-v1", confidencePolicyVersion: "insider-confidence-v2",
+        primaryModel: "openai/gpt-5.6-luna", escalationModel: "openai/gpt-5.6-sol",
+        rubricVersion: "insider-production-v1", promptVersion: "call-analysis-v1",
+        schemaVersion: "analysis-output-v1", confidenceThreshold: 0.5,
+      };
+      const claimed = await lifecycle.claimNext({ workerId: "worker-budget-402", leaseSeconds: 300, strategy });
+      assert.equal(claimed?.callId, calls[0].id);
+      const ledger = new PostgresBudgetLedger(sql);
+      const accountId = "sales-intelligence-igd-provider-402";
+      await ledger.configureAccount({ accountId, limitUsd: 15, safetyReserveUsd: 0.1, externalSpendBaselineUsd: 5.9 });
+      const reservation = await ledger.reserve({
+        accountId, ownerType: "official", ownerId: claimed!.runId, requestKey: "primary:provider-402",
+        role: "primary", model: "openai/gpt-5.6-luna", estimatedCostUsd: 0.25,
+      });
+      assert.equal(reservation.accepted, true);
+      await ledger.markRequestStarted(reservation.reservationId!);
+      const checkpoint = await lifecycle.recordAttempt({
+        jobId: claimed!.jobId, runId: claimed!.runId, budgetReservationId: reservation.reservationId!,
+        attempt: {
+          status: "failed", role: "primary", model: "openai/gpt-5.6-luna", provider: "openai",
+          errorCode: "budget_exhausted", inputTokens: null, outputTokens: null, cachedInputTokens: null,
+          costUsd: null, gatewayActualCostUsd: null, estimatedCostUsd: null, costSource: "unavailable",
+          latencyMs: 20, requestedAt: new Date().toISOString(),
+        },
+        finalCandidate: false, confidencePolicyVersion: "insider-confidence-v2",
+      });
+      assert.deepEqual(checkpoint, { reconciliationRequired: false });
+      await ledger.pauseAccount(accountId, "provider_budget_exhausted");
+      await lifecycle.pauseForBudget({ jobId: claimed!.jobId, runId: claimed!.runId });
+      const state = await sql<{ reservation_status: string; actual_usd: string | null; job_status: string; run_status: string }[]>`
+        select r.status reservation_status,r.actual_usd,j.status job_status,ar.status run_status
+        from ai_cost_reservations r join analysis_runs ar on ar.id=r.owner_id
+        join analysis_jobs j on j.analysis_run_id=ar.id where r.id=${reservation.reservationId!}
+      `;
+      assert.deepEqual(state[0], { reservation_status: "released", actual_usd: null, job_status: "paused_budget", run_status: "queued" });
+      assert.equal((await ledger.snapshot(accountId)).pauseReason, "provider_budget_exhausted");
     });
   } finally {
     await sql.end();

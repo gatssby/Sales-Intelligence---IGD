@@ -31,7 +31,7 @@ const ledger = new PostgresBudgetLedger(repository.sql);
 const spendReader = new VercelApiKeySpendReader();
 const budgetAccountId = process.env.AI_BUDGET_ACCOUNT_ID ?? "sales-intelligence-igd";
 const budgetLimitUsd = Number(process.env.AI_BUDGET_LIMIT_USD ?? "15");
-const budgetReserveUsd = Number(process.env.AI_BUDGET_SAFETY_RESERVE_USD ?? "3");
+const budgetReserveUsd = Number(process.env.AI_BUDGET_SAFETY_RESERVE_USD ?? "0.10");
 const budgetBaselineUsd = Number(process.env.AI_BUDGET_EXTERNAL_SPEND_BASELINE_USD);
 const liveSpendLagBufferUsd = Number(process.env.AI_BUDGET_LIVE_SPEND_LAG_BUFFER_USD ?? "0.25");
 

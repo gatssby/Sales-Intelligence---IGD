@@ -184,6 +184,25 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
     assert.equal(blocked[0].count, 3);
   });
 
+  await t.test("AI spend summary is available to Admin and denied to every read-only role", async () => {
+    await sql`
+      insert into ai_budget_accounts (id,limit_usd,safety_reserve_usd,external_spend_baseline_usd)
+      values ('sales-intelligence-igd',15,0.1,5.9)
+    `;
+    assert.equal((await access.getAiSpendSummary(admin, {
+      accountId: "sales-intelligence-igd",
+      strategyVersion: "insider-cost-quality-v1",
+      confidencePolicyVersion: "insider-confidence-v2",
+    })).budgetUsd, 15);
+    for (const user of [leader, supervisor, salesOps]) {
+      await assert.rejects(() => access.getAiSpendSummary(user, {
+        accountId: "sales-intelligence-igd",
+        strategyVersion: "insider-cost-quality-v1",
+        confidencePolicyVersion: "insider-confidence-v2",
+      }), /forbidden/);
+    }
+  });
+
   await t.test("Inactive users cannot authenticate and existing sessions are invalidated", async () => {
     const session = await auth.authenticate("leader@example.invalid", leaderCreated.temporaryPassword);
     assert.ok(session);

@@ -9,7 +9,8 @@ The first vertical slice started with six tables and now adds source-agnostic in
 - `transcripts`: versioned text plus SHA-256 idempotency key.
 - `analysis_runs`: append-only, versioned structured analysis history.
 - `analysis_attempts`: provider calls made inside one official run, including primary, technical retry and escalation receipts.
-- `analysis_request_reservations`: pre-request markers that prevent an unknown paid request from being retried silently after worker interruption.
+- `ai_budget_accounts` / `ai_cost_reservations`: global budget ceiling, durable pre-request reservations, provider receipts and recoverable unknown outcomes shared by official and benchmark work.
+- `analysis_jobs` / `analysis_worker_heartbeats`: durable queue, renewable claims, processing stages and worker health.
 - `benchmark_runs` / `benchmark_results`: isolated experiments that cannot become current or feed KPIs.
 - `benchmark_attempts`: durable request reservations and cost receipts used to rebuild benchmark spend after interruption.
 - `benchmark_cost_adjustments`: explicit, audited reconciliation gaps from spend observed outside per-request receipts.
@@ -28,5 +29,7 @@ The first vertical slice started with six tables and now adds source-agnostic in
 `analysis_runs.result_json` preserves the complete provider result while `score` supports fast aggregation. A partial unique index guarantees at most one current analysis per call without deleting previous runs. Ingestion never queues another analysis when a completed current run already exists.
 
 An official run records its strategy version, primary/escalation models, confidence threshold, final model and escalation reasons. Attempt cost prefers `gateway_actual_cost_usd` from the Vercel receipt; `estimated_cost_usd` remains an explicitly labelled fallback. Benchmark tables deliberately have no `is_current` field.
+
+The admin-only AI spend read model is computed from these persisted records. Missing attempt receipts remain `NULL`; they do not count as free calls. Vercel live spend periodically advances the external baseline floor without double-counting settled receipts.
 
 Application passwords are never stored. `user_credentials.password_hash` accepts bcrypt hashes only. Session cookies carry a random opaque token; PostgreSQL stores only its SHA-256 digest. Account deactivation and password resets both increment `app_users.session_version` and revoke active session rows.

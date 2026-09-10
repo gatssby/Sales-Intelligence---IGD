@@ -4,6 +4,8 @@
 
 Aceita em 2026-09-09.
 
+O requisito de reconciliação live antes de toda request e o tamanho da reserva operacional foram substituídos pelo ADR 0006. As garantias de reserva atômica, receipt e recovery permanecem vigentes.
+
 ## Contexto
 
 O worker anterior fazia claim concorrente, mas a resposta paga e a promoção para Official Analysis dependiam da memória do processo. O budget também era reconstruído por processo, e `requires_human_review` disparava escalation mesmo sendo um sinal comercial. Calls não avaliáveis podiam ainda receber score zero.

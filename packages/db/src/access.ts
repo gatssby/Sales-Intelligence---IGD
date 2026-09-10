@@ -1,6 +1,7 @@
 import type { AuthorizationContext, Capability } from "@igd/auth";
 import { assertCapability } from "@igd/auth";
 import type { PendingQuery, Sql } from "postgres";
+import { calculateAiSpendSummary, type AiSpendSummary, type OfficialCallCost } from "./ai-spend";
 
 export type ScopedCallRow = {
   id: string;
@@ -325,5 +326,99 @@ export class ScopedSalesRepository {
       join analysis_attempts aa on aa.analysis_run_id=ar.id
       where c.id=${callId} and ${predicate} order by aa.attempt_number
     `;
+  }
+
+  async getAiSpendSummary(context: AuthorizationContext, options: {
+    accountId: string; strategyVersion: string; confidencePolicyVersion: string;
+  }): Promise<AiSpendSummary> {
+    this.require(context, "spend:execute");
+    const [accounts, callRows, backlogs, workers, completions] = await Promise.all([
+      this.sql<{
+        limit_usd: string | number; external_spend_baseline_usd: string | number;
+        baseline_captured_at: Date; paused: boolean; settled_usd: string | number;
+        active_usd: string | number; official_usd: string | number; benchmark_usd: string | number;
+      }[]>`
+        select a.limit_usd,a.external_spend_baseline_usd,a.baseline_captured_at,a.paused,
+          coalesce(sum(r.actual_usd) filter(where r.status='settled'),0) settled_usd,
+          coalesce(sum(r.reserved_usd) filter(where r.status in ('reserved','request_started','outcome_unknown')),0) active_usd,
+          coalesce(sum(r.actual_usd) filter(where r.status='settled' and r.owner_type='official'),0) official_usd,
+          coalesce(sum(r.actual_usd) filter(where r.status='settled' and r.owner_type='benchmark'),0) benchmark_usd
+        from ai_budget_accounts a left join ai_cost_reservations r on r.budget_account_id=a.id
+        where a.id=${options.accountId}
+        group by a.id
+      `,
+      this.sql<{
+        cost_usd: string | number | null; primary_cost_usd: string | number | null;
+        escalation_cost_usd: string | number | null; escalated: boolean;
+        human_review_requested: boolean; completed_at: Date; current_strategy: boolean;
+      }[]>`
+        with attempt_costs as (
+          select analysis_run_id,count(*)::integer attempt_count,
+            bool_or(gateway_actual_cost_usd is null) has_unknown_cost,
+            sum(gateway_actual_cost_usd) total_cost,
+            sum(gateway_actual_cost_usd) filter(where role='primary') primary_cost,
+            sum(gateway_actual_cost_usd) filter(where role='escalation') escalation_cost
+          from analysis_attempts group by analysis_run_id
+        )
+        select case when coalesce(ac.attempt_count,0)=0 or ac.has_unknown_cost then null else ac.total_cost end cost_usd,
+          case when coalesce(ac.attempt_count,0)=0 or ac.has_unknown_cost then null else coalesce(ac.primary_cost,0) end primary_cost_usd,
+          case when coalesce(ac.attempt_count,0)=0 or ac.has_unknown_cost then null else coalesce(ac.escalation_cost,0) end escalation_cost_usd,
+          ar.escalated,ar.human_review_requested,coalesce(ar.finished_at,ar.created_at) completed_at,
+          (ar.strategy_version=${options.strategyVersion} and ar.confidence_policy_version=${options.confidencePolicyVersion}) current_strategy
+        from analysis_runs ar left join attempt_costs ac on ac.analysis_run_id=ar.id
+        where ar.status='completed' and ar.is_current=true
+        order by coalesce(ar.finished_at,ar.created_at) desc
+      `,
+      this.sql<{ eligible: number }[]>`
+        select count(*)::integer eligible
+        from analysis_jobs j
+        where j.status in ('ready','retry_wait','awaiting_transcript','paused_budget')
+          and not (j.status='awaiting_transcript' and j.last_error_code like 'transcript_access%')
+          and not exists (
+            select 1 from analysis_runs ar
+            where ar.call_id=j.call_id and ar.status='completed' and ar.is_current=true
+          )
+      `,
+      this.sql<{ status: string; concurrency: number; last_seen_at: Date }[]>`
+        select case when last_seen_at < now()-interval '45 seconds' then 'stopped' else status end status,
+          concurrency,last_seen_at
+        from analysis_worker_heartbeats order by last_seen_at desc limit 1
+      `,
+      this.sql<{ last_completion_at: Date | null }[]>`
+        select max(coalesce(finished_at,created_at)) last_completion_at
+        from analysis_runs
+        where status='completed' and strategy_version=${options.strategyVersion}
+          and confidence_policy_version=${options.confidencePolicyVersion}
+      `,
+    ]);
+    const account = accounts[0];
+    if (!account) throw new Error("budget_account_not_found");
+    const officialCalls: OfficialCallCost[] = callRows.map((row) => ({
+      costUsd: row.cost_usd === null ? null : Number(row.cost_usd),
+      primaryCostUsd: row.primary_cost_usd === null ? null : Number(row.primary_cost_usd),
+      escalationCostUsd: row.escalation_cost_usd === null ? null : Number(row.escalation_cost_usd),
+      escalated: row.escalated,
+      humanReviewRequested: row.human_review_requested,
+      completedAt: row.completed_at,
+      currentStrategy: row.current_strategy,
+    }));
+    const worker = workers[0];
+    return calculateAiSpendSummary({
+      budgetUsd: Number(account.limit_usd),
+      reconciledSpendUsd: Number(account.external_spend_baseline_usd) + Number(account.settled_usd),
+      activeReservationsUsd: Number(account.active_usd),
+      officialSpentUsd: Number(account.official_usd),
+      benchmarkSpentUsd: Number(account.benchmark_usd),
+      officialCalls,
+      eligibleBacklog: backlogs[0].eligible,
+      lastReconciledAt: account.baseline_captured_at,
+      budgetPaused: account.paused,
+      worker: {
+        status: worker?.status ?? "stopped",
+        concurrency: worker?.concurrency ?? null,
+        lastSeenAt: worker?.last_seen_at ?? null,
+        lastCompletionAt: completions[0].last_completion_at,
+      },
+    });
   }
 }

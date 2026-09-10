@@ -351,10 +351,14 @@ export class PostgresOfficialAnalysisLifecycle {
       `;
       if (!reservations[0]) throw new Error("budget_reservation_not_started");
       const actual = input.attempt.gatewayActualCostUsd;
-      const outcomeUnknown = actual === null;
+      const providerBudgetExhausted = input.attempt.status === "failed"
+        && input.attempt.errorCode === "budget_exhausted"
+        && actual === null;
+      const outcomeUnknown = actual === null && !providerBudgetExhausted;
       await tx`
-        update ai_cost_reservations set status=${outcomeUnknown ? "outcome_unknown" : "settled"},
-          actual_usd=${actual}, cost_source=${input.attempt.costSource}, settled_at=${outcomeUnknown ? null : new Date()}, updated_at=now()
+        update ai_cost_reservations set status=${providerBudgetExhausted ? "released" : outcomeUnknown ? "outcome_unknown" : "settled"},
+          actual_usd=${actual}, cost_source=${input.attempt.costSource},
+          settled_at=${outcomeUnknown || providerBudgetExhausted ? null : new Date()}, updated_at=now()
         where id=${input.budgetReservationId}
       `;
       if (!outcomeUnknown) {

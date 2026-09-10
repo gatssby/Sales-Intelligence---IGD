@@ -35,3 +35,9 @@ test("AI SDK statusCode and isRetryable shapes preserve technical retries", () =
   assert.equal(transient.message, "provider_retryable_error");
   assert.equal(transient.retryable, true);
 });
+
+test("Vercel budget exhaustion is a non-retryable normal stop signal", () => {
+  const exhausted = mapGatewayError({ statusCode: 402 }, 25);
+  assert.equal(exhausted.message, "budget_exhausted");
+  assert.equal(exhausted.retryable, false);
+});

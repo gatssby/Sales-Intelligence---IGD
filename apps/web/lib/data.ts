@@ -1,6 +1,6 @@
 import { StoredAnalysisOutputSchema, type AnalysisOutput } from "@igd/ai";
 import type { AuthorizationContext } from "@igd/auth";
-import { ScopedSalesRepository, type ScopedCallCatalogRow, type ScopedCallRow } from "@igd/db";
+import { ScopedSalesRepository, type AiSpendSummary, type ScopedCallCatalogRow, type ScopedCallRow } from "@igd/db";
 import { getSql } from "@/lib/database";
 
 export type DashboardCall = {
@@ -161,4 +161,12 @@ export async function getProgressData(context: AuthorizationContext) {
     },
     active: active.map((item) => ({ callId: item.call_id, sellerName: item.seller_name, stage: item.stage, model: item.model, startedAt: item.started_at?.toISOString() ?? null })),
   };
+}
+
+export async function getAiSpendData(context: AuthorizationContext): Promise<AiSpendSummary> {
+  return new ScopedSalesRepository(getSql()).getAiSpendSummary(context, {
+    accountId: process.env.AI_BUDGET_ACCOUNT_ID ?? "sales-intelligence-igd",
+    strategyVersion: process.env.AI_ANALYSIS_STRATEGY_VERSION ?? "insider-cost-quality-v1",
+    confidencePolicyVersion: "insider-confidence-v2",
+  });
 }

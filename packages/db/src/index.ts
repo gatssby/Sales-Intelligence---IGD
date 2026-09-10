@@ -4,6 +4,7 @@ import type { IngestionInput, IngestionRepository, PersistedCall } from "@igd/co
 import type { AnalysisAttemptResult, AnalysisOutput, AnalysisStrategy, BenchmarkModelResult } from "@igd/ai";
 
 export * from "./access";
+export * from "./ai-spend";
 export * from "./auth";
 export * from "./budget";
 export * from "./lifecycle";

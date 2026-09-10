@@ -157,7 +157,10 @@ Uma call sem material suficiente usa `scoreability: "unscorable"`, `overall_scor
 - Claims concorrentes usam lease renovado, timeout do provider menor que o lease e `FOR UPDATE SKIP LOCKED`; finalização e recovery são idempotentes.
 - `requires_human_review` permanece visível, mas não dispara escalation sozinho.
 - A policy `insider-confidence-v2` decide escalation por sinais auditáveis de confiabilidade.
-- Antes de cada request, o worker reconcilia o spend live da key Vercel, aplica buffer de atraso e reserva uma estimativa conservadora na conta global; settlement usa o custo real do Gateway. O mesmo ledger cobre Official Analysis e benchmark.
+- Antes de cada request, o worker faz uma reserva atômica no ledger PostgreSQL global; settlement usa o custo real de `providerMetadata.gateway.cost`. O mesmo ledger cobre Official Analysis e benchmark.
+- A leitura live da key Vercel é uma reconciliação periódica do control plane, não uma dependência do hot path. Falha temporária nessa leitura não autoriza exceder o ledger nem interrompe requests que ainda cabem no teto persistido.
+- O teto operacional mantém apenas uma margem técnica pequena. Falta de espaço para a próxima reserva ou resposta 402 do Provider pausa o worker sem marcar a Call como failed.
+- O read model administrativo de spend agrega somente PostgreSQL e expõe gasto reconciliado, restante, médias 10/25, estimativa auditável e heartbeat; nenhum read path chama o AI Gateway.
 - Requests iniciadas sem receipt ficam em reconciliação e não são repetidas automaticamente.
 - O mesmo backlog controla o fetch just-in-time de transcript: claims têm lease, usam janela igual à concorrência e tentativas por arquivo são limitadas. Falha global de autenticação Google interrompe o worker sem transformar todas as Calls em falhas de acesso.
 

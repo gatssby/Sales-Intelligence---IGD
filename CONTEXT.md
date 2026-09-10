@@ -80,5 +80,21 @@ Origem operacional que executa um Model; nesta fase, o Vercel AI Gateway é o pr
 **Cost**:
 Valor em dólares atribuído a uma Analysis Attempt ou Benchmark Result a partir do uso retornado e do preço vigente registrado.
 
+**Official Call Cost**:
+Soma dos receipts conhecidos das Analysis Attempts de uma Official Analysis. Custo ausente permanece desconhecido e nunca é convertido em zero.
+_Evite_: custo estimado da call
+
+**Reconciled Spend**:
+Maior piso conhecido do gasto agregado da key, formado pela baseline externa reconciliada e pelos settlements oficiais persistidos.
+_Evite_: saldo instantâneo garantido
+
+**AI Spend Summary**:
+Read model administrativo, sem chamadas de IA, que apresenta budget, Reconciled Spend, médias recentes e capacidade estimada a partir de custos oficiais conhecidos.
+_Evite_: ledger financeiro
+
+**Budget Exhaustion**:
+Pausa operacional normal quando a próxima reserva não cabe no teto ou quando o Provider responde que não há crédito. Não é falha da Call.
+_Evite_: erro de análise
+
 **Latency**:
 Tempo de ponta a ponta, em milissegundos, de uma invocação ao Model.

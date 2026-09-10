@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { AiSpendSummary } from "@igd/db";
+import { AiSpendPanel } from "./AiSpendPanel";
 
 type ProgressData = {
   progress: {
@@ -17,30 +19,37 @@ const stageLabels: Record<string, string> = {
   escalation: "Escalation", finalization: "Finalização", completed: "Concluída",
 };
 
-export function LiveProgress({ initialData }: { initialData: ProgressData }) {
+export function LiveProgress({ initialData, initialAiSpend = null }: { initialData: ProgressData; initialAiSpend?: AiSpendSummary | null }) {
   const router = useRouter();
   const [data, setData] = useState(initialData);
+  const [aiSpend, setAiSpend] = useState(initialAiSpend);
+  const canPollAiSpend = initialAiSpend !== null;
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       if (document.visibilityState === "visible") {
-        const response = await fetch("/api/progress", { cache: "no-store" });
+        const [response, spendResponse] = await Promise.all([
+          fetch("/api/progress", { cache: "no-store" }),
+          canPollAiSpend ? fetch("/api/admin/ai-spend", { cache: "no-store" }) : Promise.resolve(null),
+        ]);
         if (response.ok && !cancelled) {
           const next = await response.json() as ProgressData;
           setData(next);
           if (next.progress.analyzed > initialData.progress.analyzed) router.refresh();
         }
+        if (spendResponse?.ok && !cancelled) setAiSpend(await spendResponse.json() as AiSpendSummary);
       }
       if (!cancelled) timer = setTimeout(poll, data.progress.processing > 0 ? 4_000 : 30_000);
     };
     timer = setTimeout(poll, data.progress.processing > 0 ? 4_000 : 30_000);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [data.progress.processing, initialData.progress.analyzed, router]);
+  }, [canPollAiSpend, data.progress.processing, initialData.progress.analyzed, router]);
 
   const progress = data.progress;
   const percent = progress.total ? Math.round(progress.analyzed / progress.total * 1000) / 10 : 0;
   return (
+    <>
     <section className="panel progress-panel" aria-live="polite">
       <div className="section-title">
         <div><p className="eyebrow">Backlog global</p><h3>{progress.analyzed.toLocaleString("pt-BR")} de {progress.total.toLocaleString("pt-BR")} analisadas</h3></div>
@@ -68,5 +77,7 @@ export function LiveProgress({ initialData }: { initialData: ProgressData }) {
         </div>
       ) : null}
     </section>
+    {aiSpend ? <AiSpendPanel summary={aiSpend} /> : null}
+    </>
   );
 }

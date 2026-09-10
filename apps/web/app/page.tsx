@@ -1,8 +1,9 @@
-import { getDashboardData, getProgressData } from "@/lib/data";
+import { getAiSpendData, getDashboardData, getProgressData } from "@/lib/data";
 import { hasCapability } from "@igd/auth";
 import { requireUser } from "@/lib/auth/session";
 import { logoutAction } from "@/app/logout/actions";
 import { LiveProgress } from "@/app/components/LiveProgress";
+import { AdminBadge } from "@/app/components/AdminBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,13 @@ const performanceStatus = (score: number) => {
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const [data, progress] = await Promise.all([getDashboardData(user), getProgressData(user)]);
+  const canManage = hasCapability(user, "users:manage");
+  const canSeeSpend = hasCapability(user, "spend:execute");
+  const [data, progress, aiSpend] = await Promise.all([
+    getDashboardData(user),
+    getProgressData(user),
+    canSeeSpend ? getAiSpendData(user) : Promise.resolve(null),
+  ]);
   const call = data.call;
 
   if (!call) {
@@ -71,11 +78,11 @@ export default async function DashboardPage() {
           <a href="#equipe"><span>◎</span> Equipe</a>
           <a href="/calls"><span>◉</span> Calls</a>
           <a href="#coaching"><span>↗</span> Coaching</a>
-          {hasCapability(user, "users:manage") ? <a href="/admin/users"><span>⚙</span> Usuários e acessos</a> : null}
+          {canManage ? <a href="/admin/users"><span>⚙</span> Usuários e acessos <AdminBadge /></a> : null}
         </nav>
         <div className="sidebar-foot">
           <div className="pulse-dot" />
-          <div><strong>Dados disponíveis</strong><span>PostgreSQL conectado</span></div>
+          <div><strong>Sistema disponível</strong><span>Atualização automática</span></div>
         </div>
       </aside>
 
@@ -96,33 +103,27 @@ export default async function DashboardPage() {
         <section className="hero" id="executivo">
           <div>
             <span className="kicker">AMOSTRA ATUAL: {summary.analyzedCalls} CALLS</span>
-            <h2>Análises oficiais</h2>
-            <p>Resultados reais persistidos no PostgreSQL, limitados ao escopo autorizado da conta.</p>
+            <h2>Performance comercial</h2>
           </div>
           <div className="hero-orbit"><span>{displayScore}</span><small>score geral</small></div>
         </section>
 
         <section className="metrics-grid">
           <article className="metric-card"><p>Calls analisadas</p><strong>{summary.analyzedCalls}</strong><span className="metric-note positive">{summary.sellerCount} vendedores · n = {summary.analyzedCalls}</span></article>
-          <article className="metric-card"><p>Score médio</p><strong>{summary.averageScore}<small>/100</small></strong><span className="metric-note">Análises oficiais · n = {summary.analyzedCalls}</span></article>
+          <article className="metric-card"><p>Score médio</p><strong>{summary.averageScore}<small>/100</small></strong><span className="metric-note">n = {summary.analyzedCalls}</span></article>
           <article className="metric-card"><p>Cobertura IA</p><strong>{Math.round(summary.analyzedCalls / Math.max(summary.transcriptCalls, 1) * 100)}<small>%</small></strong><span className="metric-note positive">{summary.analyzedCalls} de {summary.transcriptCalls} calls com transcript</span></article>
           <article className="metric-card"><p>Oportunidade mais comum</p><strong className="word-stat">{summary.topOpportunityLabel}</strong><span className="metric-note warning">Distribuição real da amostra</span></article>
         </section>
 
-        <LiveProgress initialData={progress} />
+        <LiveProgress initialData={progress} initialAiSpend={aiSpend} />
 
         <section className="panel team-panel" id="equipe">
           <div className="team-heading">
             <div>
               <p className="eyebrow">Desempenho do time</p>
               <h3>Comparativo geral dos vendedores</h3>
-              <p>Somente análises oficiais atuais; benchmarks não entram nos indicadores.</p>
             </div>
             <div className="team-average"><span>{summary.averageScore}</span><small>média real · n = {summary.analyzedCalls}</small></div>
-          </div>
-
-          <div className="live-disclosure">
-            Todos os vendedores e scores abaixo vêm das análises oficiais atuais no PostgreSQL. Amostras pequenas exibem seu <strong>n</strong>.
           </div>
 
           <div className="team-comparison">
@@ -279,7 +280,7 @@ export default async function DashboardPage() {
           </article>
         </section>
 
-        <footer>IGD Sales Intelligence · Dados oficiais atuais · Resultados versionados e auditáveis.</footer>
+        <footer>IGD Sales Intelligence</footer>
       </div>
     </main>
   );

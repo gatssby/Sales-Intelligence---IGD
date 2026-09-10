@@ -80,7 +80,9 @@ const repository = new PostgresIngestionRepository(databaseUrl);
 const lifecycle = new PostgresOfficialAnalysisLifecycle(repository.sql);
 const ledger = new PostgresBudgetLedger(repository.sql);
 const gateway = apply ? createVercelAiGatewayModelGateway() : null;
-const spendReader = apply ? new VercelApiKeySpendReader() : null;
+const spendReader = apply && process.env.VERCEL_AI_GATEWAY_KEY_ID && process.env.VERCEL_TOKEN
+  ? new VercelApiKeySpendReader()
+  : null;
 const policy = createConfidencePolicy({
   version: CONFIDENCE_POLICY_VERSION,
   confidenceThreshold: strategy.engine.confidenceThreshold,
@@ -95,19 +97,42 @@ const retryDelaySeconds = numericEnvironment("AI_ANALYSIS_RETRY_DELAY_SECONDS", 
 const transcriptRetryDelaySeconds = numericEnvironment("TRANSCRIPT_RETRY_DELAY_SECONDS", 3600);
 const transcriptMaxAttempts = numericEnvironment("TRANSCRIPT_MAX_ATTEMPTS", 3);
 if (!Number.isInteger(transcriptMaxAttempts) || transcriptMaxAttempts < 1) throw new Error("TRANSCRIPT_MAX_ATTEMPTS must be a positive integer");
-const primaryReservationUsd = numericEnvironment("AI_BUDGET_PRIMARY_RESERVATION_USD", 0.25);
-const escalationReservationUsd = numericEnvironment("AI_BUDGET_ESCALATION_RESERVATION_USD", 0.75);
+const primaryReservationUsd = numericEnvironment("AI_BUDGET_PRIMARY_RESERVATION_USD", 0.03);
+const escalationReservationUsd = numericEnvironment("AI_BUDGET_ESCALATION_RESERVATION_USD", 0.20);
 const maxOutputTokens = numericEnvironment("AI_ANALYSIS_MAX_OUTPUT_TOKENS", 5000);
-const liveSpendLagBufferUsd = numericEnvironment("AI_BUDGET_LIVE_SPEND_LAG_BUFFER_USD", 0.25);
+const liveSpendLagBufferUsd = numericEnvironment("AI_BUDGET_LIVE_SPEND_LAG_BUFFER_USD", 0);
+const spendReconciliationIntervalMs = numericEnvironment("AI_BUDGET_RECONCILIATION_INTERVAL_MS", 60_000);
 const releaseSha = process.env.RELEASE_SHA ?? null;
 let stopRequested = false;
 let budgetPaused = false;
+let lastSpendReconciliationAttemptAt = 0;
+let spendReconciliationPromise: Promise<void> | null = null;
 const transcriptFetcher = process.env.GOOGLE_ACCESS_TOKEN
   ? new GoogleDriveTranscriptFetcher(process.env.GOOGLE_ACCESS_TOKEN)
   : null;
 
 process.on("SIGTERM", () => { stopRequested = true; });
 process.on("SIGINT", () => { stopRequested = true; });
+
+async function maybeReconcileSpend(force = false): Promise<void> {
+  if (!spendReader) return;
+  const now = Date.now();
+  if (!force && now - lastSpendReconciliationAttemptAt < spendReconciliationIntervalMs) return;
+  if (spendReconciliationPromise) return spendReconciliationPromise;
+  lastSpendReconciliationAttemptAt = now;
+  spendReconciliationPromise = (async () => {
+    try {
+      const liveSpend = await spendReader.read();
+      await ledger.reconcileLiveSpend(BUDGET_ACCOUNT_ID, liveSpend.currentSpendUsd + liveSpendLagBufferUsd);
+    } catch {
+      // The PostgreSQL ledger and provider receipts remain authoritative on the hot path.
+      // A temporary Vercel control-plane failure is retried on the next interval.
+    } finally {
+      spendReconciliationPromise = null;
+    }
+  })();
+  return spendReconciliationPromise;
+}
 
 function policyFor(attempt: Extract<AnalysisAttemptResult, { status: "completed" }>) {
   return policy.evaluate({
@@ -146,8 +171,7 @@ async function processClaim(job: ClaimedAnalysisJob): Promise<"completed" | "fai
       },
       async onRequest(request) {
         if (!await lifecycle.renewClaim({ jobId: job.jobId, workerId: job.workerId, leaseSeconds })) throw new Error("analysis_claim_lost");
-        const liveSpend = await spendReader!.read();
-        await ledger.reconcileLiveSpend(BUDGET_ACCOUNT_ID, liveSpend.currentSpendUsd + liveSpendLagBufferUsd);
+        await maybeReconcileSpend();
         const fallback = request.role === "primary" ? primaryReservationUsd : escalationReservationUsd;
         const pricing = await getVercelAiGatewayModelPricing({ model: request.model }).catch(() => null);
         const pricedEstimate = pricing
@@ -191,6 +215,13 @@ async function processClaim(job: ClaimedAnalysisJob): Promise<"completed" | "fai
       return "budget";
     }
     if (error instanceof ReceiptReconciliationError) return "reconciliation";
+    const providerBudgetExhausted = error instanceof AnalysisEngineError
+      && error.attempts.some((attempt) => attempt.status === "failed" && attempt.errorCode === "budget_exhausted");
+    if (providerBudgetExhausted) {
+      await ledger.pauseAccount(BUDGET_ACCOUNT_ID, "provider_budget_exhausted");
+      await lifecycle.pauseForBudget({ jobId: job.jobId, runId: job.runId });
+      return "budget";
+    }
     const errorCode = error instanceof AnalysisEngineError ? error.code : "analysis_worker_error";
     await lifecycle.retryLater({
       jobId: job.jobId,
@@ -254,9 +285,10 @@ async function main(): Promise<void> {
   await ledger.configureAccount({
     accountId: BUDGET_ACCOUNT_ID,
     limitUsd: numericEnvironment("AI_BUDGET_LIMIT_USD", 15),
-    safetyReserveUsd: numericEnvironment("AI_BUDGET_SAFETY_RESERVE_USD", 3),
+    safetyReserveUsd: numericEnvironment("AI_BUDGET_SAFETY_RESERVE_USD", 0.1),
     externalSpendBaselineUsd: baseline,
   });
+  await maybeReconcileSpend(true);
   const staleBefore = new Date(Date.now() - leaseSeconds * 1_000);
   const reservationRecovery = await ledger.recoverStaleReservations(BUDGET_ACCOUNT_ID, staleBefore);
   const transcriptRecovery = await lifecycle.recoverExpiredTranscriptClaims(new Date());

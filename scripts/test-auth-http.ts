@@ -52,6 +52,11 @@ try {
   const before = await repository.sql<{ total: number; queued: number }[]>`
     select count(*)::integer as total, count(*) filter (where status = 'queued')::integer as queued from analysis_runs
   `;
+  await repository.sql`
+    insert into ai_budget_accounts (id,limit_usd,safety_reserve_usd,external_spend_baseline_usd)
+    values ('sales-intelligence-igd',15,0.1,5.9)
+    on conflict (id) do update set limit_usd=15,safety_reserve_usd=0.1
+  `;
 
   const accounts = [
     { role: "ADMIN", email: "admin@example.invalid" },
@@ -82,6 +87,7 @@ try {
   assert.match(adminHtml, /3 calls no escopo/);
   assert.match(adminHtml, /Usuários e acessos/);
   assert.equal((await request("/admin/users", sessions.get("ADMIN")!)).status, 200);
+  assert.equal((await request("/api/admin/ai-spend", sessions.get("ADMIN")!)).status, 200);
 
   const leaderHome = await request("/", sessions.get("LEADER")!);
   const leaderHtml = pageText(await leaderHome.text());
@@ -106,6 +112,7 @@ try {
 
   for (const role of ["LEADER", "SUPERVISOR", "SALES_OPS"] as const) {
     assert.equal((await request("/api/spend/analyze", sessions.get(role)!, { method: "POST" })).status, 403);
+    assert.equal((await request("/api/admin/ai-spend", sessions.get(role)!)).status, 403);
   }
   assert.equal((await request("/api/spend/analyze", sessions.get("ADMIN")!, { method: "POST" })).status, 501);
 

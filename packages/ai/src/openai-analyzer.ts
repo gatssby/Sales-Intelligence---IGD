@@ -136,6 +136,7 @@ export function mapGatewayError(error: unknown, latencyMs: number): ModelGateway
     : null;
   const sdkRetryable = typeof error === "object" && error && "isRetryable" in error && error.isRetryable === true;
   if (status === 401) return new ModelGatewayError("authentication_failed", { retryable: false, latencyMs });
+  if (status === 402) return new ModelGatewayError("budget_exhausted", { retryable: false, latencyMs });
   if (status === 403) return new ModelGatewayError("access_denied", { retryable: false, latencyMs });
   if (status === 408) return new ModelGatewayError("model_timeout", { retryable: true, latencyMs });
   if (status === 429) return new ModelGatewayError("rate_limited", { retryable: true, latencyMs });

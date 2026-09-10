@@ -84,6 +84,15 @@ export class PostgresBudgetLedger {
     });
   }
 
+  async pauseAccount(accountId: string, reason: string): Promise<void> {
+    const safeReason = reason.replace(/[^a-z0-9_-]/gi, "_").slice(0, 80) || "budget_paused";
+    const rows = await this.sql`
+      update ai_budget_accounts set paused=true, pause_reason=${safeReason}, updated_at=now()
+      where id=${accountId} returning id
+    `;
+    if (!rows[0]) throw new Error("budget_account_not_found");
+  }
+
   async markRequestStarted(reservationId: string): Promise<void> {
     const rows = await this.sql`
       update ai_cost_reservations set status='request_started', requested_at=now(), updated_at=now()
