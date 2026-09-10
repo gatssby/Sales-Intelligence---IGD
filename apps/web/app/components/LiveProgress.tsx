@@ -16,7 +16,7 @@ type ProgressData = {
 
 const stageLabels: Record<string, string> = {
   transcript: "Transcript", queue: "Fila", primary: "Primary", validation: "Validação",
-  escalation: "Escalation", finalization: "Finalização", completed: "Concluída",
+  escalation: "Escalonamento", finalization: "Finalização", completed: "Concluída",
 };
 
 export function LiveProgress({ initialData, initialAiSpend = null }: { initialData: ProgressData; initialAiSpend?: AiSpendSummary | null }) {
