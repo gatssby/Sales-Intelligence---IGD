@@ -40,7 +40,7 @@ export class PostgresOfficialAnalysisLifecycle {
   constructor(private readonly sql: Sql) {}
 
   async syncCatalog(): Promise<{ inserted: number }> {
-    const rows = await this.sql`
+    const rows = await this.sql<{ inserted: boolean }[]>`
       insert into analysis_jobs (call_id, status, stage, last_error_code)
       select c.id,
         case
@@ -61,9 +61,22 @@ export class PostgresOfficialAnalysisLifecycle {
           when c.status='failed_permanent' then 'transcript_access_terminal'
           else null
         end
-      from calls c on conflict (call_id) do nothing returning id
+      from calls c
+      on conflict (call_id) do update set
+        status=case
+          when excluded.status='ready' and analysis_jobs.status in ('awaiting_transcript','failed_terminal') then 'ready'
+          else analysis_jobs.status
+        end,
+        stage=case
+          when excluded.status='ready' and analysis_jobs.status in ('awaiting_transcript','failed_terminal') then 'queue'
+          else analysis_jobs.stage
+        end,
+        retry_at=case when excluded.status='ready' then null else analysis_jobs.retry_at end,
+        last_error_code=case when excluded.status='ready' then null else analysis_jobs.last_error_code end,
+        updated_at=now()
+      returning (xmax=0) inserted
     `;
-    return { inserted: rows.length };
+    return { inserted: rows.filter((row) => row.inserted).length };
   }
 
   async claimNextTranscript(input: { workerId: string; leaseSeconds: number }): Promise<ClaimedTranscriptJob | null> {
@@ -86,6 +99,7 @@ export class PostgresOfficialAnalysisLifecycle {
           and (j.retry_at is null or j.retry_at <= now())
           and c.transcript_file_id is not null
         order by s.active desc,
+          (lower(coalesce(c.product_key,s.product,''))='insider' and lower(coalesce(s.role,'')) like '%closer%') desc,
           (select max(j2.last_transcript_attempt_at) from analysis_jobs j2 join calls c2 on c2.id=j2.call_id where c2.seller_id=s.id) asc nulls first,
           coalesce(c.started_at, c.created_at) desc, c.id
         for update of j, s skip locked
@@ -212,6 +226,7 @@ export class PostgresOfficialAnalysisLifecycle {
             where current.call_id=c.id and current.status='completed' and current.is_current=true
           )
         order by s.active desc,
+          (lower(coalesce(c.product_key,s.product,''))='insider' and lower(coalesce(s.role,'')) like '%closer%') desc,
           (select max(j2.last_claimed_at) from analysis_jobs j2 join calls c2 on c2.id=j2.call_id where c2.seller_id=s.id) asc nulls first,
           coalesce(c.started_at, c.created_at) desc, c.id
         for update of j, s skip locked
@@ -259,6 +274,15 @@ export class PostgresOfficialAnalysisLifecycle {
       where j.worker_id=${workerId} and j.status='claimed' limit 1
     `;
     return rows[0] ?? null;
+  }
+
+  async renewClaim(input: { jobId: string; workerId: string; leaseSeconds: number }): Promise<boolean> {
+    const rows = await this.sql`
+      update analysis_jobs set lease_expires_at=now()+(${input.leaseSeconds} * interval '1 second'), updated_at=now()
+      where id=${input.jobId} and worker_id=${input.workerId} and status='claimed'
+      returning id
+    `;
+    return rows.length === 1;
   }
 
   async getPrimaryResume(runId: string): Promise<PersistedPrimaryResume | null> {
@@ -314,6 +338,12 @@ export class PostgresOfficialAnalysisLifecycle {
     finalCandidate: boolean; confidencePolicyVersion: string; escalationReasons?: string[];
   }): Promise<{ reconciliationRequired: boolean }> {
     return this.sql.begin(async (tx) => {
+      const owners = await tx<{ budget_account_id: string }[]>`
+        select budget_account_id from ai_cost_reservations
+        where id=${input.budgetReservationId} and owner_type='official' and owner_id=${input.runId}
+      `;
+      if (!owners[0]) throw new Error("budget_reservation_not_started");
+      await tx`select id from ai_budget_accounts where id=${owners[0].budget_account_id} for update`;
       const reservations = await tx<{ reserved_usd: string | number; budget_account_id: string }[]>`
         select reserved_usd,budget_account_id from ai_cost_reservations
         where id=${input.budgetReservationId} and owner_type='official' and owner_id=${input.runId} and status='request_started'

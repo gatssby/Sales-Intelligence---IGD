@@ -8,7 +8,8 @@ export class PostgresBudgetLedger {
   constructor(private readonly sql: Sql) {}
 
   async configureAccount(input: { accountId: string; limitUsd: number; safetyReserveUsd: number; externalSpendBaselineUsd: number }): Promise<void> {
-    if (!input.accountId.trim() || input.limitUsd <= 0 || input.safetyReserveUsd < 0 || input.safetyReserveUsd >= input.limitUsd || input.externalSpendBaselineUsd < 0) {
+    if (!input.accountId.trim() || ![input.limitUsd,input.safetyReserveUsd,input.externalSpendBaselineUsd].every(Number.isFinite)
+      || input.limitUsd <= 0 || input.safetyReserveUsd < 0 || input.safetyReserveUsd >= input.limitUsd || input.externalSpendBaselineUsd < 0) {
       throw new Error("invalid_budget_account");
     }
     await this.sql`
@@ -62,6 +63,27 @@ export class PostgresBudgetLedger {
     });
   }
 
+  async reconcileLiveSpend(accountId: string, liveSpendUsd: number): Promise<void> {
+    if (!Number.isFinite(liveSpendUsd) || liveSpendUsd < 0) throw new Error("invalid_live_spend");
+    await this.sql.begin(async (tx) => {
+      const accounts = await tx<{ external_spend_baseline_usd: string | number }[]>`
+        select external_spend_baseline_usd from ai_budget_accounts where id=${accountId} for update
+      `;
+      if (!accounts[0]) throw new Error("budget_account_not_found");
+      const totals = await tx<{ settled: string | number }[]>`
+        select coalesce(sum(actual_usd) filter (where status='settled'),0) settled
+        from ai_cost_reservations where budget_account_id=${accountId}
+      `;
+      const inferredBaseline = Math.max(0, liveSpendUsd - Number(totals[0].settled));
+      await tx`
+        update ai_budget_accounts set
+          external_spend_baseline_usd=greatest(external_spend_baseline_usd,${inferredBaseline}),
+          baseline_captured_at=now(), updated_at=now()
+        where id=${accountId}
+      `;
+    });
+  }
+
   async markRequestStarted(reservationId: string): Promise<void> {
     const rows = await this.sql`
       update ai_cost_reservations set status='request_started', requested_at=now(), updated_at=now()
@@ -70,23 +92,48 @@ export class PostgresBudgetLedger {
     if (!rows[0]) throw new Error("budget_reservation_not_startable");
   }
 
+  async releaseReserved(reservationId: string): Promise<void> {
+    const rows = await this.sql`
+      update ai_cost_reservations set status='released', updated_at=now()
+      where id=${reservationId} and status='reserved' returning id
+    `;
+    if (!rows[0]) throw new Error("budget_reservation_not_releasable");
+  }
+
   async settle(reservationId: string, receipt: { actualCostUsd: number; costSource: "gateway_actual" | "estimated" | "unavailable" }): Promise<void> {
     if (!Number.isFinite(receipt.actualCostUsd) || receipt.actualCostUsd < 0) throw new Error("invalid_actual_cost");
     await this.sql.begin(async (tx) => {
+      const owners = await tx<{ budget_account_id: string }[]>`
+        select budget_account_id from ai_cost_reservations where id=${reservationId}
+      `;
+      if (!owners[0]) throw new Error("budget_reservation_not_found");
+      await tx`select id from ai_budget_accounts where id=${owners[0].budget_account_id} for update`;
       const reservations = await tx<{ budget_account_id: string }[]>`
         select budget_account_id from ai_cost_reservations where id=${reservationId} for update
       `;
-      if (!reservations[0]) throw new Error("budget_reservation_not_found");
       const rows = await tx`
         update ai_cost_reservations set status='settled', actual_usd=${receipt.actualCostUsd},
           cost_source=${receipt.costSource}, settled_at=now(), updated_at=now()
         where id=${reservationId} and status='request_started' returning id
       `;
       if (!rows[0]) throw new Error("budget_reservation_not_settleable");
-      const snapshot = await this.snapshotWith(tx, reservations[0].budget_account_id);
+      const snapshot = await this.snapshotWith(tx, owners[0].budget_account_id);
       if (snapshot.projectedSpendUsd > snapshot.spendCeilingUsd + 1e-9) {
-        await tx`update ai_budget_accounts set paused=true, pause_reason='actual_cost_exceeded_ceiling', updated_at=now() where id=${reservations[0].budget_account_id}`;
+        await tx`update ai_budget_accounts set paused=true, pause_reason='actual_cost_exceeded_ceiling', updated_at=now() where id=${owners[0].budget_account_id}`;
       }
+    });
+  }
+
+  async markOutcomeUnknown(reservationId: string): Promise<void> {
+    await this.sql.begin(async (tx) => {
+      const owners = await tx<{ budget_account_id: string }[]>`select budget_account_id from ai_cost_reservations where id=${reservationId}`;
+      if (!owners[0]) throw new Error("budget_reservation_not_found");
+      await tx`select id from ai_budget_accounts where id=${owners[0].budget_account_id} for update`;
+      const rows = await tx`
+        update ai_cost_reservations set status='outcome_unknown', cost_source='unavailable', updated_at=now()
+        where id=${reservationId} and status='request_started' returning id
+      `;
+      if (!rows[0]) throw new Error("budget_reservation_not_reconcilable");
     });
   }
 

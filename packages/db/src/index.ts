@@ -154,34 +154,35 @@ export class PostgresIngestionRepository implements IngestionRepository {
         set status = case when status = 'analyzed' then status else 'transcript_ready' end, updated_at = now()
         where id = ${callId}
       `;
+      await tx`
+        update analysis_jobs set status='ready', stage='queue', retry_at=null,
+          worker_id=null, lease_expires_at=null, last_error_code=null, updated_at=now()
+        where call_id=${callId} and status in ('awaiting_transcript','failed_terminal')
+      `;
       return { transcriptId: transcript.id };
     });
   }
 
   async queueAnalysis(callId: string): Promise<{ queued: boolean; reason?: string }> {
-    const completed = await this.sql`
-      select 1 from analysis_runs where call_id = ${callId} and status = 'completed' and is_current = true limit 1
-    `;
-    if (completed.length) return { queued: false, reason: "official_analysis_exists" };
-    const transcripts = await this.sql<{ id: string }[]>`
-      select id from transcripts where call_id = ${callId} order by version desc limit 1
-    `;
-    if (!transcripts[0]) return { queued: false, reason: "transcript_unavailable" };
-    const inserted = await this.sql`
-      insert into analysis_runs (
-        call_id, transcript_id, provider, model, rubric_version, prompt_version, schema_version, status
-      ) values (
-        ${callId}, ${transcripts[0].id}, ${this.options.provider}, ${this.options.model},
-        ${this.options.rubricVersion}, ${this.options.promptVersion}, ${this.options.schemaVersion}, 'queued'
-      )
-      on conflict (call_id, transcript_id, rubric_version, prompt_version, model)
-      do update set
-        status = 'queued', error_code = null, started_at = null, finished_at = null
-      where analysis_runs.status = 'failed'
-      returning id
-    `;
-    if (inserted.length) await this.sql`update calls set status = 'analysis_queued', updated_at = now() where id = ${callId}`;
-    return { queued: inserted.length > 0, reason: inserted.length ? undefined : "already_queued" };
+    return this.sql.begin(async (tx) => {
+      const completed = await tx`
+        select 1 from analysis_runs where call_id=${callId} and status='completed' and is_current=true limit 1
+      `;
+      if (completed.length) return { queued: false, reason: "official_analysis_exists" };
+      const transcripts = await tx`select 1 from transcripts where call_id=${callId} limit 1`;
+      if (!transcripts.length) return { queued: false, reason: "transcript_unavailable" };
+      const queued = await tx`
+        insert into analysis_jobs (call_id,status,stage)
+        values (${callId},'ready','queue')
+        on conflict (call_id) do update set status='ready', stage='queue', retry_at=null,
+          worker_id=null, lease_expires_at=null, last_error_code=null, updated_at=now()
+        where analysis_jobs.status in ('awaiting_transcript','ready','failed_terminal')
+        returning id
+      `;
+      if (!queued.length) return { queued: false, reason: "already_queued" };
+      await tx`update calls set status='analysis_queued', updated_at=now() where id=${callId}`;
+      return { queued: true };
+    });
   }
 
   async claimNextAnalysis(): Promise<QueuedAnalysisJob | null> {

@@ -23,13 +23,15 @@ export default async function CallsPage({ searchParams }: { searchParams: Promis
       <LiveProgress initialData={progress} />
       <section className="panel calls-table-panel">
         <div className="team-table-wrap"><table className="team-table calls-table">
-          <thead><tr><th>Data</th><th>Vendedor</th><th>Código</th><th>Cliente</th><th>Origem</th><th>Transcript</th><th>Análise</th><th>Score</th><th>Modelo final</th><th></th></tr></thead>
+          <thead><tr><th>Data</th><th>Vendedor</th><th>Código</th><th>Cliente</th><th>Origem</th><th>Transcript</th><th>Análise</th><th>Score</th><th>Modelo final</th><th>Analisada em</th><th></th></tr></thead>
           <tbody>{catalog.calls.map((call) => <tr key={call.id}>
             <td>{call.startedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(call.startedAt)) : "—"}</td>
             <td><strong>{call.sellerName}</strong></td><td>{call.sellerCode ?? "—"}</td><td>{call.customerName ?? "Não informado"}</td><td>{call.origin ?? "—"}</td>
             <td><span className={`status-pill ${call.transcriptStatus}`}>{call.transcriptStatus === "available" ? "Disponível" : call.transcriptStatus === "access_issue" ? "Acesso" : "Aguardando"}</span></td>
             <td>{labels[call.analysisStatus] ?? call.analysisStatus}</td><td>{call.analysisEligibility === "unscorable" ? "Não avaliável" : call.score ?? "—"}</td>
-            <td>{call.finalModel?.split("/").at(-1) ?? "—"}{call.escalated ? " · escalation" : ""}</td><td><a className="text-link" href={`/calls/${call.id}`}>Abrir</a></td>
+            <td>{call.finalModel?.split("/").at(-1) ?? "—"}{call.escalated ? " · escalation" : ""}</td>
+            <td>{call.analyzedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(call.analyzedAt)) : "—"}</td>
+            <td><a className="text-link" href={`/calls/${call.id}`}>Abrir</a></td>
           </tr>)}</tbody>
         </table></div>
         <nav className="pagination" aria-label="Paginação">

@@ -6,6 +6,7 @@ import {
   createAnalysisEngine,
   createConfidencePolicy,
   createVercelAiGatewayModelGateway,
+  getVercelAiGatewayModelPricing,
   type AnalysisAttemptResult,
 } from "@igd/ai";
 import {
@@ -18,6 +19,7 @@ import {
   type ClaimedTranscriptJob,
 } from "@igd/db";
 import { GoogleDriveTranscriptFetcher } from "@igd/google";
+import { VercelApiKeySpendReader } from "./lib/vercel-live-spend.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -78,6 +80,7 @@ const repository = new PostgresIngestionRepository(databaseUrl);
 const lifecycle = new PostgresOfficialAnalysisLifecycle(repository.sql);
 const ledger = new PostgresBudgetLedger(repository.sql);
 const gateway = apply ? createVercelAiGatewayModelGateway() : null;
+const spendReader = apply ? new VercelApiKeySpendReader() : null;
 const policy = createConfidencePolicy({
   version: CONFIDENCE_POLICY_VERSION,
   confidenceThreshold: strategy.engine.confidenceThreshold,
@@ -85,13 +88,17 @@ const policy = createConfidencePolicy({
   requiredDimensionCoverageRate: 1,
   maximumScoreDimensionDelta: 15,
 });
-const leaseSeconds = numericEnvironment("AI_ANALYSIS_LEASE_SECONDS", 300);
+const gatewayTimeoutMs = numericEnvironment("AI_GATEWAY_TIMEOUT_MS", 300_000);
+const leaseSeconds = numericEnvironment("AI_ANALYSIS_LEASE_SECONDS", 420);
+if (leaseSeconds < Math.ceil(gatewayTimeoutMs / 1_000) + 60) throw new Error("AI_ANALYSIS_LEASE_SECONDS must exceed the provider timeout by at least 60 seconds");
 const retryDelaySeconds = numericEnvironment("AI_ANALYSIS_RETRY_DELAY_SECONDS", 60);
 const transcriptRetryDelaySeconds = numericEnvironment("TRANSCRIPT_RETRY_DELAY_SECONDS", 3600);
 const transcriptMaxAttempts = numericEnvironment("TRANSCRIPT_MAX_ATTEMPTS", 3);
 if (!Number.isInteger(transcriptMaxAttempts) || transcriptMaxAttempts < 1) throw new Error("TRANSCRIPT_MAX_ATTEMPTS must be a positive integer");
 const primaryReservationUsd = numericEnvironment("AI_BUDGET_PRIMARY_RESERVATION_USD", 0.25);
 const escalationReservationUsd = numericEnvironment("AI_BUDGET_ESCALATION_RESERVATION_USD", 0.75);
+const maxOutputTokens = numericEnvironment("AI_ANALYSIS_MAX_OUTPUT_TOKENS", 5000);
+const liveSpendLagBufferUsd = numericEnvironment("AI_BUDGET_LIVE_SPEND_LAG_BUFFER_USD", 0.25);
 const releaseSha = process.env.RELEASE_SHA ?? null;
 let stopRequested = false;
 let budgetPaused = false;
@@ -116,10 +123,14 @@ async function processClaim(job: ClaimedAnalysisJob): Promise<"completed" | "fai
   const promptPath = path.resolve(process.env.ANALYSIS_PROMPT_FILE ?? `packages/ai/prompts/${strategy.lifecycle.promptVersion}.md`);
   const rubricConfigPath = path.resolve(process.env.ANALYSIS_RUBRIC_CONFIG ?? "config/products/insider/rubric.v1.json");
   const [rubric, prompt, rubricConfigRaw] = await Promise.all([readFile(rubricPath, "utf8"), readFile(promptPath, "utf8"), readFile(rubricConfigPath, "utf8")]);
+  const analysisContextCharacters = job.transcript.length + rubric.length + prompt.length + rubricConfigRaw.length + 1_500;
   const rubricConfig = JSON.parse(rubricConfigRaw) as { dimensions: Array<{ key: string }> };
   const reservations: Record<"primary" | "escalation", string[]> = { primary: [], escalation: [] };
   const resume = job.stage === "escalation" ? await lifecycle.getPrimaryResume(job.runId) : null;
   if (job.stage === "escalation" && !resume) throw new Error("escalation_resume_missing_primary_attempt");
+  const renewalTimer = setInterval(() => {
+    void lifecycle.renewClaim({ jobId: job.jobId, workerId: job.workerId, leaseSeconds }).catch(() => undefined);
+  }, Math.min(60, Math.floor(leaseSeconds / 3)) * 1_000);
 
   try {
     const execution = await createAnalysisEngine({ gateway: gateway!, strategy: strategy.engine }).runOfficial({
@@ -134,7 +145,15 @@ async function processClaim(job: ClaimedAnalysisJob): Promise<"completed" | "fai
         if (phase === "analyzing_escalation") await lifecycle.updateStage({ jobId: job.jobId, runId: job.runId, stage: "escalation", phase });
       },
       async onRequest(request) {
-        const estimate = request.role === "primary" ? primaryReservationUsd : escalationReservationUsd;
+        if (!await lifecycle.renewClaim({ jobId: job.jobId, workerId: job.workerId, leaseSeconds })) throw new Error("analysis_claim_lost");
+        const liveSpend = await spendReader!.read();
+        await ledger.reconcileLiveSpend(BUDGET_ACCOUNT_ID, liveSpend.currentSpendUsd + liveSpendLagBufferUsd);
+        const fallback = request.role === "primary" ? primaryReservationUsd : escalationReservationUsd;
+        const pricing = await getVercelAiGatewayModelPricing({ model: request.model }).catch(() => null);
+        const pricedEstimate = pricing
+          ? (Math.ceil(analysisContextCharacters / 3.5) * pricing.input + maxOutputTokens * pricing.output) * 1.25
+          : 0;
+        const estimate = Math.max(fallback, pricedEstimate);
         const reservation = await ledger.reserve({
           accountId: BUDGET_ACCOUNT_ID,
           ownerType: "official",
@@ -181,6 +200,8 @@ async function processClaim(job: ClaimedAnalysisJob): Promise<"completed" | "fai
       stage: error instanceof AnalysisEngineError && error.code === "escalation_failed" ? "escalation" : "primary",
     });
     return "failed";
+  } finally {
+    clearInterval(renewalTimer);
   }
 }
 
@@ -285,6 +306,10 @@ async function main(): Promise<void> {
   try {
     await lifecycle.heartbeat({ workerId: workerGroupId, releaseSha, concurrency, status: "running" });
     await Promise.all(Array.from({ length: concurrency }, (_, index) => slot(index + 1)));
+    while (daemon && budgetPaused && !stopRequested) {
+      await lifecycle.heartbeat({ workerId: workerGroupId, releaseSha, concurrency, status: "paused_budget" });
+      await new Promise((resolve) => setTimeout(resolve, 30_000));
+    }
   } finally {
     clearInterval(heartbeatTimer);
     await lifecycle.heartbeat({ workerId: workerGroupId, releaseSha, concurrency, status: budgetPaused ? "paused_budget" : "stopped" });

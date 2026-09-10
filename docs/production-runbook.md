@@ -46,20 +46,22 @@ To deploy an explicitly approved branch without merging `main`:
 ./scripts/deploy-production.sh origin/feat/source-agnostic-ingestion
 ```
 
-The installer builds both `web` and `worker`, but starts only `web`. Apply additive migrations and reconcile `AI_BUDGET_EXTERNAL_SPEND_BASELINE_USD` from Vercel before any paid run. Start a bounded pilot first:
+The installer builds both `web` and `worker`, but starts only `web`. Before paid work, configure the Gateway key plus the read-only Vercel management inputs `VERCEL_AI_GATEWAY_KEY_ID`, `VERCEL_TOKEN` and, when applicable, `VERCEL_TEAM_ID`. The worker refuses paid execution unless it can reconcile that key's live spend before every request. Apply additive migrations and set the initial `AI_BUDGET_EXTERNAL_SPEND_BASELINE_USD`, then start a bounded pilot first:
 
 ```bash
 ssh oracle-vps 'cd /opt/sales-intelligence && sudo docker compose run --rm worker node --import tsx scripts/migrate.ts'
 ssh oracle-vps 'cd /opt/sales-intelligence && sudo docker compose run --rm worker node --import tsx scripts/process-analysis-queue.ts --apply --limit=10 --concurrency=2'
 ```
 
-Only after the 10-call gate is healthy may the durable worker be started:
+Record `PILOT_STARTED_AT` before the first command and generate the private mode-`600` report with `PILOT_LIMIT=10`. Its stdout contains only aggregate Luna-only/escalation, schema, grounding, unscorable, zero-score, error, cost and projected-backlog metrics. If escalation remains near the old rate or errors are systemic, stop. Run a second bounded `--limit=10` only after that gate; never exceed 20 pilot Calls.
+
+Only after both pilot gates and the projected-cost check are healthy may the durable worker be started:
 
 ```bash
 ssh oracle-vps 'cd /opt/sales-intelligence && sudo SALES_RELEASE_SHA=$(readlink current | sed "s#.*/##") docker compose up -d --no-deps worker'
 ```
 
-The worker uses PostgreSQL leases, heartbeat rows and global budget reservations. It fetches transcripts just in time with `GOOGLE_ACCESS_TOKEN`, one per concurrency slot, rather than downloading the full catalog. Per-file retries are bounded by `TRANSCRIPT_MAX_ATTEMPTS`; an expired Google credential stops the worker and leaves the Call retryable. A budget pause is durable and is not cleared by restart.
+The worker uses renewable PostgreSQL leases, heartbeat rows and global budget reservations shared with benchmark tooling. Its lease must remain at least 60 seconds longer than `AI_GATEWAY_TIMEOUT_MS`. It fetches transcripts just in time with `GOOGLE_ACCESS_TOKEN`, one per concurrency slot, rather than downloading the full catalog. Per-file retries are bounded by `TRANSCRIPT_MAX_ATTEMPTS`; an expired Google credential stops the worker and leaves the Call retryable. A budget pause is durable, remains healthy/observable, and is not cleared by restart.
 
 ## Checks
 

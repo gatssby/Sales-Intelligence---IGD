@@ -6,7 +6,8 @@ import {
   getVercelAiGatewayModelPricing,
   selectBenchmarkCalls,
 } from "@igd/ai";
-import { PostgresIngestionRepository, type BenchmarkCall } from "@igd/db";
+import { PostgresAuthRepository, PostgresBudgetLedger, PostgresIngestionRepository, type BenchmarkCall } from "@igd/db";
+import { VercelApiKeySpendReader } from "./lib/vercel-live-spend.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const models = (process.env.AI_BENCHMARK_MODELS ?? "").split(",").map((model) => model.trim()).filter(Boolean);
@@ -26,8 +27,17 @@ if (!Number.isFinite(maxCostUsd) || maxCostUsd <= 0) throw new Error("BENCHMARK_
 
 const repository = new PostgresIngestionRepository(databaseUrl);
 const gateway = createVercelAiGatewayModelGateway();
+const ledger = new PostgresBudgetLedger(repository.sql);
+const spendReader = new VercelApiKeySpendReader();
+const budgetAccountId = process.env.AI_BUDGET_ACCOUNT_ID ?? "sales-intelligence-igd";
+const budgetLimitUsd = Number(process.env.AI_BUDGET_LIMIT_USD ?? "15");
+const budgetReserveUsd = Number(process.env.AI_BUDGET_SAFETY_RESERVE_USD ?? "3");
+const budgetBaselineUsd = Number(process.env.AI_BUDGET_EXTERNAL_SPEND_BASELINE_USD);
+const liveSpendLagBufferUsd = Number(process.env.AI_BUDGET_LIVE_SPEND_LAG_BUFFER_USD ?? "0.25");
 
 try {
+  await new PostgresAuthRepository(repository.sql).requireSpendActor(process.env.AUTH_ACTOR_EMAIL ?? "", "analysis.benchmark.cli");
+  await ledger.configureAccount({ accountId: budgetAccountId, limitUsd: budgetLimitUsd, safetyReserveUsd: budgetReserveUsd, externalSpendBaselineUsd: budgetBaselineUsd });
   const rows = await repository.sql<Array<{
     call_id: string; transcript_id: string; transcript: string; seller_code: string | null; character_count: number;
   }>>`
@@ -91,11 +101,25 @@ try {
       const pricing = await getVercelAiGatewayModelPricing({ model: job.model }).catch(() => null);
       const estimatedInputTokens = Math.ceil(job.item.characterCount / 3.5) + 2_200;
       const estimatedCost = pricing
-        ? estimatedInputTokens * pricing.input + maxOutputTokens * pricing.output
+        ? Math.max(0.25, (estimatedInputTokens * pricing.input + maxOutputTokens * pricing.output) * 1.25)
         : 0.25;
       if (!guard.reserve(estimatedCost)) { budgetSkipped += 1; continue; }
+      const liveSpend = await spendReader.read();
+      await ledger.reconcileLiveSpend(budgetAccountId, liveSpend.currentSpendUsd + liveSpendLagBufferUsd);
+      const reservation = await ledger.reserve({
+        accountId: budgetAccountId, ownerType: "benchmark", ownerId: runId,
+        requestKey: `benchmark:${job.item.callId}:${job.item.transcriptId}:${job.model}`,
+        role: "benchmark", model: job.model, estimatedCostUsd: estimatedCost,
+      });
+      if (!reservation.accepted) { guard.cancel(estimatedCost); budgetSkipped += 1; continue; }
       const attemptId = await repository.claimBenchmarkAttempt(runId, job.item, job.model, estimatedCost);
-      if (!attemptId) { guard.cancel(estimatedCost); reservationBlocked += 1; continue; }
+      if (!attemptId) {
+        await ledger.releaseReserved(reservation.reservationId);
+        guard.cancel(estimatedCost);
+        reservationBlocked += 1;
+        continue;
+      }
+      await ledger.markRequestStarted(reservation.reservationId);
       inFlight += 1;
       const execution = await engine.runBenchmark({
         transcript: job.item.transcript, rubric: `${rubric}\n\nConfiguração versionada:\n${rubricConfigRaw}`,
@@ -103,6 +127,11 @@ try {
       }, [job.model]);
       const result = execution.results[0];
       await repository.settleBenchmarkAttempt(attemptId, runId, job.item, result);
+      if (result.gatewayActualCostUsd === null) {
+        await ledger.markOutcomeUnknown(reservation.reservationId);
+        throw new Error("benchmark_gateway_actual_cost_missing");
+      }
+      await ledger.settle(reservation.reservationId, { actualCostUsd: result.gatewayActualCostUsd, costSource: "gateway_actual" });
       guard.settle(estimatedCost, result.gatewayActualCostUsd ?? result.estimatedCostUsd);
       inFlight -= 1;
       if (result.status === "completed") completed += 1; else failed += 1;

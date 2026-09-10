@@ -154,10 +154,10 @@ Uma call sem material suficiente usa `scoreability: "unscorable"`, `overall_scor
 ### 6.3 Lifecycle, confiança e custo
 
 - `analysis_jobs` é o estado operacional durável; `analysis_runs` e `analysis_attempts` preservam o histórico.
-- Claims concorrentes usam lease e `FOR UPDATE SKIP LOCKED`; finalização e recovery são idempotentes.
+- Claims concorrentes usam lease renovado, timeout do provider menor que o lease e `FOR UPDATE SKIP LOCKED`; finalização e recovery são idempotentes.
 - `requires_human_review` permanece visível, mas não dispara escalation sozinho.
 - A policy `insider-confidence-v2` decide escalation por sinais auditáveis de confiabilidade.
-- Antes de cada request, o worker reserva budget na conta global; settlement usa o custo real do Gateway.
+- Antes de cada request, o worker reconcilia o spend live da key Vercel, aplica buffer de atraso e reserva uma estimativa conservadora na conta global; settlement usa o custo real do Gateway. O mesmo ledger cobre Official Analysis e benchmark.
 - Requests iniciadas sem receipt ficam em reconciliação e não são repetidas automaticamente.
 - O mesmo backlog controla o fetch just-in-time de transcript: claims têm lease, usam janela igual à concorrência e tentativas por arquivo são limitadas. Falha global de autenticação Google interrompe o worker sem transformar todas as Calls em falhas de acesso.
 
