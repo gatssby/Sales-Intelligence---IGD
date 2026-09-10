@@ -345,10 +345,24 @@ try {
     await dryRun();
   } else if (daemon) {
     await repository.heartbeat({ workerId, releaseSha: process.env.RELEASE_SHA ?? null, status: "starting" });
-    while (!stopping) {
-      await runCycle();
-      if (stopping) break;
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    let daemonCycleActive = false;
+    const daemonHeartbeat = setInterval(() => {
+      void repository.heartbeat({
+        workerId,
+        releaseSha: process.env.RELEASE_SHA ?? null,
+        status: daemonCycleActive ? "running" : "idle",
+      }).catch(() => undefined);
+    }, Math.min(60_000, Math.max(10_000, Math.floor(intervalMs / 2))));
+    try {
+      while (!stopping) {
+        daemonCycleActive = true;
+        await runCycle();
+        daemonCycleActive = false;
+        if (stopping) break;
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+    } finally {
+      clearInterval(daemonHeartbeat);
     }
     await repository.heartbeat({ workerId, releaseSha: process.env.RELEASE_SHA ?? null, status: "stopped" });
   } else {
