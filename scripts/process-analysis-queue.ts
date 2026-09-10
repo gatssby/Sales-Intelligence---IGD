@@ -18,7 +18,7 @@ import {
   type ClaimedAnalysisJob,
   type ClaimedTranscriptJob,
 } from "@igd/db";
-import { GoogleDriveTranscriptFetcher } from "@igd/google";
+import { createGoogleDriveTranscriptFetcherFromEnvironment } from "@igd/google";
 import { VercelApiKeySpendReader } from "./lib/vercel-live-spend.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -107,9 +107,7 @@ let stopRequested = false;
 let budgetPaused = false;
 let lastSpendReconciliationAttemptAt = 0;
 let spendReconciliationPromise: Promise<void> | null = null;
-const transcriptFetcher = process.env.GOOGLE_ACCESS_TOKEN
-  ? new GoogleDriveTranscriptFetcher(process.env.GOOGLE_ACCESS_TOKEN)
-  : null;
+const transcriptFetcher = createGoogleDriveTranscriptFetcherFromEnvironment();
 
 process.on("SIGTERM", () => { stopRequested = true; });
 process.on("SIGINT", () => { stopRequested = true; });

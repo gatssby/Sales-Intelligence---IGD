@@ -56,7 +56,7 @@ After the initial checkpoint and projected-cost check are healthy, start the dur
 ssh oracle-vps 'cd /opt/sales-intelligence && sudo SALES_RELEASE_SHA=$(readlink current | sed "s#.*/##") docker compose up -d --no-deps worker'
 ```
 
-The worker uses renewable PostgreSQL leases, heartbeat rows and global budget reservations shared with benchmark tooling. Its lease must remain at least 60 seconds longer than `AI_GATEWAY_TIMEOUT_MS`. It fetches transcripts just in time with `GOOGLE_ACCESS_TOKEN`, one per concurrency slot, rather than downloading the full catalog; an authorized connector may instead preload a bounded window into PostgreSQL. Per-file retries are bounded by `TRANSCRIPT_MAX_ATTEMPTS`; an expired Google credential stops the worker and leaves the Call retryable. A budget pause, including provider 402, is durable, remains healthy/observable, and is not cleared by restart.
+The worker uses renewable PostgreSQL leases, heartbeat rows and global budget reservations shared with benchmark tooling. Its lease must remain at least 60 seconds longer than `AI_GATEWAY_TIMEOUT_MS`. It fetches transcripts just in time with read-only Google OAuth (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` and `GOOGLE_OAUTH_REFRESH_TOKEN`), one per concurrency slot, rather than downloading the full catalog. Access tokens are renewed automatically, cached only in process memory and never persisted. Per-file retries are bounded by `TRANSCRIPT_MAX_ATTEMPTS`; a systemic Google authentication failure stops the worker and leaves the Call retryable. A budget pause, including provider 402, is durable, remains healthy/observable, and is not cleared by restart.
 
 ## Checks
 

@@ -8,7 +8,7 @@ O importador recebe um JSON privado, valida o lote, resolve a identidade pelo Go
 - cada `seller_code` já cadastrado em `sellers`;
 - `DATABASE_URL` somente no ambiente local/seguro;
 - arquivo de entrada sob `private/`, que é ignorado pelo Git;
-- para buscar o conteúdo de um Google Doc, um `GOOGLE_ACCESS_TOKEN` curto e com acesso ao arquivo; se `transcript_text` vier no lote, nenhuma credencial Google é necessária.
+- para buscar o conteúdo de um Google Doc, configure `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` e `GOOGLE_OAUTH_REFRESH_TOKEN` com acesso somente leitura; se `transcript_text` vier no lote, nenhuma credencial Google é necessária.
 
 Nunca coloque transcrições, clientes, e-mails, tokens ou IDs privados nos arquivos versionados.
 
@@ -80,7 +80,7 @@ npm run calls:import -- --apply
 
 Sem `--request-analysis`, o processo para em `transcript_ready` (ou `metadata_ready` quando não recebeu nem conseguiu buscar texto). A importação registra `ingestion_runs` e eventos diagnósticos sem copiar PII para a mensagem do log.
 
-Para exportar um Doc durante a importação, forneça `GOOGLE_ACCESS_TOKEN` apenas no ambiente do processo. Falhas de autorização são registradas como `FAILED_TRANSCRIPT_ACCESS` e podem ser repetidas depois.
+Para exportar um Doc durante a importação, forneça as três variáveis OAuth apenas no ambiente privado do processo. O access token é efêmero e renovado automaticamente. Falhas de autorização são registradas como `FAILED_TRANSCRIPT_ACCESS` e podem ser repetidas depois.
 
 ## 3. Solicitar e executar análise
 

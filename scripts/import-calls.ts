@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { ingestCall, resolveTranscriptIdentity } from "@igd/core";
 import { PostgresAuthRepository, PostgresIngestionRepository } from "@igd/db";
-import { GoogleDriveTranscriptFetcher } from "@igd/google";
+import { createGoogleDriveTranscriptFetcherFromEnvironment } from "@igd/google";
 
 const databaseUrl = process.env.DATABASE_URL;
 const inputFile = process.env.MANUAL_INGESTION_FILE;
@@ -32,9 +32,7 @@ const ItemSchema = z.object({
 
 const items = z.array(ItemSchema).min(1).max(100).parse(JSON.parse(await readFile(inputFile, "utf8")));
 const repository = new PostgresIngestionRepository(databaseUrl);
-const transcriptFetcher = process.env.GOOGLE_ACCESS_TOKEN
-  ? new GoogleDriveTranscriptFetcher(process.env.GOOGLE_ACCESS_TOKEN)
-  : undefined;
+const transcriptFetcher = createGoogleDriveTranscriptFetcherFromEnvironment() ?? undefined;
 
 try {
   if (!apply) {
