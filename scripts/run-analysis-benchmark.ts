@@ -1,0 +1,156 @@
+import { readFile } from "node:fs/promises";
+import {
+  createAnalysisEngine,
+  createBenchmarkBudgetGuard,
+  createVercelAiGatewayModelGateway,
+  getVercelAiGatewayModelPricing,
+  selectBenchmarkCalls,
+} from "@igd/ai";
+import { PostgresAuthRepository, PostgresBudgetLedger, PostgresIngestionRepository, type BenchmarkCall } from "@igd/db";
+import { VercelApiKeySpendReader } from "./lib/vercel-live-spend.js";
+
+const databaseUrl = process.env.DATABASE_URL;
+const models = (process.env.AI_BENCHMARK_MODELS ?? "").split(",").map((model) => model.trim()).filter(Boolean);
+const phase = process.env.AI_BENCHMARK_PHASE ?? "screening-a";
+const sampleSize = Number(process.env.AI_BENCHMARK_SAMPLE_SIZE ?? "3");
+const concurrency = Number(process.env.AI_BENCHMARK_CONCURRENCY ?? "3");
+const maxCostUsd = Number(process.env.BENCHMARK_MAX_COST_USD);
+const keySpendSanityCheckUsd = Number(process.env.VERCEL_KEY_SPEND_SANITY_CHECK_USD ?? "0");
+const rubricVersion = process.env.RUBRIC_VERSION ?? "insider-demo-v0";
+const promptVersion = process.env.PROMPT_VERSION ?? "call-analysis-v0";
+const maxOutputTokens = Number(process.env.AI_ANALYSIS_MAX_OUTPUT_TOKENS ?? "2000");
+if (!databaseUrl) throw new Error("DATABASE_URL is required");
+if (!models.length) throw new Error("AI_BENCHMARK_MODELS is required");
+if (!Number.isInteger(sampleSize) || sampleSize < 1 || sampleSize > 30) throw new Error("AI_BENCHMARK_SAMPLE_SIZE must be from 1 to 30");
+if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 4) throw new Error("AI_BENCHMARK_CONCURRENCY must be from 1 to 4");
+if (!Number.isFinite(maxCostUsd) || maxCostUsd <= 0) throw new Error("BENCHMARK_MAX_COST_USD is required");
+
+const repository = new PostgresIngestionRepository(databaseUrl);
+const gateway = createVercelAiGatewayModelGateway();
+const ledger = new PostgresBudgetLedger(repository.sql);
+const spendReader = new VercelApiKeySpendReader();
+const budgetAccountId = process.env.AI_BUDGET_ACCOUNT_ID ?? "sales-intelligence-igd";
+const budgetLimitUsd = Number(process.env.AI_BUDGET_LIMIT_USD ?? "15");
+const budgetReserveUsd = Number(process.env.AI_BUDGET_SAFETY_RESERVE_USD ?? "0.10");
+const budgetBaselineUsd = Number(process.env.AI_BUDGET_EXTERNAL_SPEND_BASELINE_USD);
+const liveSpendLagBufferUsd = Number(process.env.AI_BUDGET_LIVE_SPEND_LAG_BUFFER_USD ?? "0.25");
+
+try {
+  await new PostgresAuthRepository(repository.sql).requireSpendActor(process.env.AUTH_ACTOR_EMAIL ?? "", "analysis.benchmark.cli");
+  await ledger.configureAccount({ accountId: budgetAccountId, limitUsd: budgetLimitUsd, safetyReserveUsd: budgetReserveUsd, externalSpendBaselineUsd: budgetBaselineUsd });
+  const rows = await repository.sql<Array<{
+    call_id: string; transcript_id: string; transcript: string; seller_code: string | null; character_count: number;
+  }>>`
+    select ar.call_id, ar.transcript_id, t.normalized_text as transcript, s.seller_code,
+      length(t.normalized_text)::integer as character_count
+    from analysis_runs ar
+    join calls c on c.id = ar.call_id join sellers s on s.id = c.seller_id join transcripts t on t.id = ar.transcript_id
+    where ar.status in ('queued', 'failed')
+      and not exists (select 1 from analysis_runs official where official.call_id = ar.call_id and official.status = 'completed' and official.is_current = true)
+    order by length(t.normalized_text), c.transcript_file_id
+  `;
+  const candidates: BenchmarkCall[] = rows.map((row) => ({
+    callId: row.call_id, transcriptId: row.transcript_id, transcript: row.transcript,
+    sellerCode: row.seller_code, characterCount: row.character_count,
+  }));
+  const selected = selectBenchmarkCalls({ candidates, phase, sampleSize });
+  if (selected.length !== sampleSize) throw new Error("benchmark_sample_unavailable");
+
+  const [rubric, rubricConfigRaw] = await Promise.all([
+    readFile(process.env.ANALYSIS_RUBRIC_FILE ?? `packages/ai/rubrics/${rubricVersion}.md`, "utf8"),
+    readFile(process.env.ANALYSIS_RUBRIC_CONFIG ?? "config/products/insider/rubric.v0.json", "utf8"),
+  ]);
+  const rubricConfig = JSON.parse(rubricConfigRaw) as { dimensions: Array<{ key: string }> };
+  const persistedSpend = await repository.sql<{ spend: number }[]>`
+    with reserved as (
+      select coalesce(sum(coalesce(gateway_actual_cost_usd, estimated_cost_usd)), 0) spend
+      from benchmark_attempts
+    ), legacy as (
+      select coalesce(sum(coalesce(result.gateway_actual_cost_usd, result.estimated_cost_usd, result.cost_usd)), 0) spend
+      from benchmark_results result
+      join benchmark_runs run on run.id = result.benchmark_run_id
+      where not exists (
+        select 1 from benchmark_attempts attempt
+        where attempt.call_id = result.call_id and attempt.transcript_id = result.transcript_id
+          and attempt.model = result.model and attempt.rubric_version = run.rubric_version
+          and attempt.prompt_version = run.prompt_version and attempt.schema_version = run.schema_version
+      )
+    ), adjustments as (
+      select coalesce(sum(amount_usd), 0) spend from benchmark_cost_adjustments
+    )
+    select (reserved.spend + legacy.spend + adjustments.spend)::float spend
+    from reserved cross join legacy cross join adjustments
+  `;
+  const alreadySpentUsd = persistedSpend[0].spend;
+  const guard = createBenchmarkBudgetGuard({ maxCostUsd, alreadySpentUsd });
+  const runId = await repository.createBenchmarkRun({
+    name: `INSIDER ${phase}`, phase, selectionMethod: phase.includes("stress") ? "extreme_context_stress" : "deterministic_non_extreme_targets",
+    modelIds: models, metadata: { sampleSize, concurrency, maxOutputTokens, characterCounts: selected.map((item) => item.characterCount), alreadySpentUsd, maxCostUsd, keySpendSanityCheckUsd },
+  });
+  const engine = createAnalysisEngine({
+    gateway,
+    strategy: { version: "benchmark-only", primaryModel: models[0], escalationModel: models[0], confidenceThreshold: 0, maxTechnicalRetries: 0 },
+  });
+  const jobs = selected.flatMap((item) => models.map((model) => ({ item, model })));
+  let cursor = 0; let completed = 0; let failed = 0; let reused = 0; let reservationBlocked = 0; let budgetSkipped = 0; let inFlight = 0;
+
+  const worker = async () => {
+    while (cursor < jobs.length) {
+      const job = jobs[cursor++];
+      if (await repository.hasCompletedBenchmarkResult(job.item.callId, job.item.transcriptId, job.model)) { reused += 1; continue; }
+      const pricing = await getVercelAiGatewayModelPricing({ model: job.model }).catch(() => null);
+      const estimatedInputTokens = Math.ceil(job.item.characterCount / 3.5) + 2_200;
+      const estimatedCost = pricing
+        ? Math.max(0.25, (estimatedInputTokens * pricing.input + maxOutputTokens * pricing.output) * 1.25)
+        : 0.25;
+      if (!guard.reserve(estimatedCost)) { budgetSkipped += 1; continue; }
+      const liveSpend = await spendReader.read();
+      await ledger.reconcileLiveSpend(budgetAccountId, liveSpend.currentSpendUsd + liveSpendLagBufferUsd);
+      const reservation = await ledger.reserve({
+        accountId: budgetAccountId, ownerType: "benchmark", ownerId: runId,
+        requestKey: `benchmark:${job.item.callId}:${job.item.transcriptId}:${job.model}`,
+        role: "benchmark", model: job.model, estimatedCostUsd: estimatedCost,
+      });
+      if (!reservation.accepted) { guard.cancel(estimatedCost); budgetSkipped += 1; continue; }
+      const attemptId = await repository.claimBenchmarkAttempt(runId, job.item, job.model, estimatedCost);
+      if (!attemptId) {
+        await ledger.releaseReserved(reservation.reservationId);
+        guard.cancel(estimatedCost);
+        reservationBlocked += 1;
+        continue;
+      }
+      await ledger.markRequestStarted(reservation.reservationId);
+      inFlight += 1;
+      const execution = await engine.runBenchmark({
+        transcript: job.item.transcript, rubric: `${rubric}\n\nConfiguração versionada:\n${rubricConfigRaw}`,
+        promptVersion, expectedDimensionKeys: rubricConfig.dimensions.map((dimension) => dimension.key),
+      }, [job.model]);
+      const result = execution.results[0];
+      await repository.settleBenchmarkAttempt(attemptId, runId, job.item, result);
+      if (result.gatewayActualCostUsd === null) {
+        await ledger.markOutcomeUnknown(reservation.reservationId);
+        throw new Error("benchmark_gateway_actual_cost_missing");
+      }
+      await ledger.settle(reservation.reservationId, { actualCostUsd: result.gatewayActualCostUsd, costSource: "gateway_actual" });
+      guard.settle(estimatedCost, result.gatewayActualCostUsd ?? result.estimatedCostUsd);
+      inFlight -= 1;
+      if (result.status === "completed") completed += 1; else failed += 1;
+      if ((completed + failed) % 5 === 0) {
+        const budget = guard.snapshot();
+        console.log(JSON.stringify({ checkpoint: true, completed, failed, reused, reservationBlocked, inFlight, actualSpendUsd: budget.alreadySpentUsd + budget.actualIncrementalCostUsd, budgetUsd: budget.maxCostUsd, remainingUsd: Math.max(0, budget.maxCostUsd - budget.projectedCostUsd) }));
+      }
+    }
+  };
+
+  try {
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    const budget = guard.snapshot();
+    await repository.finishBenchmarkRun(runId, "completed", { completed, failed, reused, reservationBlocked, budgetSkipped, budget });
+    console.log(JSON.stringify({ benchmarkRunId: runId, phase, models: models.length, calls: selected.length, completed, failed, reused, reservationBlocked, budgetSkipped, inFlight, budget }));
+  } catch (error) {
+    await repository.finishBenchmarkRun(runId, "failed", { errorCode: "benchmark_runner_failed", completed, failed, reused, reservationBlocked, budgetSkipped, budget: guard.snapshot() });
+    throw error;
+  }
+} finally {
+  await repository.close();
+}

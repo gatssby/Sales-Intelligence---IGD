@@ -1,5 +1,22 @@
 {
   "name": "@igd/db",
   "version": "0.1.0",
-  "private": true
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@igd/ai": "0.1.0",
+    "@igd/auth": "0.1.0",
+    "@igd/core": "0.1.0",
+    "postgres": "3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "7.0.2"
+  }
 }

@@ -15,13 +15,21 @@ O primeiro fluxo ponta a ponta está implementado:
 
 Para abrir a demo localmente, siga [docs/demo-runbook.md](docs/demo-runbook.md). A rubrica v0 é demonstrativa e ainda não deve ser tratada como KPI oficial.
 
-O deploy em `sales-igd.com.br` usa Next.js em container, nginx com HTTPS e autenticação básica, mantendo PostgreSQL e a porta do app limitados ao loopback da VPS. O procedimento de atualização e rollback está em [docs/production-runbook.md](docs/production-runbook.md).
+A entrada controlada de calls agora é desacoplada da origem e deduplicada por `transcript_file_id`. O contrato e os comandos seguros estão em [docs/manual-call-ingestion.md](docs/manual-call-ingestion.md); a decisão arquitetural está registrada em [ADR 0002](docs/decisions/0002-source-agnostic-call-ingestion.md).
+
+A descoberta autônoma do Google Drive usa o mesmo OAuth renovável, registra documentos antes de criar calls e reconcilia origens legadas pelo mesmo `transcript_file_id`. O fluxo, os defaults seguros e a operação estão em [docs/drive-discovery.md](docs/drive-discovery.md) e no [ADR 0007](docs/decisions/0007-drive-discovery-and-temporal-attribution.md).
+
+O procedimento específico para validar o JSONL, importar somente o catálogo e construir a fila fair do primeiro lote INSIDER está em [docs/insider-first-batch-runbook.md](docs/insider-first-batch-runbook.md).
+
+O deploy em `sales-igd.com.br` usa Next.js em container e nginx com HTTPS, mantendo PostgreSQL e a porta do app limitados ao loopback da VPS. O procedimento de atualização e rollback está em [docs/production-runbook.md](docs/production-runbook.md).
+
+A autenticação individual da aplicação é a camada principal de acesso. O controle por papel/escopo e a aposentadoria do Basic Auth legado do nginx estão documentados em [docs/authentication-access-control.md](docs/authentication-access-control.md).
 
 ## Escopo inicial
 
 O MVP deve:
 
-1. descobrir calls/transcrições em múltiplas fontes do Google Drive;
+1. receber calls/transcrições por adaptadores independentes da fonte;
 2. normalizar os metadados da call;
 3. obter a transcrição existente ou encaminhar a gravação para transcrição;
 4. analisar a call com uma rubrica versionada por produto;
@@ -36,12 +44,13 @@ A planilha **Central de Auditoria de Calls — INSIDER** será usada como refer�
 Google Drive(s)
       │
       ▼
-    n8n  ── descoberta / ingestão / retries
+Drive Discovery ── Shared with me / roots / Changes API
       │
       ▼
 PostgreSQL ── source of truth
       │
-      ├── calls / sellers / products
+      ├── drive_documents / people / organização temporal
+      ├── calls / call_sources / products
       ├── artifacts / transcripts
       ├── analysis_runs / evidence
       └── prompt + rubric versions
@@ -55,16 +64,16 @@ Web App / Dashboard
 
 ### Responsabilidades
 
-- **n8n:** orquestração, polling do Drive, obtenção de arquivos, disparo de jobs e retries.
+- **Drive discovery:** daemon idempotente, OAuth renovável, catálogo pré-Call, attribution e reconciliação.
 - **PostgreSQL:** fonte única de verdade e controle de idempotência/status.
 - **AI layer:** provider-agnostic, saída validada por schema e rubricas versionadas.
 - **Web app:** dashboard, filtros, detalhe das calls, coaching e administração.
 
 ## Google Drive
 
-### Fase atual — fontes distribuídas
+### Fontes distribuídas
 
-Cada pasta/origem será cadastrada como uma `source_location` associada a um vendedor. O pipeline percorre todas as fontes ativas e grava o `drive_file_id`, `modified_time` e metadados necessários para evitar processamento duplicado.
+Cada pasta/origem relevante é cadastrada como `source_location`. O scanner inventaria novas pastas compartilhadas como candidates, percorre apenas roots habilitadas e mantém compatibilidade com os lotes manuais legados.
 
 Preferência imediata: compartilhar as pastas relevantes com uma única conta de integração, em vez de manter uma credencial OAuth diferente por vendedor.
 
@@ -116,9 +125,6 @@ packages/
   ai/                  # providers, prompts, schemas e validação
 config/
   products/            # rubricas versionadas por produto
-n8n/
-  workflows/           # exports JSON versionados
-  docs/
 docs/
   architecture.md
   data-model.md
@@ -128,7 +134,7 @@ infra/
 
 ## Princípios
 
-- n8n não é banco nem source of truth.
+- PostgreSQL é o source of truth; n8n não é dependência do discovery definitivo.
 - lógica crítica fica em código versionado.
 - prompts/rubricas têm versão explícita.
 - toda conclusão relevante da IA deve apontar evidência da call quando possível.
@@ -138,10 +144,8 @@ infra/
 
 ## Próximos marcos
 
-1. fechar modelo de acesso ao Google Workspace;
-2. definir schema inicial do PostgreSQL;
-3. transformar a rubrica do INSIDER em schema estruturado;
-4. construir workflow n8n de discovery + ingestão;
-5. processar um pequeno conjunto de calls ponta a ponta;
-6. criar uma base humana de referência para validar a qualidade da IA;
-7. construir o primeiro dashboard.
+1. receber e validar o primeiro lote privado controlado;
+2. obter as transcrições autorizadas e conferir uma amostra manual;
+3. executar uma análise por vez pelo AI Gateway;
+4. criar uma base humana de referência para validar a qualidade da IA;
+5. definir o adaptador futuro para o Drive unificado.

@@ -13,20 +13,20 @@ O sistema deve suportar múltiplos produtos, múltiplos times e múltiplas vers�
 A arquitetura será dividida em cinco camadas:
 
 1. **Sources** — Google Drive, transcrições, gravações e futuramente CRM/Calendly.
-2. **Orchestration** — n8n.
+2. **Discovery/Orchestration** — scanner durável da aplicação; n8n permanece opcional para integrações externas futuras.
 3. **Domain/Data** — aplicação + PostgreSQL.
 4. **AI Evaluation** — camada provider-agnostic com saída estruturada.
 5. **Presentation** — dashboard web.
 
-O n8n não será fonte de verdade e não deverá conter as principais regras de avaliação comercial.
+PostgreSQL permanece a fonte de verdade. Discovery, attribution, reconciliação e fila ficam em código versionado; n8n não participa do fluxo definitivo do Drive.
 
 ---
 
 ## 3. Ingestão do Google Drive
 
-### 3.1 Situação transitória
+### 3.1 Sources explícitas e catálogo pré-Call
 
-Enquanto as calls permanecerem nas contas/pastas individuais dos vendedores, teremos uma tabela `source_locations` com, no mínimo:
+`source_locations` registra roots do Drive. `Shared with me` é inventário de candidatos, não autorização automática para ingerir toda a conta. `drive_documents` cataloga cada arquivo pelo ID estável antes de uma Call existir.
 
 - `id`
 - `seller_id`
@@ -47,17 +47,18 @@ Ordem recomendada:
 
 Não manter uma credencial OAuth independente para cada vendedor se pudermos evitar.
 
-### 3.3 Polling
+### 3.3 Bootstrap, incremental e recuperação
 
-Para robustez, usar **Schedule Trigger + consulta ao Drive** em vez de depender exclusivamente de um trigger por pasta.
+O scanner captura um start page token, percorre roots habilitadas recursivamente e depois consome a Changes API com cursor PostgreSQL. Um full scan periódico repara desvios. Leases por scanner/source e unique constraints tornam restart e concorrência idempotentes.
 
-O workflow deve:
+O scanner deve:
 
-1. carregar `source_locations` ativas;
-2. consultar arquivos novos/alterados desde o último checkpoint;
+1. inventariar roots candidatas sem habilitá-las;
+2. carregar `source_locations` habilitadas;
 3. registrar cada arquivo pelo ID do Google Drive;
-4. detectar o papel do artefato: gravação, transcrição, notas ou outro;
-5. atualizar checkpoint apenas após persistência bem-sucedida.
+4. classificar deterministicamente e resolver attribution/data/organização;
+5. reconciliar `call_sources` pela identidade canônica;
+6. avançar o cursor apenas após persistência bem-sucedida.
 
 Se a árvore possuir subpastas, o pipeline deve fazer descoberta explícita/recursiva ou usar o feed de mudanças apropriado. Não assumir que observar uma pasta raiz captura automaticamente alterações em toda a árvore.
 
@@ -131,6 +132,8 @@ A IA deve produzir objeto validado por schema. Exemplo conceitual:
 
 ```json
 {
+  "scoreability": "scoreable",
+  "unscorable_reason": null,
   "overall_score": 72,
   "opportunity_quality": "qualified",
   "call_status": "lost_by_closer",
@@ -147,7 +150,22 @@ A IA deve produzir objeto validado por schema. Exemplo conceitual:
 
 Campos da planilha do INSIDER devem ser preservados quando forem úteis, mas o novo schema precisa funcionar para outros produtos.
 
-### 6.3 Evidência
+Uma call sem material suficiente usa `scoreability: "unscorable"`, `overall_score: null` e um motivo explícito. Score zero representa performance avaliada, nunca ausência de avaliação.
+
+### 6.3 Lifecycle, confiança e custo
+
+- `analysis_jobs` é o estado operacional durável; `analysis_runs` e `analysis_attempts` preservam o histórico.
+- Claims concorrentes usam lease renovado, timeout do provider menor que o lease e `FOR UPDATE SKIP LOCKED`; finalização e recovery são idempotentes.
+- `requires_human_review` permanece visível, mas não dispara escalation sozinho.
+- A policy `insider-confidence-v2` decide escalation por sinais auditáveis de confiabilidade.
+- Antes de cada request, o worker faz uma reserva atômica no ledger PostgreSQL global; settlement usa o custo real de `providerMetadata.gateway.cost`. O mesmo ledger cobre Official Analysis e benchmark.
+- A leitura live da key Vercel é uma reconciliação periódica do control plane, não uma dependência do hot path. Falha temporária nessa leitura não autoriza exceder o ledger nem interrompe requests que ainda cabem no teto persistido.
+- O teto operacional mantém apenas uma margem técnica pequena. Falta de espaço para a próxima reserva ou resposta 402 do Provider pausa o worker sem marcar a Call como failed.
+- O read model administrativo de spend agrega somente PostgreSQL e expõe gasto reconciliado, restante, médias 10/25, estimativa auditável e heartbeat; nenhum read path chama o AI Gateway.
+- Requests iniciadas sem receipt ficam em reconciliação e não são repetidas automaticamente.
+- O mesmo backlog controla o fetch just-in-time de transcript: claims têm lease, usam janela igual à concorrência e tentativas por arquivo são limitadas. Falha global de autenticação Google interrompe o worker sem transformar todas as Calls em falhas de acesso.
+
+### 6.4 Evidência
 
 Toda crítica relevante deve, quando possível, carregar:
 
@@ -158,7 +176,7 @@ Toda crítica relevante deve, quando possível, carregar:
 
 O feedback não deve ser somente uma opinião textual genérica.
 
-### 6.4 Rubrica
+### 6.5 Rubrica
 
 Estrutura sugerida:
 
@@ -312,6 +330,20 @@ Regras mínimas:
 - política de retenção;
 - rastrear quem reanalisou/revisou uma call;
 - secrets em secret manager/env seguro.
+
+### 11.1 Autenticação e autorização da aplicação
+
+A aplicação usa contas individuais mantidas no PostgreSQL. A autorização é composta por três dimensões separadas:
+
+1. papel (`ADMIN`, `LEADER`, `SUPERVISOR`, `SALES_OPS`);
+2. capacidade (`users:manage`, `settings:manage`, `calls:read`, `analytics:read`, `spend:execute`);
+3. escopo (`GLOBAL`, conjunto de times ou conjunto de produtos).
+
+A matriz papel → capacidades existe em um único módulo. Páginas, APIs e comandos chamam essa camada em vez de comparar papéis diretamente. Consultas de calls e métricas recebem o contexto de autorização e aplicam o predicado de escopo no PostgreSQL. A mesma regra cobre listagens, detalhes por ID e agregações.
+
+Somente `ADMIN` recebe `spend:execute` nesta versão. Uma tentativa negada termina antes de criar job ou chamar provider e gera um evento de auditoria sem payload da call.
+
+Consulte [ADR 0004](decisions/0004-application-auth-and-access-control.md) e o [runbook de autenticação](authentication-access-control.md).
 
 ---
 

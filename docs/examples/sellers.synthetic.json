@@ -1,0 +1,13 @@
+[
+  {
+    "seller_code": "V999",
+    "seller_name": "Vendedor Sintético",
+    "product": "INSIDER",
+    "team_name": "Time Sintético",
+    "role": "Closer",
+    "seniority": "Pleno",
+    "leader_code": "V998",
+    "leader_name": "Líder Sintético",
+    "active": true
+  }
+]
