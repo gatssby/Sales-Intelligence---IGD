@@ -1,14 +1,19 @@
 import type { Metadata } from "next";
-import { Manrope, Plus_Jakarta_Sans } from "next/font/google";
+import { Newsreader, Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const manrope = Manrope({
-  variable: "--font-body",
+const newsreader = Newsreader({
+  variable: "--font-display",
   subsets: ["latin"],
 });
 
 const jakarta = Plus_Jakarta_Sans({
-  variable: "--font-display",
+  variable: "--font-body",
+  subsets: ["latin"],
+});
+
+const jetbrains = JetBrains_Mono({
+  variable: "--font-mono",
   subsets: ["latin"],
 });
 
@@ -20,7 +25,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="pt-BR">
-      <body className={`${manrope.variable} ${jakarta.variable}`}>{children}</body>
+      <body className={`${newsreader.variable} ${jakarta.variable} ${jetbrains.variable}`}>{children}</body>
     </html>
   );
 }
