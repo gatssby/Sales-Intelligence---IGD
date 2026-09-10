@@ -14,12 +14,19 @@ const labels: Record<string, string> = {
 export default async function CallsPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
   const user = await requireCapability("calls:read");
   const page = Math.max(1, Number((await searchParams).page ?? "1") || 1);
+
+  const query = new URLSearchParams((await searchParams) as any);
+  const buildPageUrl = (p: number) => {
+    query.set("page", String(p));
+    return `/calls?${query.toString()}`;
+  };
+
   const [catalog, progress] = await Promise.all([getCallCatalogPage(user, page), getProgressData(user)]);
   return (
     <main className="admin-shell calls-shell">
       <header className="calls-header">
         <div className="title-lockup">
-          <h1>Calls Workspace</h1>
+          <h1>Calls</h1>
           <span className="count-badge">{catalog.total.toLocaleString("pt-BR")} calls no escopo</span>
         </div>
         <div className="admin-header-actions">
@@ -84,9 +91,9 @@ export default async function CallsPage({ searchParams }: { searchParams: Promis
           </table>
         </div>
         <nav className="pagination-compact" aria-label="Paginação">
-          {page > 1 ? <a href={`/calls?page=${page - 1}`}>←</a> : <span className="disabled">←</span>}
+          {page > 1 ? <a href={buildPageUrl(page - 1)}>←</a> : <span className="disabled">←</span>}
           <span>Página {page} de {catalog.pages}</span>
-          {page < catalog.pages ? <a href={`/calls?page=${page + 1}`}>→</a> : <span className="disabled">→</span>}
+          {page < catalog.pages ? <a href={buildPageUrl(page + 1)}>→</a> : <span className="disabled">→</span>}
         </nav>
       </section>
     </main>

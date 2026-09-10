@@ -118,7 +118,7 @@ export default async function CallDetailPage({ params }: { params: Promise<{ id:
       )}
 
       <details className="audit-drawer">
-        <summary>Detalhes Técnicos & Auditoria (Admin)</summary>
+        <summary>Detalhes Técnicos & Auditoria</summary>
         <div className="audit-content">
           <dl className="audit-dl">
             <div><dt>Status do Transcript</dt><dd>{call.transcriptStatus}</dd></div>
@@ -127,9 +127,9 @@ export default async function CallDetailPage({ params }: { params: Promise<{ id:
             <div><dt>Rubrica</dt><dd>{call.rubricVersion}</dd></div>
             <div><dt>Prompt</dt><dd>{call.promptVersion}</dd></div>
             <div><dt>Schema</dt><dd>{call.schemaVersion}</dd></div>
-            <div><dt>Latency</dt><dd>{call.latencyMs === null ? "—" : `${call.latencyMs} ms`}</dd></div>
+            <div><dt>Latência</dt><dd>{call.latencyMs === null ? "—" : `${call.latencyMs} ms`}</dd></div>
             <div><dt>Custo</dt><dd>{call.costUsd === null ? "—" : `$${call.costUsd.toFixed(6)}`}</dd></div>
-            <div><dt>Escalation</dt><dd>{call.escalationReasons.join(", ") || "Nenhuma"}</dd></div>
+            <div><dt>Escalonamento</dt><dd>{call.escalationReasons.join(", ") || "Nenhuma"}</dd></div>
           </dl>
           <div className="attempt-list">
             {call.attempts.map((attempt) => (
@@ -140,7 +140,7 @@ export default async function CallDetailPage({ params }: { params: Promise<{ id:
             ))}
           </div>
           <div className="transcript-section">
-            <h4>Raw Transcript</h4>
+            <h4>Transcrição</h4>
             <TranscriptPanel callId={call.id} available={call.transcriptStatus === "available"} />
           </div>
         </div>

@@ -27,15 +27,15 @@ export function AiSpendPanel({ summary }: { summary: AiSpendSummary }) {
       <div className="progress-track budget-track"><i style={{ width: `${summary.usagePercent}%` }} /></div>
       <div className="spend-grid">
         <div><span>Restante</span><strong>{money(summary.remainingUsd)}</strong></div>
-        <div><span>Média / call</span><strong>{average(summary.avgCostOverall)}</strong><small>Total de calls</small></div>
-        <div><span>Últimas 10</span><strong>{average(summary.avgCostRecent10)}</strong><small>Amostra</small></div>
-        <div><span>Últimas 25</span><strong>{average(summary.avgCostRecent25)}</strong><small>Amostra</small></div>
+        <div><span>Média / call</span><strong>{average(summary.avgCostOverall)}</strong><small>n={summary.costedCalls}</small></div>
+        <div><span>Últimas 10</span><strong>{average(summary.avgCostRecent10)}</strong><small>n={summary.recent10SampleSize}</small></div>
+        <div><span>Últimas 25</span><strong>{average(summary.avgCostRecent25)}</strong><small>n={summary.recent10SampleSize}</small></div>
         <div className="spend-estimate"><span>Crédito estimado para</span><strong>{summary.estimatedCallsRemaining === null ? "—" : `≈ ${summary.estimatedCallsRemaining} calls`}</strong><small></small></div>
       </div>
       <div className="spend-secondary">
-        <span>Primary only <b>{summary.completedCalls ? `${Math.round(summary.primaryOnlyCalls / summary.completedCalls * 100)}%` : "—"}</b></span>
-        <span>Escalation <b>{summary.completedCalls ? `${Math.round(summary.escalationRate * 100)}%` : "—"}</b></span>
-        <span>Human review <b>{summary.completedCalls ? `${Math.round(summary.humanReviewRate * 100)}%` : "—"}</b></span>
+        <span>Apenas primary <b>{summary.completedCalls ? `${Math.round(summary.primaryOnlyCalls / summary.completedCalls * 100)}%` : "—"}</b></span>
+        <span>Escalonamento <b>{summary.completedCalls ? `${Math.round(summary.escalationRate * 100)}%` : "—"}</b></span>
+        <span>Revisão humana <b>{summary.completedCalls ? `${Math.round(summary.humanReviewRate * 100)}%` : "—"}</b></span>
       </div>
       <div className="worker-summary">
         <div><strong>Worker <AdminBadge /></strong><span>{workerLabels[summary.worker.status] ?? summary.worker.status}</span></div>
