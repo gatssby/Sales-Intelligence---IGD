@@ -51,14 +51,21 @@ try {
 
     if (message.op === "failure") {
       failed += 1;
+      const terminal = message.error === "transcript_not_found" || message.error === "transcript_empty";
       await repository.sql.begin(async (tx) => {
         await tx`
           insert into ingestion_events (ingestion_run_id, event_type, source_type, transcript_file_id, call_id, message)
           values (${runId}, 'FAILED_TRANSCRIPT_ACCESS', 'google_drive_doc', ${transcriptFileId}, ${call.id}, ${message.error})
         `;
         await tx`
-          update calls set status = case when status = 'analyzed' then status else 'failed_retryable' end, updated_at = now()
+          update calls set status = case when status = 'analyzed' then status else ${terminal ? "failed_permanent" : "failed_retryable"} end, updated_at = now()
           where id = ${call.id}
+        `;
+        await tx`
+          update analysis_jobs set status=${terminal ? "failed_terminal" : "awaiting_transcript"}, stage='transcript',
+            retry_at=${terminal ? null : new Date(Date.now() + 24 * 60 * 60 * 1_000)},
+            last_error_code=${message.error}, worker_id=null, lease_expires_at=null, updated_at=now()
+          where call_id=${call.id} and status in ('awaiting_transcript','ready','retry_wait','failed_terminal')
         `;
       });
       process.stdout.write(`${JSON.stringify({ ack: "failure", transcriptFileId })}\n`);
