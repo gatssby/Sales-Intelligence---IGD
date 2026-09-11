@@ -44,7 +44,14 @@ export async function POST() {
     const result = await repository.publishCandidate({
       candidate,
       triggeredByUserId: authorization.user.userId,
-      source: { spreadsheetId, sheetId, revision: sheet.revision, modifiedTime: sheet.modifiedTime },
+      source: {
+        spreadsheetId,
+        spreadsheetTitle: sheet.title,
+        sheetId,
+        sheetTitle: sheet.tabTitle,
+        revision: sheet.revision,
+        modifiedTime: sheet.modifiedTime,
+      },
     });
     return NextResponse.json(result, { status: result.status === "rejected" ? 422 : 200, headers: { "cache-control": "private, no-store" } });
   } catch (error) {
@@ -53,6 +60,7 @@ export async function POST() {
       observedAt,
       errorCode,
       source: { spreadsheetId, sheetId, revision: null, modifiedTime: null },
+      triggeredByUserId: authorization.user.userId,
     }).catch(() => undefined);
     return NextResponse.json({ error: errorCode }, { status: 502, headers: { "cache-control": "private, no-store" } });
   }

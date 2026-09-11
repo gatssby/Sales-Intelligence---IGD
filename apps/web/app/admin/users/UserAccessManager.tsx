@@ -27,8 +27,9 @@ function PersonSelect({ people, value, required }: { people: ScopeOption[]; valu
 function EffectiveScope({ user, teams, products }: { user: ManagedUser; teams: ScopeOption[]; products: ScopeOption[] }) {
   const teamNames = user.teamIds.map((id) => teams.find((team) => team.id === id)?.label ?? id);
   const productNames = user.productKeys.map((key) => products.find((product) => product.id === key)?.label ?? key);
-  const roles = [...productNames.map((product) => `Supervisor: ${product}`), ...teamNames.map((team) => `Líder: ${team}`), ...(user.personId ? ["Pessoa: self"] : [])];
-  return <div className="scope-review"><strong>Papel organizacional calculado:</strong> {user.role === "ADMIN" ? "Admin sempre global" : roles.join(" · ") || "Sem escopo derivado"}.<br /><strong>Effective scope:</strong> {user.role === "ADMIN" || user.role === "SALES_OPS" ? "IGD inteira" : [...productNames, ...teamNames, ...(user.personId ? ["própria pessoa"] : [])].join(" ∪ ") || "nenhum"}.</div>;
+  const hasSelf = user.personIds.length > 0;
+  const roles = [...productNames.map((product) => `Supervisor: ${product}`), ...teamNames.map((team) => `Líder: ${team}`), ...(hasSelf ? ["Pessoa: self"] : [])];
+  return <div className="scope-review"><strong>Papel organizacional calculado:</strong> {user.role === "ADMIN" ? "Admin sempre global" : roles.join(" · ") || "Sem escopo derivado"}.<br /><strong>Effective scope:</strong> {user.role === "ADMIN" || user.role === "SALES_OPS" ? "IGD inteira" : [...productNames, ...teamNames, ...(hasSelf ? ["própria pessoa"] : [])].join(" ∪ ") || "nenhum"}.</div>;
 }
 
 function CreateUser({ people }: { people: ScopeOption[] }) {

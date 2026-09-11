@@ -43,7 +43,7 @@ export default async function CallsPage({ searchParams }: { searchParams: Promis
             <td>{labels[call.analysisStatus] ?? call.analysisStatus}</td><td>{call.analysisEligibility === "unscorable" ? "Não avaliável" : call.score ?? "—"}</td>
             <td>{call.finalModel?.split("/").at(-1) ?? "—"}{call.escalated ? " · escalation" : ""}</td>
             <td>{call.analyzedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(call.analyzedAt)) : "—"}</td>
-            <td><a className="text-link" href={`/calls/${call.id}`}>Abrir</a></td>
+            <td><a className="text-link" href={scopeHref(`/calls/${call.id}`, selected)}>Abrir</a></td>
           </tr>)}</tbody>
         </table></div>
         <nav className="pagination" aria-label="Paginação">

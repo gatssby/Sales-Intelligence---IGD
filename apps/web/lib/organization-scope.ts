@@ -28,10 +28,21 @@ export function parseOrganizationSelection(params: SearchParams): SelectedOrgani
   };
 }
 
+export function parseOrganizationAsOf(params: SearchParams): { date: Date; start: Date | undefined; value: string | undefined } {
+  const value = first(params.at);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return { date: new Date(),start: undefined,value: undefined };
+  const start = new Date(`${value}T00:00:00.000-03:00`);
+  const date = new Date(`${value}T23:59:59.999-03:00`);
+  return Number.isNaN(date.getTime()) || Number.isNaN(start.getTime())
+    ? { date: new Date(),start: undefined,value: undefined }
+    : { date,start,value };
+}
+
 export function defaultOrganizationSelection(context: AuthorizationContext): SelectedOrganizationScope {
   if (context.scope.kind === "GLOBAL") return {};
   if (context.scope.kind === "PRODUCTS") return context.scope.productKeys.length === 1 ? { productKey: context.scope.productKeys[0] } : {};
   if (context.scope.kind === "TEAMS") return context.scope.teamIds.length === 1 ? { teamId: context.scope.teamIds[0] } : {};
+  if (context.scope.productKeys.length > 0 && context.scope.teamIds.length > 0) return {};
   if (context.scope.productKeys.length === 1) return { productKey: context.scope.productKeys[0] };
   if (context.scope.productKeys.length > 1) return {};
   if (context.scope.teamIds.length === 1) return { teamId: context.scope.teamIds[0] };

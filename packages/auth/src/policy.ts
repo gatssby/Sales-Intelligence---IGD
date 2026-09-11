@@ -121,11 +121,13 @@ export function canAccessData(
 
 export function validateRoleScopes(input: {
   role: Role;
+  personId?: string | null;
   teamIds?: readonly string[];
   productKeys?: readonly string[];
 }): void {
   const teamCount = new Set(input.teamIds ?? []).size;
   const productCount = new Set(input.productKeys ?? []).size;
+  if (input.personId) return;
   if (input.role === "LEADER" && (teamCount === 0 || productCount > 0)) {
     throw new Error("leader_requires_one_or_more_teams_only");
   }

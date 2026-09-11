@@ -51,7 +51,14 @@ async function cycle(): Promise<void> {
   let source: OrganizationSourceReference = { spreadsheetId, sheetId, revision: null, modifiedTime: null };
   try {
     const sheet = await sheets.readOrganizationSheet({ spreadsheetId, sheetId });
-    source = { spreadsheetId, sheetId, revision: sheet.revision, modifiedTime: sheet.modifiedTime };
+    source = {
+      spreadsheetId,
+      spreadsheetTitle: sheet.title,
+      sheetId,
+      sheetTitle: sheet.tabTitle,
+      revision: sheet.revision,
+      modifiedTime: sheet.modifiedTime,
+    };
     const candidate = parseOrganizationSheet({ values: sheet.values, observedAt });
     const report = {
       mode: apply ? "apply" : plan ? "plan" : "read_only",

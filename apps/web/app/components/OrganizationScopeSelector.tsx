@@ -9,10 +9,12 @@ export function OrganizationScopeSelector({
   pathname,
   selected,
   rows,
+  preserved = {},
 }: {
   pathname: string;
   selected: SelectedOrganizationScope;
   rows: OrganizationTreeRow[];
+  preserved?: Record<string, string | undefined>;
 }) {
   const products = unique(rows, (row) => row.product_key);
   const productRows = selected.productKey ? rows.filter((row) => row.product_key === selected.productKey) : rows;
@@ -23,6 +25,7 @@ export function OrganizationScopeSelector({
   const people = unique(teamRows.filter((row) => row.person_id), (row) => row.person_id!);
   return (
     <form className="scope-selector panel" method="get" action={pathname} aria-label="Escopo organizacional global">
+      {Object.entries(preserved).filter(([,value]) => value).map(([name,value]) => <input key={name} type="hidden" name={name} value={value} />)}
       <label>Produto<select name="product" defaultValue={selected.productKey ?? ""}><option value="">Todos os produtos</option>{products.map((row) => <option key={row.product_key} value={row.product_key}>{row.product_name}</option>)}</select></label>
       <label>Frente<select name="front" defaultValue={selected.frontKey ?? ""}><option value="">Todas</option>{fronts.map((row) => <option key={row.front_key} value={row.front_key}>{row.front_name}</option>)}</select></label>
       <label>Time<select name="team" defaultValue={selected.teamId ?? ""}><option value="">Todos</option>{teams.map((row) => <option key={row.team_id} value={row.team_id}>{row.team_name}</option>)}</select></label>

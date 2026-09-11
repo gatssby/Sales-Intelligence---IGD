@@ -237,7 +237,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                     <td>{item.teamName ?? "—"}</td>
                     <td>{item.product.toUpperCase()}</td>
                     <td>{item.score}</td>
-                    <td><a className="text-link" href={`/calls/${item.id}`}>Abrir</a></td>
+                    <td><a className="text-link" href={scopeHref(`/calls/${item.id}`, selected)}>Abrir</a></td>
                   </tr>
                 ))}
               </tbody>
@@ -251,7 +251,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <p className="eyebrow">Detalhe da call</p>
               <h3>{call.customerName ?? "Cliente não informado"} <span>×</span> {call.sellerName}</h3>
               <p className="call-meta">{call.product.toUpperCase()} · {formatDate(call.startedAt)} · {formatDuration(call.durationSeconds)}</p>
-              <a className="text-link" href={`/calls/${call.id}`}>Abrir detalhe protegido</a>
+              <a className="text-link" href={scopeHref(`/calls/${call.id}`, selected)}>Abrir detalhe protegido</a>
             </div>
             <div className="call-score"><span>{displayScore}</span><small>score</small></div>
           </div>
@@ -297,7 +297,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <div><dt>Prompt</dt><dd>{call.promptVersion}</dd></div>
               <div><dt>Analisado em</dt><dd>{formatDate(call.analyzedAt)}</dd></div>
             </dl>
-            <a className="text-link" href={`/calls/${call.id}`}>Abrir transcript sob demanda</a>
+            <a className="text-link" href={scopeHref(`/calls/${call.id}`, selected)}>Abrir transcript sob demanda</a>
           </article>
         </section>
 

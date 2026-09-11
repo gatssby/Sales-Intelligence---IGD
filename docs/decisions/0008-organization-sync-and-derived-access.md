@@ -14,11 +14,12 @@ O modelo anterior mantinha escopos de Leader e Supervisor explicitamente por con
 - `OrganizationSync` é um módulo separado de Drive Discovery e usa o mesmo OAuth server-side somente para leitura.
 - Cada leitura produz um candidate snapshot; headers, identidade, conflitos, volume e remoções são validados antes de uma publicação transacional.
 - Memberships, leaderships e Organizational Roles são temporais. Sem data de vigência na fonte, o instante observado é o `valid_from`; nenhuma história anterior é inventada.
-- Uma linha ausente não inativa uma Person. Somente um estado inativo explícito encerra suas relações atuais.
+- Uma linha ausente não inativa uma Person nem encerra seus papéis. Somente uma linha representada com mudança explícita encerra relações; um campo de papel inválido preserva apenas o papel correspondente, e identidade de líder inválida preserva liderança anterior nos times envolvidos.
+- `sellers` continua compatível para ingestão: resolve uma Person organization-first pelo V-code, mas não pode sobrescrever sua identidade ou atividade. Reconciliação por nome só consome times legados sem frente e rejeita reivindicação ambígua entre várias frentes, evitando colapsar homônimos.
 - Contas podem ser ligadas a `Person`. O Effective Access é a união de produtos supervisionados, times liderados e self; `leader_in_training` não concede acesso.
 - Admin é exclusivamente um System Role e sempre global. A fonte organizacional nunca o concede.
-- O Selected Scope é validado pela interseção com o Effective Access dentro das queries PostgreSQL, inclusive listagens, IDs e agregados.
-- Escopos manuais antigos permanecem somente como fallback para contas ainda não vinculadas, permitindo migração e rollback sem perda de acesso.
+- O Selected Scope é validado pela interseção com o Effective Access dentro das queries PostgreSQL, inclusive listagens, detalhes/transcripts por ID e agregados. Métricas de Pessoas/Times podem receber o mesmo dia da composição histórica.
+- Escopos manuais antigos permanecem somente como fallback para contas ainda não vinculadas. No primeiro publish, times legados equivalentes são reconciliados pelo mesmo UUID antes de uma conta migrar para acesso derivado, preservando calls e scopes históricos.
 
 ## Consequências
 

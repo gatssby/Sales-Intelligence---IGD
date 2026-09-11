@@ -60,6 +60,8 @@ test("Role/scope validation rejects incoherent combinations", () => {
   assert.throws(() => validateRoleScopes({ role: "SUPERVISOR", productKeys: [] }), /supervisor_requires/);
   assert.throws(() => validateRoleScopes({ role: "SALES_OPS", teamIds: ["team-a"] }), /global_role/);
   assert.doesNotThrow(() => validateRoleScopes({ role: "LEADER", teamIds: ["team-a"] }));
+  assert.doesNotThrow(() => validateRoleScopes({ role: "LEADER", personId: "person-a" }));
+  assert.doesNotThrow(() => validateRoleScopes({ role: "SUPERVISOR", personId: "person-a" }));
 });
 
 test("Passwords are strongly hashed and temporary passwords are not recoverable from the hash", async () => {

@@ -76,6 +76,8 @@ export type ScopedOrganizationMetric = {
   calls: number;
 };
 
+export type CallPeriod = { from?: Date; through?: Date };
+
 export type ScopedDimensionMetric = {
   key: string;
   label: string;
@@ -115,6 +117,13 @@ function selectedCallPredicate(sql: Sql, selected: SelectedOrganizationScope): P
   return sql`(${predicates.reduce((combined, predicate) => sql`${combined} and ${predicate}`)})`;
 }
 
+function callPeriodPredicate(sql: Sql, period: CallPeriod): PendingQuery<never[]> {
+  if (period.from && period.through) return sql`c.started_at>=${period.from} and c.started_at<=${period.through}`;
+  if (period.from) return sql`c.started_at>=${period.from}`;
+  if (period.through) return sql`c.started_at<=${period.through}`;
+  return sql`true`;
+}
+
 export class ScopedSalesRepository {
   constructor(readonly sql: Sql) {}
 
@@ -141,15 +150,16 @@ export class ScopedSalesRepository {
     return rows[0];
   }
 
-  async getDashboardSummary(context: AuthorizationContext, selected: SelectedOrganizationScope = {}): Promise<ScopedDashboardSummary> {
+  async getDashboardSummary(context: AuthorizationContext, selected: SelectedOrganizationScope = {}, period: CallPeriod = {}): Promise<ScopedDashboardSummary> {
     this.require(context, "analytics:read");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
+    const dates = callPeriodPredicate(this.sql, period);
     const rows = await this.sql<ScopedDashboardSummary[]>`
       with scoped_calls as (
         select c.id, c.seller_id
         from calls c join sellers s on s.id = c.seller_id
-        where ${predicate} and ${selection}
+        where ${predicate} and ${selection} and ${dates}
       ), official as (
         select ar.*, scoped_calls.seller_id
         from analysis_runs ar join scoped_calls on scoped_calls.id = ar.call_id
@@ -170,64 +180,69 @@ export class ScopedSalesRepository {
     return rows[0];
   }
 
-  async listSellerMetrics(context: AuthorizationContext, selected: SelectedOrganizationScope = {}): Promise<ScopedSellerMetric[]> {
+  async listSellerMetrics(context: AuthorizationContext, selected: SelectedOrganizationScope = {}, period: CallPeriod = {}): Promise<ScopedSellerMetric[]> {
     this.require(context, "analytics:read");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
+    const dates = callPeriodPredicate(this.sql, period);
     return this.sql<ScopedSellerMetric[]>`
       select s.seller_code, s.display_name seller_name, round(avg(ar.score)) score, count(ar.score)::integer calls
       from analysis_runs ar join calls c on c.id=ar.call_id join sellers s on s.id=c.seller_id
-      where ar.status='completed' and ar.is_current=true and ${predicate} and ${selection}
+      where ar.status='completed' and ar.is_current=true and ${predicate} and ${selection} and ${dates}
       group by s.id,s.seller_code,s.display_name order by avg(ar.score) desc,s.display_name
     `;
   }
 
-  async listPersonMetrics(context: AuthorizationContext, selected: SelectedOrganizationScope = {}): Promise<ScopedOrganizationMetric[]> {
+  async listPersonMetrics(context: AuthorizationContext, selected: SelectedOrganizationScope = {}, period: CallPeriod = {}): Promise<ScopedOrganizationMetric[]> {
     this.require(context, "analytics:read");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
+    const dates = callPeriodPredicate(this.sql, period);
     return this.sql<ScopedOrganizationMetric[]>`
       select coalesce(c.primary_closer_id,s.person_id) entity_id,
         round(avg(ar.score)) score,count(ar.score)::integer calls
       from analysis_runs ar join calls c on c.id=ar.call_id join sellers s on s.id=c.seller_id
       where ar.status='completed' and ar.is_current=true and ar.score is not null
-        and coalesce(c.primary_closer_id,s.person_id) is not null and ${predicate} and ${selection}
+        and coalesce(c.primary_closer_id,s.person_id) is not null and ${predicate} and ${selection} and ${dates}
       group by coalesce(c.primary_closer_id,s.person_id)
     `;
   }
 
-  async listTeamMetrics(context: AuthorizationContext, selected: SelectedOrganizationScope = {}): Promise<ScopedOrganizationMetric[]> {
+  async listTeamMetrics(context: AuthorizationContext, selected: SelectedOrganizationScope = {}, period: CallPeriod = {}): Promise<ScopedOrganizationMetric[]> {
     this.require(context, "analytics:read");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
+    const dates = callPeriodPredicate(this.sql, period);
     return this.sql<ScopedOrganizationMetric[]>`
       select coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id) entity_id,
         round(avg(ar.score)) score,count(ar.score)::integer calls
       from analysis_runs ar join calls c on c.id=ar.call_id join sellers s on s.id=c.seller_id
       where ar.status='completed' and ar.is_current=true and ar.score is not null
-        and coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id) is not null and ${predicate} and ${selection}
+        and coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id) is not null and ${predicate} and ${selection} and ${dates}
       group by coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
     `;
   }
 
-  async listDimensionMetrics(context: AuthorizationContext, selected: SelectedOrganizationScope = {}): Promise<ScopedDimensionMetric[]> {
+  async listDimensionMetrics(context: AuthorizationContext, selected: SelectedOrganizationScope = {}, period: CallPeriod = {}): Promise<ScopedDimensionMetric[]> {
     this.require(context, "analytics:read");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
+    const dates = callPeriodPredicate(this.sql, period);
     return this.sql<ScopedDimensionMetric[]>`
       select dimension->>'key' key, max(dimension->>'label') label,
         round(avg((dimension->>'score')::numeric)) score, count(*)::integer calls
       from analysis_runs ar join calls c on c.id=ar.call_id join sellers s on s.id=c.seller_id
       cross join lateral jsonb_array_elements(ar.result_json->'dimensions') dimension
-      where ar.status='completed' and ar.is_current=true and ar.score is not null and ${predicate} and ${selection}
+      where ar.status='completed' and ar.is_current=true and ar.score is not null and ${predicate} and ${selection} and ${dates}
       group by dimension->>'key' order by avg((dimension->>'score')::numeric) desc
     `;
   }
 
-  async listCalls(context: AuthorizationContext, limit = 50, selected: SelectedOrganizationScope = {}): Promise<ScopedCallRow[]> {
+  async listCalls(context: AuthorizationContext, limit = 50, selected: SelectedOrganizationScope = {}, period: CallPeriod = {}): Promise<ScopedCallRow[]> {
     this.require(context, "calls:read");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
+    const dates = callPeriodPredicate(this.sql, period);
     return this.sql<ScopedCallRow[]>`
       select
         c.id, c.customer_name, s.display_name as seller_name, coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id) team_id,
@@ -238,15 +253,16 @@ export class ScopedSalesRepository {
       join calls c on c.id = ar.call_id
       join sellers s on s.id = c.seller_id
       left join teams tteam on tteam.id = coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
-      where ar.status = 'completed' and ar.is_current = true and ar.score is not null and ${predicate} and ${selection}
-      order by coalesce(ar.finished_at, ar.created_at) desc
+      where ar.status = 'completed' and ar.is_current = true and ar.score is not null and ${predicate} and ${selection} and ${dates}
+      order by c.started_at desc nulls last,c.id desc
       limit ${Math.max(1, Math.min(limit, 100))}
     `;
   }
 
-  async getCallById(context: AuthorizationContext, callId: string): Promise<ScopedCallRow | null> {
+  async getCallById(context: AuthorizationContext, callId: string, selected: SelectedOrganizationScope = {}): Promise<ScopedCallRow | null> {
     this.require(context, "calls:read");
     const predicate = scopePredicate(this.sql, context);
+    const selection = selectedCallPredicate(this.sql, selected);
     const rows = await this.sql<ScopedCallRow[]>`
       select
         c.id, c.customer_name, s.display_name as seller_name, coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id) team_id,
@@ -258,7 +274,7 @@ export class ScopedSalesRepository {
       join sellers s on s.id = c.seller_id
       left join teams tteam on tteam.id = coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
       where c.id = ${callId}
-        and ar.status = 'completed' and ar.is_current = true and ${predicate}
+        and ar.status = 'completed' and ar.is_current = true and ${predicate} and ${selection}
       limit 1
     `;
     return rows[0] ?? null;
@@ -297,9 +313,10 @@ export class ScopedSalesRepository {
     return { rows, total: totals[0].total };
   }
 
-  async getCatalogCallById(context: AuthorizationContext, callId: string): Promise<ScopedCallCatalogRow | null> {
+  async getCatalogCallById(context: AuthorizationContext, callId: string, selected: SelectedOrganizationScope = {}): Promise<ScopedCallCatalogRow | null> {
     this.require(context, "calls:read");
     const predicate = scopePredicate(this.sql, context);
+    const selection = selectedCallPredicate(this.sql, selected);
     const rows = await this.sql<ScopedCallCatalogRow[]>`
       select c.id, c.customer_name, s.display_name seller_name, s.seller_code,
         coalesce(t.display_name,s.team_name) team_name, c.product_key, c.started_at, c.duration_seconds, c.origin,
@@ -314,18 +331,19 @@ export class ScopedSalesRepository {
       left join teams t on t.id=coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
       left join analysis_jobs j on j.call_id=c.id
       left join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ar.is_current=true
-      where c.id=${callId} and ${predicate} limit 1
+      where c.id=${callId} and ${predicate} and ${selection} limit 1
     `;
     return rows[0] ?? null;
   }
 
-  async getCallTranscript(context: AuthorizationContext, callId: string): Promise<string | null> {
+  async getCallTranscript(context: AuthorizationContext, callId: string, selected: SelectedOrganizationScope = {}): Promise<string | null> {
     this.require(context, "calls:read");
     const predicate = scopePredicate(this.sql, context);
+    const selection = selectedCallPredicate(this.sql, selected);
     const rows = await this.sql<{ normalized_text: string }[]>`
       select tr.normalized_text from calls c join sellers s on s.id=c.seller_id
       join lateral (select normalized_text from transcripts where call_id=c.id order by version desc limit 1) tr on true
-      where c.id=${callId} and ${predicate}
+      where c.id=${callId} and ${predicate} and ${selection}
     `;
     return rows[0]?.normalized_text ?? null;
   }
@@ -379,16 +397,17 @@ export class ScopedSalesRepository {
     `;
   }
 
-  async listAnalysisAttempts(context: AuthorizationContext, callId: string): Promise<ScopedAnalysisAttempt[]> {
+  async listAnalysisAttempts(context: AuthorizationContext, callId: string, selected: SelectedOrganizationScope = {}): Promise<ScopedAnalysisAttempt[]> {
     this.require(context, "calls:read");
     const predicate = scopePredicate(this.sql, context);
+    const selection = selectedCallPredicate(this.sql, selected);
     return this.sql<ScopedAnalysisAttempt[]>`
       select aa.role,aa.attempt_number,aa.model,aa.provider,aa.status,aa.gateway_actual_cost_usd,
         aa.latency_ms,aa.requested_at,aa.error_code
       from calls c join sellers s on s.id=c.seller_id
       join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ar.is_current=true
       join analysis_attempts aa on aa.analysis_run_id=ar.id
-      where c.id=${callId} and ${predicate} order by aa.attempt_number
+      where c.id=${callId} and ${predicate} and ${selection} order by aa.attempt_number
     `;
   }
 

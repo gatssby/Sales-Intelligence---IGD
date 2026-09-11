@@ -37,3 +37,24 @@ test("Organization Explorer drills into the same dashboard and calls scope", asy
   assert.match(source, /scopeHref\("\/calls",/);
   assert.match(source, /OrganizationScopeSelector/);
 });
+
+test("selected Person profile exposes organizational attributes, evolution and coaching", async () => {
+  const source = await readFile(new URL("../app/people/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /Perfil canônico/);
+  assert.match(source, /Evolução recente/);
+  assert.match(source, /Coaching atual/);
+  assert.match(source, /getDashboardData\(user, selected, asOf\.value \? \{ from: asOf\.start, through: asOf\.date \} : \{\}\)/);
+});
+
+test("calls and progress APIs apply the URL-selected scope server-side", async () => {
+  const [callsSource,progressSource,detailSource,transcriptSource] = await Promise.all([
+    readFile(new URL("../app/api/calls/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/progress/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/calls/[id]/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/calls/[id]/transcript/route.ts", import.meta.url), "utf8"),
+  ]);
+  for (const source of [callsSource,progressSource,detailSource,transcriptSource]) {
+    assert.match(source, /parseOrganizationSelection/);
+    assert.match(source, /getProgressData\(user, selected\)|getCallCatalogPage\(user, page, pageSize, selected\)|getCallDetail\(user, \(await context.params\)\.id, selected\)|getCallTranscript\(user, \(await context.params\)\.id, selected\)/);
+  }
+});

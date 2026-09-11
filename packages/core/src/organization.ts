@@ -217,16 +217,16 @@ export function parseOrganizationSheet(input: { values: unknown[][]; observedAt:
     fronts.set(frontKey, frontDisplay);
     teams.set(teamKey, { displayName: teamDisplay, productKey, frontKey });
     if (person.active) memberships.push({ personCode, productKey, frontKey, teamKey, validFrom: observedAt });
-    if (person.supervisor) supervisors.push({ personCode, productKey, validFrom: observedAt });
+    if (person.active && person.supervisor) supervisors.push({ personCode, productKey, validFrom: observedAt });
     const leaderCode = code(value(row, "CODIGO DO LIDER"));
-    if (leaderCode) leaderships.push({ leaderCode, teamKey, validFrom: observedAt, sourceRowNumber: rowNumber, memberCode: personCode });
-    else if (String(value(row, "NOME DO LIDER") ?? "").trim()) {
+    if (person.active && leaderCode) leaderships.push({ leaderCode, teamKey, validFrom: observedAt, sourceRowNumber: rowNumber, memberCode: personCode });
+    else if (person.active && !leaderCode && String(value(row, "NOME DO LIDER") ?? "").trim()) {
       warnings.push({ code: "missing_leader_code", rowNumber, personCode, detail: "Leader name is present without a canonical leader code." });
     }
   }
 
   const resolvedLeaderships = leaderships.filter((leadership) => {
-    if (seenPeople.has(leadership.leaderCode)) return true;
+    if (seenPeople.get(leadership.leaderCode)?.active) return true;
     warnings.push({
       code: "unknown_leader",
       rowNumber: leadership.sourceRowNumber,

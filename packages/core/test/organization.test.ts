@@ -80,6 +80,21 @@ test("organization parser resolves leaders only by code and reports unknown lead
   assert.deepEqual(candidate.warnings.map((warning) => warning.code), ["unknown_leader"]);
 });
 
+test("inactive people cannot become current leaders or supervisors", () => {
+  const candidate = parseOrganizationSheet({
+    observedAt: "2026-09-10T20:00:00.000Z",
+    values: [
+      headers,
+      ["V2000", "Pessoa Inativa", "INSIDER", "CLOSERS", "Time Alpha", "Líder", "Sênior", "Fixo", "TRUE", "FALSE", "V2000", "Pessoa Inativa", "FALSE", "TRUE"],
+      ["V2001", "Pessoa Ativa", "INSIDER", "CLOSERS", "Time Alpha", "Closer", "Pleno", "Fixo", "TRUE", "TRUE", "V2000", "Pessoa Inativa", "FALSE", "FALSE"],
+    ],
+  });
+  assert.deepEqual(candidate.supervisors, []);
+  assert.deepEqual(candidate.leaderships, []);
+  assert.equal(candidate.warnings.some((warning) => warning.code === "unknown_leader"), true);
+  assert.equal(candidate.warnings.some((warning) => warning.code === "missing_leader_code" && warning.personCode === "V2000"), false);
+});
+
 test("organization candidate fails closed for missing headers, empty reads and mass disappearance", () => {
   const missingHeader = parseOrganizationSheet({
     observedAt: "2026-09-10T20:00:00.000Z",

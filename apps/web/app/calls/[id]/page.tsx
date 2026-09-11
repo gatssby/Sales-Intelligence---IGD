@@ -3,21 +3,23 @@ import { requireCapability } from "@/lib/auth/session";
 import { getCallDetail } from "@/lib/data";
 import { logoutAction } from "@/app/logout/actions";
 import { TranscriptPanel } from "@/app/components/TranscriptPanel";
+import { parseOrganizationSelection, scopeHref } from "@/lib/organization-scope";
 
 export const dynamic = "force-dynamic";
 
 const formatDate = (value: string | null) => value ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(value)) : "Não informada";
 
-export default async function CallDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function CallDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await requireCapability("calls:read");
-  const call = await getCallDetail(user, (await params).id);
+  const selected = parseOrganizationSelection(await searchParams);
+  const call = await getCallDetail(user, (await params).id, selected);
   if (!call) notFound();
   const analysis = call.analysis;
   return (
     <main className="admin-shell calls-shell">
       <header className="admin-header">
         <div><p className="eyebrow">Call</p><h1>{call.customerName ?? "Cliente não informado"} × {call.sellerName}</h1><p>{call.product.toUpperCase()} · {call.teamName ?? "Sem time"} · {formatDate(call.startedAt)}</p></div>
-        <div className="admin-header-actions"><a href="/calls">Todas as calls</a><a href="/">Visão executiva</a><form action={logoutAction}><button className="secondary">Sair</button></form></div>
+        <div className="admin-header-actions"><a href={scopeHref("/calls", selected)}>Todas as calls</a><a href={scopeHref("/", selected)}>Visão executiva</a><form action={logoutAction}><button className="secondary">Sair</button></form></div>
       </header>
 
       <section className="detail-metadata">
@@ -50,7 +52,7 @@ export default async function CallDetailPage({ params }: { params: Promise<{ id:
         </dl><div className="attempt-list">{call.attempts.map((attempt) => <div key={attempt.attemptNumber}><b>#{attempt.attemptNumber} · {attempt.role}</b><span>{attempt.model} · {attempt.status} · {attempt.latencyMs ?? "—"} ms · {attempt.costUsd === null ? "custo indisponível" : `$${attempt.costUsd.toFixed(6)}`}</span></div>)}</div></section>
       </> : <section className="panel empty-analysis"><h2>Análise ainda não disponível</h2><p>A call permanece no catálogo e o estado operacional acima é atualizado pelo PostgreSQL.</p></section>}
 
-      <section className="panel transcript-panel"><p className="eyebrow">Transcript</p><h2>Conteúdo sob demanda</h2><p className="muted-copy">O texto integral não é carregado na listagem nem no detalhe inicial.</p><TranscriptPanel callId={call.id} available={call.transcriptStatus === "available"} /></section>
+      <section className="panel transcript-panel"><p className="eyebrow">Transcript</p><h2>Conteúdo sob demanda</h2><p className="muted-copy">O texto integral não é carregado na listagem nem no detalhe inicial.</p><TranscriptPanel endpoint={scopeHref(`/api/calls/${call.id}/transcript`, selected)} available={call.transcriptStatus === "available"} /></section>
     </main>
   );
 }

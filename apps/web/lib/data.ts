@@ -1,6 +1,6 @@
 import { StoredAnalysisOutputSchema, type AnalysisOutput } from "@igd/ai";
 import type { AuthorizationContext, SelectedOrganizationScope } from "@igd/auth";
-import { ScopedSalesRepository, type AiSpendSummary, type ScopedCallCatalogRow, type ScopedCallRow } from "@igd/db";
+import { ScopedSalesRepository, type AiSpendSummary, type CallPeriod, type ScopedCallCatalogRow, type ScopedCallRow } from "@igd/db";
 import { getSql } from "@/lib/database";
 
 export type DashboardCall = {
@@ -45,13 +45,13 @@ function mapCall(row: ScopedCallRow): DashboardCall {
   };
 }
 
-export async function getDashboardData(context: AuthorizationContext, selected: SelectedOrganizationScope = {}): Promise<DashboardData> {
+export async function getDashboardData(context: AuthorizationContext, selected: SelectedOrganizationScope = {}, period: CallPeriod = {}): Promise<DashboardData> {
   const repository = new ScopedSalesRepository(getSql());
   const [summary, rows, sellers, dimensions] = await Promise.all([
-    repository.getDashboardSummary(context, selected),
-    repository.listCalls(context, 20, selected),
-    repository.listSellerMetrics(context, selected),
-    repository.listDimensionMetrics(context, selected),
+    repository.getDashboardSummary(context, selected, period),
+    repository.listCalls(context, 20, selected, period),
+    repository.listSellerMetrics(context, selected, period),
+    repository.listDimensionMetrics(context, selected, period),
   ]);
   const calls = rows.map(mapCall);
   return {
@@ -81,8 +81,8 @@ export async function getDashboardData(context: AuthorizationContext, selected: 
   };
 }
 
-export async function getScopedCall(context: AuthorizationContext, callId: string): Promise<DashboardCall | null> {
-  const row = await new ScopedSalesRepository(getSql()).getCallById(context, callId);
+export async function getScopedCall(context: AuthorizationContext, callId: string, selected: SelectedOrganizationScope = {}): Promise<DashboardCall | null> {
+  const row = await new ScopedSalesRepository(getSql()).getCallById(context, callId, selected);
   return row ? mapCall(row) : null;
 }
 
@@ -118,13 +118,11 @@ export async function getCallCatalogPage(context: AuthorizationContext, page: nu
   return { calls: result.rows.map(mapCatalog), total: result.total, page, pageSize, pages: Math.max(1, Math.ceil(result.total / pageSize)) };
 }
 
-export async function getCallDetail(context: AuthorizationContext, callId: string): Promise<CallDetail | null> {
+export async function getCallDetail(context: AuthorizationContext, callId: string, selected: SelectedOrganizationScope = {}): Promise<CallDetail | null> {
   const repository = new ScopedSalesRepository(getSql());
-  const [row, attempts] = await Promise.all([
-    repository.getCatalogCallById(context, callId),
-    repository.listAnalysisAttempts(context, callId),
-  ]);
+  const row = await repository.getCatalogCallById(context, callId, selected);
   if (!row) return null;
+  const attempts = await repository.listAnalysisAttempts(context, callId, selected);
   return {
     ...mapCatalog(row),
     analysis: row.result_json ? StoredAnalysisOutputSchema.parse(row.result_json) : null,
@@ -141,8 +139,8 @@ export async function getCallDetail(context: AuthorizationContext, callId: strin
   };
 }
 
-export async function getCallTranscript(context: AuthorizationContext, callId: string): Promise<string | null> {
-  return new ScopedSalesRepository(getSql()).getCallTranscript(context, callId);
+export async function getCallTranscript(context: AuthorizationContext, callId: string, selected: SelectedOrganizationScope = {}): Promise<string | null> {
+  return new ScopedSalesRepository(getSql()).getCallTranscript(context, callId, selected);
 }
 
 export async function getProgressData(context: AuthorizationContext, selected: SelectedOrganizationScope = {}) {

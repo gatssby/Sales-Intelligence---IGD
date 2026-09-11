@@ -262,14 +262,14 @@ export class PostgresAuthRepository {
       this.sql<{ key: string; display_name: string }[]>`
         select key, display_name from products where active = true order by display_name
       `,
-      this.sql<{ id: string; seller_code: string; full_name: string }[]>`
-        select id,seller_code,full_name from people where active=true and seller_code is not null order by full_name
+      this.sql<{ id: string; seller_code: string; full_name: string; active: boolean }[]>`
+        select id,seller_code,full_name,active from people where seller_code is not null order by active desc,full_name
       `,
     ]);
     return {
       teams: teams.map((team) => ({ id: team.id, label: team.display_name, productKey: team.product_key })),
       products: products.map((product) => ({ id: product.key, label: product.display_name })),
-      people: people.map((person) => ({ id: person.id, code: person.seller_code, label: person.full_name })),
+      people: people.map((person) => ({ id: person.id, code: person.seller_code, label: `${person.full_name}${person.active ? "" : " (inativa)"}` })),
     };
   }
 
@@ -308,9 +308,9 @@ export class PostgresAuthRepository {
     const email = normalizeEmail(input.email);
     await this.sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(741954)`;
-      const previous = await tx<{ role: Role; active: boolean; team_ids: string[]; product_keys: string[] }[]>`
+      const previous = await tx<{ role: Role; active: boolean; person_id: string | null; team_ids: string[]; product_keys: string[] }[]>`
         select
-          u.role, u.active,
+          u.role, u.active,u.person_id,
           coalesce((select array_agg(team_id::text order by team_id::text) from user_team_scopes where user_id = u.id), '{}') as team_ids,
           coalesce((select array_agg(product_key order by product_key) from user_product_scopes where user_id = u.id), '{}') as product_keys
         from app_users u where u.id = ${userId} for update
@@ -333,8 +333,18 @@ export class PostgresAuthRepository {
           values (${actor.userId}, ${userId}, 'user.role_changed', ${tx.json({ from: previous[0].role, to: input.role })})
         `;
       }
-      const nextTeams = [...new Set(input.teamIds ?? [])].sort();
-      const nextProducts = [...new Set(input.productKeys ?? [])].sort();
+      if (previous[0].person_id !== (input.personId ?? null)) {
+        await tx`
+          insert into admin_audit_events (actor_user_id,target_user_id,event_type,details)
+          values (${actor.userId},${userId},'user.scope_changed',${tx.json({
+            change: "person_link",
+            fromPersonId: previous[0].person_id,
+            toPersonId: input.personId ?? null,
+          })})
+        `;
+      }
+      const nextTeams = input.personId ? [] : [...new Set(input.teamIds ?? [])].sort();
+      const nextProducts = input.personId ? [] : [...new Set(input.productKeys ?? [])].sort();
       if (JSON.stringify(previous[0].team_ids) !== JSON.stringify(nextTeams) || JSON.stringify(previous[0].product_keys) !== JSON.stringify(nextProducts)) {
         await tx`
           insert into admin_audit_events (actor_user_id, target_user_id, event_type, details)

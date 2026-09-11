@@ -10,6 +10,30 @@ alter table app_users add constraint app_users_role_check
 
 alter table people add column if not exists organization_attributes jsonb not null default '{}'::jsonb;
 
+-- The organization Sheet owns current identity/status after a Person is managed by Organization Sync.
+-- Keep the legacy Seller compatibility trigger for unmanaged People without letting routine call ingestion
+-- reactivate or rename an organization-managed Person.
+create or replace function sync_seller_person()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.person_id is null and new.seller_code is not null then
+    select person.id into new.person_id from people person
+    where upper(person.seller_code)=upper(new.seller_code) limit 1;
+  end if;
+  if new.person_id is null then new.person_id := new.id; end if;
+  insert into people (id, seller_code, full_name, active, metadata)
+  values (new.person_id, new.seller_code, new.display_name, new.active, jsonb_build_object('source', 'seller_profile'))
+  on conflict (id) do update set
+    seller_code=case when coalesce(people.organization_attributes->>'organizationManaged','false')='true' then people.seller_code else excluded.seller_code end,
+    full_name=case when coalesce(people.organization_attributes->>'organizationManaged','false')='true' then people.full_name else excluded.full_name end,
+    active=case when coalesce(people.organization_attributes->>'organizationManaged','false')='true' then people.active else excluded.active end,
+    updated_at=now();
+  return new;
+end;
+$$;
+
 create table if not exists person_organization_roles (
   id uuid primary key default gen_random_uuid(),
   person_id uuid not null references people(id) on delete cascade,
@@ -32,7 +56,9 @@ create table if not exists organization_sync_runs (
   status text not null check (status in ('running', 'success', 'no_changes', 'warning', 'rejected', 'failed')),
   triggered_by_user_id uuid references app_users(id) on delete set null,
   spreadsheet_id text not null,
+  spreadsheet_title text,
   sheet_id bigint not null,
+  sheet_title text,
   spreadsheet_revision text,
   spreadsheet_modified_time timestamptz,
   observed_at timestamptz not null,
@@ -46,6 +72,9 @@ create table if not exists organization_sync_runs (
   error_code text,
   created_at timestamptz not null default now()
 );
+alter table organization_sync_runs add column if not exists triggered_by_user_id uuid references app_users(id) on delete set null;
+alter table organization_sync_runs add column if not exists spreadsheet_title text;
+alter table organization_sync_runs add column if not exists sheet_title text;
 create index if not exists organization_sync_runs_started_idx on organization_sync_runs(started_at desc);
 
 create table if not exists organization_source_snapshots (
@@ -99,6 +128,7 @@ select
   u.id as user_id,
   case when u.person_id is null then
     coalesce((select array_agg(scope.team_id::text order by scope.team_id::text) from user_team_scopes scope where scope.user_id=u.id), '{}')
+  when not exists (select 1 from people person where person.id=u.person_id and person.active=true) then '{}'::text[]
   else
     coalesce((select array_agg(distinct leadership.team_id::text order by leadership.team_id::text)
       from team_leaderships leadership
@@ -107,13 +137,16 @@ select
   end as team_ids,
   case when u.person_id is null then
     coalesce((select array_agg(scope.product_key order by scope.product_key) from user_product_scopes scope where scope.user_id=u.id), '{}')
+  when not exists (select 1 from people person where person.id=u.person_id and person.active=true) then '{}'::text[]
   else
     coalesce((select array_agg(distinct role.product_key order by role.product_key)
       from person_organization_roles role
       where role.person_id=u.person_id and role.role_kind='supervisor' and role.valid_from<=now()
         and (role.valid_to is null or now()<role.valid_to)), '{}')
   end as product_keys,
-  case when u.person_id is null then '{}'::text[] else array[u.person_id::text] end as person_ids
+  case when u.person_id is null then '{}'::text[]
+    when exists (select 1 from people person where person.id=u.person_id and person.active=true) then array[u.person_id::text]
+    else '{}'::text[] end as person_ids
 from app_users u;
 
 comment on view app_user_effective_scopes is 'Union inputs for effective access. leader_in_training is intentionally excluded.';

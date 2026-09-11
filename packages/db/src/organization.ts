@@ -10,7 +10,9 @@ import type { PendingQuery, Sql, TransactionSql } from "postgres";
 
 export type OrganizationSourceReference = {
   spreadsheetId: string;
+  spreadsheetTitle?: string | null;
   sheetId: number;
+  sheetTitle?: string | null;
   revision: string | null;
   modifiedTime: string | null;
 };
@@ -57,11 +59,27 @@ export type OrganizationTreeRow = {
   organization_attributes: Record<string, unknown> | null;
 };
 
+export type OrganizationPersonRow = {
+  person_id: string;
+  person_code: string;
+  person_name: string;
+  person_active: boolean;
+  organization_attributes: Record<string, unknown>;
+  product_key: string | null;
+  product_name: string | null;
+  front_key: string | null;
+  front_name: string | null;
+  team_id: string | null;
+  team_name: string | null;
+};
+
 export type OrganizationSyncStatus = {
   id: string;
   status: string;
   spreadsheet_id: string;
+  spreadsheet_title: string | null;
   sheet_id: number;
+  sheet_title: string | null;
   spreadsheet_revision: string | null;
   spreadsheet_modified_time: Date | null;
   observed_at: Date;
@@ -72,6 +90,12 @@ export type OrganizationSyncStatus = {
   summary: Record<string, unknown>;
   rejection_reasons: string[];
   error_code: string | null;
+  last_change_at: Date | null;
+  product_count: number | null;
+  front_count: number | null;
+  team_count: number | null;
+  leadership_count: number | null;
+  supervisor_count: number | null;
 };
 
 export type OrganizationIntegritySummary = {
@@ -132,6 +156,48 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function invalidRolePersonCodes(candidate: OrganizationCandidate, field: "supervisor" | "leaderInTraining"): Set<string> {
+  return new Set(candidate.warnings
+    .filter((warning) => warning.code === "invalid_boolean" && warning.detail.startsWith(`${field} `))
+    .map((warning) => warning.personCode)
+    .filter((code): code is string => Boolean(code)));
+}
+
+function unsafeLeadershipPersonCodes(candidate: OrganizationCandidate): Set<string> {
+  return new Set(candidate.warnings
+    .filter((warning) => warning.code === "missing_leader_code" || warning.code === "unknown_leader")
+    .map((warning) => warning.personCode)
+    .filter((code): code is string => Boolean(code)));
+}
+
+type ExistingTeamIdentity = { key: string; product_key: string; front_key: string | null; display_name: string };
+
+function ambiguousLegacyTeamReasons(candidate: OrganizationCandidate, existingTeams: ExistingTeamIdentity[]): string[] {
+  const groups = new Map<string, typeof candidate.teams>();
+  for (const team of candidate.teams) {
+    const identity = `${team.productKey}:${team.displayName.trim().toLowerCase()}`;
+    const matches = groups.get(identity) ?? [];
+    matches.push(team);
+    groups.set(identity, matches);
+  }
+  const reasons = new Set<string>();
+  for (const [identity, matches] of groups) {
+    const legacyClaims = existingTeams.filter((team) => team.front_key === null
+      && `${team.product_key}:${team.display_name.trim().toLowerCase()}` === identity);
+    if (legacyClaims.length === 0) continue;
+    if (new Set(matches.map((team) => team.frontKey)).size > 1) {
+      reasons.add(`ambiguous_legacy_team_reconciliation:${matches.map((team) => team.key).sort().join(",")}`);
+    }
+    for (const team of matches) {
+      const hasExactMatch = existingTeams.some((existing) => existing.key === team.key);
+      if (!hasExactMatch && legacyClaims.length > 1) {
+        reasons.add(`ambiguous_legacy_team_reconciliation:${team.key}`);
+      }
+    }
+  }
+  return [...reasons];
+}
+
 async function persistWarnings(tx: TransactionSql, runId: string, warnings: OrganizationWarning[]): Promise<void> {
   for (const warning of warnings) {
     await tx`
@@ -156,38 +222,35 @@ export class PostgresOrganizationRepository {
 
   async previewCandidate(candidate: OrganizationCandidate): Promise<OrganizationPreviewSummary> {
     const codes = candidate.people.map((person) => person.personCode);
-    const [baseline, existingPeople, existingProducts, existingFronts, existingTeams, currentMemberships, currentLeaderships, currentRoles] = await Promise.all([
+    const unsafeSupervisorCodes = invalidRolePersonCodes(candidate, "supervisor");
+    const unsafeLeaderInTrainingCodes = invalidRolePersonCodes(candidate, "leaderInTraining");
+    const unsafeLeadershipCodes = unsafeLeadershipPersonCodes(candidate);
+    const [baseline, existingPeople, existingProducts, existingFronts, existingTeams, currentMemberships, currentRoles] = await Promise.all([
       this.sql<{ active_people_count: number }[]>`
-        select active_people_count from organization_source_snapshots snapshot
-        join organization_sync_runs run on run.id=snapshot.sync_run_id
-        where run.status in ('success','warning','no_changes') order by run.finished_at desc nulls last limit 1
+        select count(*)::integer active_people_count from people
+        where active=true and organization_attributes->>'organizationManaged'='true'
       `,
       codes.length ? this.sql<{ id: string; seller_code: string; full_name: string; active: boolean; organization_attributes: unknown }[]>`
         select id,seller_code,full_name,active,organization_attributes from people where upper(seller_code) in ${this.sql(codes)}
       ` : Promise.resolve([]),
       this.sql<{ key: string }[]>`select key from products`,
       this.sql<{ key: string }[]>`select key from fronts`,
-      this.sql<{ key: string }[]>`select team_key key from teams`,
+      this.sql<ExistingTeamIdentity[]>`select team_key key,product_key,front_key,display_name from teams`,
       codes.length ? this.sql<{ person_code: string; team_key: string }[]>`
         select upper(person.seller_code) person_code,team.team_key
         from person_team_memberships membership join people person on person.id=membership.person_id
         join teams team on team.id=membership.team_id
         where membership.valid_to is null and upper(person.seller_code) in ${this.sql(codes)}
       ` : Promise.resolve([]),
-      this.sql<{ relation_key: string }[]>`
-        select upper(person.seller_code)||':'||team.team_key relation_key
-        from team_leaderships leadership join people person on person.id=leadership.person_id
-        join teams team on team.id=leadership.team_id
-        where leadership.valid_to is null and leadership.provenance='organization_sync'
-      `,
-      this.sql<{ relation_key: string }[]>`
-        select upper(person.seller_code)||':'||role.role_kind||':'||role.product_key relation_key
+      codes.length ? this.sql<{ person_code: string; role_kind: "supervisor" | "leader_in_training"; product_key: string }[]>`
+        select upper(person.seller_code) person_code,role.role_kind,role.product_key
         from person_organization_roles role join people person on person.id=role.person_id
-        where role.valid_to is null and role.provenance='organization_sync'
-      `,
+        where role.valid_to is null and role.provenance='organization_sync' and upper(person.seller_code) in ${this.sql(codes)}
+      ` : Promise.resolve([]),
     ]);
     const currentActivePeople = baseline[0]?.active_people_count ?? 0;
-    const assessment = assessOrganizationCandidate(candidate, { currentActivePeople });
+    const baseAssessment = assessOrganizationCandidate(candidate, { currentActivePeople });
+    const rejectionReasons = [...baseAssessment.reasons, ...ambiguousLegacyTeamReasons(candidate, existingTeams)];
     const peopleByCode = new Map(existingPeople.map((person) => [person.seller_code.toUpperCase(), person]));
     const attributes = (person: OrganizationCandidate["people"][number]) => ({
       position: person.position,
@@ -206,17 +269,47 @@ export class PostgresOrganizationRepository {
     const peopleInactivated = candidate.people.filter((person) => peopleByCode.get(person.personCode)?.active && !person.active).length;
     const desiredMemberships = new Set(candidate.people.filter((person) => person.active).map((person) => `${person.personCode}:${person.teamKey}`));
     const existingMemberships = new Set(currentMemberships.map((item) => `${item.person_code}:${item.team_key}`));
-    const desiredLeaderships = new Set(candidate.leaderships.map((item) => `${item.leaderCode}:${item.teamKey}`));
+    const candidatePeopleByCode = new Map(candidate.people.map((person) => [person.personCode, person]));
+    const unsafeLeadershipTeamKeys = new Set(candidate.people
+      .filter((person) => unsafeLeadershipCodes.has(person.personCode))
+      .map((person) => person.teamKey));
+    const leadershipTeamKeys = new Set(candidate.leaderships
+      .map((item) => item.teamKey)
+      .filter((teamKey) => !unsafeLeadershipTeamKeys.has(teamKey)));
+    for (const membership of currentMemberships) {
+      const person = candidatePeopleByCode.get(membership.person_code);
+      if (unsafeLeadershipCodes.has(membership.person_code)) {
+        unsafeLeadershipTeamKeys.add(membership.team_key);
+        continue;
+      }
+      if (!person?.active || person.teamKey !== membership.team_key) {
+        leadershipTeamKeys.add(membership.team_key);
+        if (person?.active) leadershipTeamKeys.add(person.teamKey);
+      }
+    }
+    for (const teamKey of unsafeLeadershipTeamKeys) leadershipTeamKeys.delete(teamKey);
+    const currentLeaderships = leadershipTeamKeys.size ? await this.sql<{ relation_key: string }[]>`
+      select upper(person.seller_code)||':'||team.team_key relation_key
+      from team_leaderships leadership join people person on person.id=leadership.person_id
+      join teams team on team.id=leadership.team_id
+      where leadership.valid_to is null and leadership.provenance='organization_sync'
+        and team.team_key in ${this.sql([...leadershipTeamKeys])}
+    ` : [];
+    const desiredLeaderships = new Set(candidate.leaderships
+      .filter((item) => !unsafeLeadershipTeamKeys.has(item.teamKey))
+      .map((item) => `${item.leaderCode}:${item.teamKey}`));
     const existingLeaderships = new Set(currentLeaderships.map((item) => item.relation_key));
     const desiredRoles = new Set([
-      ...candidate.supervisors.map((item) => `${item.personCode}:supervisor:${item.productKey}`),
-      ...candidate.people.filter((person) => person.leaderInTraining).map((person) => `${person.personCode}:leader_in_training:${person.productKey}`),
+      ...candidate.supervisors.filter((item) => !unsafeSupervisorCodes.has(item.personCode)).map((item) => `${item.personCode}:supervisor:${item.productKey}`),
+      ...candidate.people.filter((person) => !unsafeLeaderInTrainingCodes.has(person.personCode) && person.active && person.leaderInTraining).map((person) => `${person.personCode}:leader_in_training:${person.productKey}`),
     ]);
-    const existingRoleSet = new Set(currentRoles.map((item) => item.relation_key));
+    const existingRoleSet = new Set(currentRoles
+      .filter((item) => item.role_kind === "supervisor" ? !unsafeSupervisorCodes.has(item.person_code) : !unsafeLeaderInTrainingCodes.has(item.person_code))
+      .map((item) => `${item.person_code}:${item.role_kind}:${item.product_key}`));
     const symmetricDifference = (left: Set<string>, right: Set<string>) =>
       [...left].filter((item) => !right.has(item)).length + [...right].filter((item) => !left.has(item)).length;
     return {
-      publishable: assessment.publishable,
+      publishable: rejectionReasons.length === 0,
       currentActivePeople,
       candidateActivePeople: candidate.people.filter((person) => person.active).length,
       peopleCreated,
@@ -227,9 +320,11 @@ export class PostgresOrganizationRepository {
       organizationRolesChanged: symmetricDifference(existingRoleSet, desiredRoles),
       productsCreated: candidate.products.filter((item) => !existingProducts.some((existing) => existing.key === item.key)).length,
       frontsCreated: candidate.fronts.filter((item) => !existingFronts.some((existing) => existing.key === item.key)).length,
-      teamsCreated: candidate.teams.filter((item) => !existingTeams.some((existing) => existing.key === item.key)).length,
+      teamsCreated: candidate.teams.filter((item) => !existingTeams.some((existing) => existing.key === item.key
+        || (existing.product_key === item.productKey && existing.front_key === null
+          && existing.display_name.trim().toLowerCase() === item.displayName.trim().toLowerCase()))).length,
       warnings: candidate.warnings.length,
-      rejectionReasons: assessment.reasons,
+      rejectionReasons,
     };
   }
 
@@ -237,19 +332,24 @@ export class PostgresOrganizationRepository {
     return this.sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(741955)`;
       const baseline = await tx<{ active_people_count: number }[]>`
-        select active_people_count from organization_source_snapshots snapshot
-        join organization_sync_runs run on run.id=snapshot.sync_run_id
-        where run.status in ('success','warning','no_changes') order by run.finished_at desc nulls last limit 1
+        select count(*)::integer active_people_count from people
+        where active=true and organization_attributes->>'organizationManaged'='true'
       `;
-      const assessment = assessOrganizationCandidate(input.candidate, {
+      const baseAssessment = assessOrganizationCandidate(input.candidate, {
         currentActivePeople: baseline[0]?.active_people_count ?? 0,
       });
+      const existingTeamIdentities = await tx<ExistingTeamIdentity[]>`
+        select team_key key,product_key,front_key,display_name from teams for update
+      `;
+      const rejectionReasons = [...baseAssessment.reasons, ...ambiguousLegacyTeamReasons(input.candidate, existingTeamIdentities)];
+      const assessment = { publishable: rejectionReasons.length === 0, reasons: rejectionReasons };
       const run = await tx<{ id: string }[]>`
         insert into organization_sync_runs(
-          status,triggered_by_user_id,spreadsheet_id,sheet_id,spreadsheet_revision,spreadsheet_modified_time,
+          status,triggered_by_user_id,spreadsheet_id,spreadsheet_title,sheet_id,sheet_title,spreadsheet_revision,spreadsheet_modified_time,
           observed_at,rows_read,valid_people,warning_count,rejection_reasons
         ) values (
-          'running',${input.triggeredByUserId ?? null},${input.source.spreadsheetId},${input.source.sheetId},${input.source.revision},${input.source.modifiedTime},
+          'running',${input.triggeredByUserId ?? null},${input.source.spreadsheetId},${input.source.spreadsheetTitle ?? null},
+          ${input.source.sheetId},${input.source.sheetTitle ?? null},${input.source.revision},${input.source.modifiedTime},
           ${input.candidate.observedAt},${input.candidate.rowCount},${input.candidate.people.length},
           ${input.candidate.warnings.length},${assessment.reasons}
         ) returning id
@@ -325,20 +425,37 @@ export class PostgresOrganizationRepository {
         }
       }
       for (const team of input.candidate.teams) {
-        const rows = await tx<{ created: boolean }[]>`
-          insert into teams(team_key,display_name,product_key,front_key,active)
-          values (${team.key},${team.displayName},${team.productKey},${team.frontKey},true)
-          on conflict (team_key) do update set display_name=excluded.display_name,product_key=excluded.product_key,
-            front_key=excluded.front_key,active=true,updated_at=now()
-          returning (xmax=0) created
+        const existing = await tx<{ id: string; team_key: string; front_key: string | null }[]>`
+          select id,team_key,front_key from teams
+          where team_key=${team.key}
+            or (product_key=${team.productKey} and front_key is null and lower(trim(display_name))=lower(trim(${team.displayName})))
+          order by (team_key=${team.key}) desc for update
         `;
-        if (rows[0].created) {
+        const exact = existing.find((item) => item.team_key === team.key);
+        if (!exact && existing.length > 1) throw new Error("organization_team_reconciliation_ambiguous");
+        const match = exact ?? existing[0];
+        if (match) {
+          await tx`
+            update teams set team_key=${team.key},display_name=${team.displayName},product_key=${team.productKey},
+              front_key=${team.frontKey},active=true,updated_at=now() where id=${match.id}
+          `;
+          if (match.team_key !== team.key || match.front_key !== team.frontKey) {
+            await changeEvent(tx, { runId, entityType: "team", entityKey: team.key, changeType: "updated", reason: "legacy_team_reconciled", effectiveAt: input.candidate.observedAt, details: { previousTeamKey: match.team_key } });
+          }
+        } else {
+          await tx`
+            insert into teams(team_key,display_name,product_key,front_key,active)
+            values (${team.key},${team.displayName},${team.productKey},${team.frontKey},true)
+          `;
           counts.teamsCreated += 1;
           await changeEvent(tx, { runId, entityType: "team", entityKey: team.key, changeType: "created", reason: "organization_sheet", effectiveAt: input.candidate.observedAt });
         }
       }
 
       const personIds = new Map<string, string>();
+      const membershipAffectedTeamIds = new Set<string>();
+      const unsafeLeadershipCodes = unsafeLeadershipPersonCodes(input.candidate);
+      const unsafeLeadershipTeamIds = new Set<string>();
       for (const person of input.candidate.people) {
         const existing = await tx<{ id: string; full_name: string; active: boolean; organization_attributes: unknown }[]>`
           select id,full_name,active,organization_attributes from people where upper(seller_code)=${person.personCode} limit 1
@@ -393,6 +510,10 @@ export class PostgresOrganizationRepository {
         select id,team_key from teams where team_key in ${tx(input.candidate.teams.map((team) => team.key))}
       `;
       for (const team of teamRows) teamIds.set(team.team_key, team.id);
+      for (const person of input.candidate.people.filter((item) => unsafeLeadershipCodes.has(item.personCode))) {
+        const teamId = teamIds.get(person.teamKey);
+        if (teamId) unsafeLeadershipTeamIds.add(teamId);
+      }
 
       for (const person of input.candidate.people) {
         const personId = personIds.get(person.personCode)!;
@@ -404,10 +525,15 @@ export class PostgresOrganizationRepository {
         if (current.length === 1 && current[0].team_id === desiredTeamId) continue;
         if (current.length) {
           if (current.some((item) => item.valid_from >= new Date(input.candidate.observedAt))) throw new Error("organization_effective_time_not_monotonic");
+          if (unsafeLeadershipCodes.has(person.personCode)) {
+            for (const item of current) unsafeLeadershipTeamIds.add(item.team_id);
+          }
+          for (const item of current) membershipAffectedTeamIds.add(item.team_id);
           await tx`update person_team_memberships set valid_to=${input.candidate.observedAt},updated_at=now() where person_id=${personId} and valid_to is null`;
           await changeEvent(tx, { runId, entityType: "membership", entityKey: person.personCode, changeType: "ended", reason: person.active ? "team_changed" : "person_inactivated", effectiveAt: input.candidate.observedAt });
         }
         if (desiredMembership && desiredTeamId) {
+          membershipAffectedTeamIds.add(desiredTeamId);
           await tx`
             insert into person_team_memberships(person_id,team_id,valid_from,provenance,metadata)
             values (${personId},${desiredTeamId},${input.candidate.observedAt},'organization_sync',${tx.json({ syncRunId: runId })})
@@ -417,7 +543,7 @@ export class PostgresOrganizationRepository {
         if (current.length || desiredMembership) counts.membershipsChanged += 1;
       }
 
-      counts.leadershipsChanged = await this.syncLeaderships(tx, runId, input.candidate, personIds, teamIds);
+      counts.leadershipsChanged = await this.syncLeaderships(tx, runId, input.candidate, personIds, teamIds, membershipAffectedTeamIds, unsafeLeadershipTeamIds);
       counts.organizationRolesChanged = await this.syncOrganizationRoles(tx, runId, input.candidate, personIds);
       await this.insertSnapshot(tx, runId, hash, snapshotCounts, input.candidate.warnings.length);
       const status = input.candidate.warnings.length ? "warning" : "success";
@@ -427,17 +553,20 @@ export class PostgresOrganizationRepository {
     });
   }
 
-  async recordFailure(input: { source: OrganizationSourceReference; observedAt: string; errorCode: string }): Promise<string> {
+  async recordFailure(input: { source: OrganizationSourceReference; observedAt: string; errorCode: string; triggeredByUserId?: string | null }): Promise<string> {
     const rows = await this.sql<{ id: string }[]>`
       insert into organization_sync_runs(
-        status,spreadsheet_id,sheet_id,spreadsheet_revision,spreadsheet_modified_time,observed_at,finished_at,error_code
-      ) values ('failed',${input.source.spreadsheetId},${input.source.sheetId},${input.source.revision},${input.source.modifiedTime},${input.observedAt},now(),${input.errorCode.slice(0, 120)})
+        status,triggered_by_user_id,spreadsheet_id,spreadsheet_title,sheet_id,sheet_title,
+        spreadsheet_revision,spreadsheet_modified_time,observed_at,finished_at,error_code
+      ) values ('failed',${input.triggeredByUserId ?? null},${input.source.spreadsheetId},${input.source.spreadsheetTitle ?? null},
+        ${input.source.sheetId},${input.source.sheetTitle ?? null},${input.source.revision},${input.source.modifiedTime},
+        ${input.observedAt},now(),${input.errorCode.slice(0, 120)})
       returning id
     `;
     return rows[0].id;
   }
 
-  async getTree(context: AuthorizationContext, selected: SelectedOrganizationScope = {}): Promise<OrganizationTreeRow[]> {
+  async getTree(context: AuthorizationContext, selected: SelectedOrganizationScope = {}, asOf: Date = new Date()): Promise<OrganizationTreeRow[]> {
     assertCapability(context, "analytics:read");
     const access = organizationAccessPredicate(this.sql, context);
     const selection = selectedOrganizationPredicate(this.sql, selected);
@@ -450,14 +579,14 @@ export class PostgresOrganizationRepository {
       from teams t
       join products product on product.key=t.product_key
       join fronts front on front.key=t.front_key
-      left join person_team_memberships membership on membership.team_id=t.id and membership.valid_from<=now()
-        and (membership.valid_to is null or now()<membership.valid_to)
+      left join person_team_memberships membership on membership.team_id=t.id and membership.valid_from<=${asOf}
+        and (membership.valid_to is null or ${asOf}<membership.valid_to)
       left join people p on p.id=membership.person_id
       left join lateral (
         select person.id,person.seller_code,person.full_name
         from team_leaderships leadership join people person on person.id=leadership.person_id
-        where leadership.team_id=t.id and leadership.valid_from<=now()
-          and (leadership.valid_to is null or now()<leadership.valid_to)
+        where leadership.team_id=t.id and leadership.valid_from<=${asOf}
+          and (leadership.valid_to is null or ${asOf}<leadership.valid_to)
         order by person.full_name limit 1
       ) leader on true
       where t.active=true and product.active=true and front.active=true and ${access} and ${selection}
@@ -465,12 +594,36 @@ export class PostgresOrganizationRepository {
     `;
   }
 
+  async listPeople(context: AuthorizationContext, selected: SelectedOrganizationScope = {}, asOf: Date = new Date()): Promise<OrganizationPersonRow[]> {
+    assertCapability(context, "analytics:read");
+    const access = organizationAccessPredicate(this.sql, context);
+    const selection = selectedOrganizationPredicate(this.sql, selected);
+    return this.sql<OrganizationPersonRow[]>`
+      select p.id person_id,p.seller_code person_code,p.full_name person_name,p.active person_active,
+        p.organization_attributes,t.product_key,product.display_name product_name,t.front_key,front.display_name front_name,
+        t.id team_id,t.display_name team_name
+      from people p
+      left join person_team_memberships membership on membership.person_id=p.id and membership.valid_from<=${asOf}
+        and (membership.valid_to is null or ${asOf}<membership.valid_to)
+      left join teams t on t.id=membership.team_id
+      left join products product on product.key=t.product_key
+      left join fronts front on front.key=t.front_key
+      where p.seller_code is not null and ${access} and ${selection}
+      order by p.full_name,p.seller_code
+    `;
+  }
+
   async getSyncStatus(context: AuthorizationContext, limit = 20): Promise<OrganizationSyncStatus[]> {
     assertCapability(context, "settings:manage");
     return this.sql<OrganizationSyncStatus[]>`
-      select id,status,spreadsheet_id,sheet_id,spreadsheet_revision,spreadsheet_modified_time,
-        observed_at,finished_at,rows_read,valid_people,warning_count,summary,rejection_reasons,error_code
-      from organization_sync_runs order by started_at desc limit ${Math.max(1, Math.min(100, Math.trunc(limit)))}
+      select run.id,run.status,run.spreadsheet_id,run.spreadsheet_title,run.sheet_id,run.sheet_title,
+        run.spreadsheet_revision,run.spreadsheet_modified_time,run.observed_at,run.finished_at,
+        run.rows_read,run.valid_people,run.warning_count,run.summary,run.rejection_reasons,run.error_code,
+        (select max(event.effective_at) from organization_change_events event where event.sync_run_id=run.id) last_change_at,
+        snapshot.product_count,snapshot.front_count,snapshot.team_count,snapshot.leadership_count,snapshot.supervisor_count
+      from organization_sync_runs run
+      left join organization_source_snapshots snapshot on snapshot.sync_run_id=run.id
+      order by run.started_at desc limit ${Math.max(1, Math.min(100, Math.trunc(limit)))}
     `;
   }
 
@@ -478,21 +631,20 @@ export class PostgresOrganizationRepository {
     assertCapability(context, "settings:manage");
     const [organizationWarnings, callAttribution] = await Promise.all([
       this.sql<{ code: string; count: number }[]>`
-        with latest as (select id from organization_sync_runs order by started_at desc limit 1)
-        select warning.warning_code code,count(*)::integer count
-        from organization_sync_warnings warning join latest on latest.id=warning.sync_run_id
-        group by warning.warning_code order by warning.warning_code
+        with latest as (select id,status from organization_sync_runs order by started_at desc limit 1), issues as (
+          select warning.warning_code code from organization_sync_warnings warning join latest on latest.id=warning.sync_run_id
+          union all select 'sync_failed' from latest where status in ('failed','rejected')
+        ) select code,count(*)::integer count from issues group by code order by code
       `,
       this.sql<{ code: string; count: number }[]>`
         select code,count(*)::integer count from (
-          select case
-            when primary_closer_id is null then 'closer_unresolved'
-            when coalesce(team_id,legacy_team_snapshot_id) is null then 'team_unresolved'
-            when front_key is null then 'front_unresolved'
-            when needs_attribution_review then 'needs_attribution_review'
-            else null end code
-          from calls
-        ) issue where code is not null group by code order by code
+          select 'closer_unresolved' code from calls where primary_closer_id is null
+          union all select 'product_unresolved' from calls call
+            where not exists (select 1 from products product where product.key=lower(call.product_key))
+          union all select 'front_unresolved' from calls where front_key is null
+          union all select 'team_unresolved' from calls where coalesce(team_id,legacy_team_snapshot_id) is null
+          union all select 'needs_attribution_review' from calls where needs_attribution_review
+        ) issue group by code order by code
       `,
     ]);
     return { organizationWarnings, callAttribution };
@@ -518,10 +670,23 @@ export class PostgresOrganizationRepository {
     candidate: OrganizationCandidate,
     personIds: Map<string, string>,
     teamIds: Map<string, string>,
+    membershipAffectedTeamIds: Set<string>,
+    unsafeLeadershipTeamIds: Set<string>,
   ): Promise<number> {
-    const desired = new Map(candidate.leaderships.map((item) => [`${personIds.get(item.leaderCode)}:${teamIds.get(item.teamKey)}`, item]));
+    const desired = new Map(candidate.leaderships
+      .filter((item) => {
+        const teamId = teamIds.get(item.teamKey);
+        return Boolean(teamId && !unsafeLeadershipTeamIds.has(teamId));
+      })
+      .map((item) => [`${personIds.get(item.leaderCode)}:${teamIds.get(item.teamKey)}`, item]));
+    const representedTeamIds = [...new Set([
+      ...candidate.leaderships.map((item) => teamIds.get(item.teamKey)).filter((id): id is string => Boolean(id)),
+      ...membershipAffectedTeamIds,
+    ].filter((id) => !unsafeLeadershipTeamIds.has(id)))];
+    if (!representedTeamIds.length) return 0;
     const current = await tx<{ id: string; person_id: string; team_id: string; valid_from: Date }[]>`
-      select id,person_id,team_id,valid_from from team_leaderships where valid_to is null and provenance='organization_sync' for update
+      select id,person_id,team_id,valid_from from team_leaderships
+      where valid_to is null and provenance='organization_sync' and team_id in ${tx(representedTeamIds)} for update
     `;
     let changed = 0;
     for (const item of current) {
@@ -552,20 +717,30 @@ export class PostgresOrganizationRepository {
     candidate: OrganizationCandidate,
     personIds: Map<string, string>,
   ): Promise<number> {
+    const unsafeSupervisorCodes = invalidRolePersonCodes(candidate, "supervisor");
+    const unsafeLeaderInTrainingCodes = invalidRolePersonCodes(candidate, "leaderInTraining");
     const desired = new Map<string, { personId: string; roleKind: "supervisor" | "leader_in_training"; productKey: string }>();
-    for (const item of candidate.supervisors) {
+    for (const item of candidate.supervisors.filter((candidateItem) => !unsafeSupervisorCodes.has(candidateItem.personCode))) {
       const personId = personIds.get(item.personCode);
       if (personId) desired.set(`${personId}:supervisor:${item.productKey}`, { personId, roleKind: "supervisor", productKey: item.productKey });
     }
-    for (const person of candidate.people.filter((item) => item.leaderInTraining)) {
+    for (const person of candidate.people.filter((item) => !unsafeLeaderInTrainingCodes.has(item.personCode) && item.active && item.leaderInTraining)) {
       const personId = personIds.get(person.personCode)!;
       desired.set(`${personId}:leader_in_training:${person.productKey}`, { personId, roleKind: "leader_in_training", productKey: person.productKey });
     }
+    const representedPersonIds = candidate.people
+      .map((person) => personIds.get(person.personCode))
+      .filter((id): id is string => Boolean(id));
+    if (!representedPersonIds.length) return 0;
     const current = await tx<{ id: string; person_id: string; role_kind: "supervisor" | "leader_in_training"; product_key: string; valid_from: Date }[]>`
-      select id,person_id,role_kind,product_key,valid_from from person_organization_roles where valid_to is null and provenance='organization_sync' for update
+      select id,person_id,role_kind,product_key,valid_from from person_organization_roles
+      where valid_to is null and provenance='organization_sync' and person_id in ${tx(representedPersonIds)} for update
     `;
     let changed = 0;
+    const personCodesById = new Map([...personIds].map(([personCode, personId]) => [personId, personCode]));
     for (const item of current) {
+      const personCode = personCodesById.get(item.person_id);
+      if (personCode && (item.role_kind === "supervisor" ? unsafeSupervisorCodes.has(personCode) : unsafeLeaderInTrainingCodes.has(personCode))) continue;
       const relationKey = `${item.person_id}:${item.role_kind}:${item.product_key}`;
       if (desired.has(relationKey)) {
         desired.delete(relationKey);
