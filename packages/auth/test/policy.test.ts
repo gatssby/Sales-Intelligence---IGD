@@ -3,7 +3,9 @@ import test from "node:test";
 import {
   AuthorizationError,
   assertCapability,
+  assertMutationAllowed,
   buildAuthorizationContext,
+  buildPreviewAuthorizationContext,
   canAccessData,
   generateTemporaryPassword,
   hashPassword,
@@ -19,6 +21,80 @@ test("Admin has every initial capability and global data access", () => {
     assert.doesNotThrow(() => assertCapability(admin, capability));
   }
   assert.equal(canAccessData(admin, { teamId: "team-any", productKey: "any" }), true);
+});
+
+test("Platform Admin inherits commercial access and receives platform-only capabilities", () => {
+  const platformAdmin = buildAuthorizationContext({ ...base, role: "PLATFORM_ADMIN" });
+  for (const capability of [
+    "users:manage",
+    "settings:manage",
+    "calls:read",
+    "analytics:read",
+    "spend:execute",
+    "platform:observe",
+    "platform:operate",
+    "preview:use",
+  ] as const) {
+    assert.doesNotThrow(() => assertCapability(platformAdmin, capability));
+  }
+  assert.equal(canAccessData(platformAdmin, { teamId: "team-any", productKey: "any" }), true);
+
+  const commercialAdmin = buildAuthorizationContext({ ...base, role: "ADMIN" });
+  assert.throws(() => assertCapability(commercialAdmin, "platform:observe"), AuthorizationError);
+  assert.throws(() => assertCapability(commercialAdmin, "preview:use"), AuthorizationError);
+});
+
+test("preview preserves the authenticated Platform Admin and applies the subject effective access", () => {
+  const actor = buildAuthorizationContext({ ...base, role: "PLATFORM_ADMIN" });
+  const preview = buildPreviewAuthorizationContext(actor, {
+    kind: "LEADER",
+    subjectPersonId: "person-leader",
+    subjectCode: "V063",
+    subjectDisplayName: "Leader Synthetic",
+    personIds: ["person-leader"],
+    teamIds: ["team-a", "team-b"],
+    productKeys: [],
+  });
+
+  assert.equal(preview.userId, actor.userId);
+  assert.equal(preview.email, actor.email);
+  assert.equal(preview.role, "PLATFORM_ADMIN");
+  assert.equal(preview.accessRole, "LEADER");
+  assert.equal(preview.preview?.subjectPersonId, "person-leader");
+  assert.equal(canAccessData(preview, { teamId: "team-a", productKey: "alpha" }), true);
+  assert.equal(canAccessData(preview, { teamId: "team-x", productKey: "alpha" }), false);
+  assert.throws(() => assertCapability(preview, "platform:observe"), AuthorizationError);
+  assert.throws(() => assertMutationAllowed(preview), /preview_read_only/);
+});
+
+test("Admin preview is commercial-global without Platform Admin tools", () => {
+  const actor = buildAuthorizationContext({ ...base, role: "PLATFORM_ADMIN" });
+  const preview = buildPreviewAuthorizationContext(actor, {
+    kind: "ADMIN",
+    subjectPersonId: null,
+    subjectCode: null,
+    subjectDisplayName: "Admin comercial",
+  });
+
+  assert.equal(preview.scope.kind, "GLOBAL");
+  assert.equal(preview.accessRole, "ADMIN");
+  assert.doesNotThrow(() => assertCapability(preview, "users:manage"));
+  assert.throws(() => assertCapability(preview, "platform:observe"), AuthorizationError);
+  assert.throws(() => assertMutationAllowed(preview), /preview_read_only/);
+});
+
+test("only a real Platform Admin actor can enter preview", () => {
+  const admin = buildAuthorizationContext({ ...base, role: "ADMIN" });
+  assert.throws(
+    () => buildPreviewAuthorizationContext(admin, {
+      kind: "PERSON",
+      subjectPersonId: "person-a",
+      subjectCode: "V1008",
+      subjectDisplayName: "Person Synthetic",
+      personIds: ["person-a"],
+    }),
+    AuthorizationError,
+  );
 });
 
 test("Leader only reads explicitly assigned teams", () => {

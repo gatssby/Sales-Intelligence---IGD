@@ -53,8 +53,16 @@ Relação temporal de uma Person com um escopo da organização, como liderança
 _Evite_: papel de sistema, conta, Leader como pessoa separada
 
 **System Role**:
-Autoridade interna de uma conta do aplicativo, especialmente Admin, que nunca é concedida pela fonte organizacional.
+Autoridade interna de uma conta do aplicativo. Platform Admin mantém a plataforma; Admin governa a operação comercial. Nenhum dos dois é concedido pela fonte organizacional.
 _Evite_: cargo, supervisor da planilha
+
+**Platform Admin**:
+System Role global reservado ao mantenedor técnico. Herda o acesso comercial de Admin e acrescenta observabilidade, diagnósticos e operações técnicas explicitamente autorizadas.
+_Evite_: Admin sênior, supervisor global, papel da planilha
+
+**Admin**:
+System Role global responsável pela operação comercial, integridade operacional e gestão de contas e vínculos, sem diagnósticos internos da plataforma.
+_Evite_: Platform Admin, operador de infraestrutura
 
 **Effective Access**:
 União dos escopos permitidos pelo System Role e pelos Organizational Roles atuais da Person vinculada à conta.
@@ -63,6 +71,14 @@ _Evite_: filtro visual, escopo enviado pelo cliente
 **Selected Scope**:
 Recorte navegacional escolhido dentro do Effective Access para parametrizar os mesmos read models de análise.
 _Evite_: permissão, dashboard separado por papel
+
+**Preview Mode**:
+Visão somente leitura iniciada por Platform Admin que preserva o ator autenticado e aplica aos read models o Effective Access de uma persona ou do Admin comercial.
+_Evite_: impersonation, troca de sessão, login como outra pessoa
+
+**Preview Subject**:
+Person ou papel comercial cujo Effective Access é aplicado durante Preview Mode. Nunca substitui o ator autenticado na auditoria.
+_Evite_: usuário autenticado, token delegado
 
 ## Avaliação
 

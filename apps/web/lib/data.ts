@@ -102,34 +102,38 @@ export type CallDetail = CallCatalogItem & {
   attempts: Array<{ role: string; attemptNumber: number; model: string; provider: string; status: string; costUsd: number | null; latencyMs: number | null; requestedAt: string; errorCode: string | null }>;
 };
 
-function mapCatalog(row: ScopedCallCatalogRow): CallCatalogItem {
+function mapCatalog(row: ScopedCallCatalogRow, includeTechnical = false): CallCatalogItem {
   return {
     id: row.id, customerName: row.customer_name, sellerName: row.seller_name, sellerCode: row.seller_code,
     teamName: row.team_name, product: row.product_key, startedAt: row.started_at?.toISOString() ?? null,
     durationSeconds: row.duration_seconds, origin: row.origin, transcriptStatus: row.transcript_status,
     analysisStatus: row.analysis_status, score: row.score === null ? null : Number(row.score),
-    analysisEligibility: row.analysis_eligibility, finalModel: row.final_model, escalated: row.escalated ?? false,
+    analysisEligibility: row.analysis_eligibility, finalModel: includeTechnical ? row.final_model : null,
+    escalated: includeTechnical ? row.escalated ?? false : false,
     analyzedAt: row.analyzed_at?.toISOString() ?? null,
   };
 }
 
-export async function getCallCatalogPage(context: AuthorizationContext, page: number, pageSize = 50, selected: SelectedOrganizationScope = {}) {
+export async function getCallCatalogPage(context: AuthorizationContext, page: number, pageSize = 50, selected: SelectedOrganizationScope = {}, includeTechnical = false) {
   const result = await new ScopedSalesRepository(getSql()).listCallCatalog(context, { page, pageSize, selected });
-  return { calls: result.rows.map(mapCatalog), total: result.total, page, pageSize, pages: Math.max(1, Math.ceil(result.total / pageSize)) };
+  return { calls: result.rows.map((row) => mapCatalog(row, includeTechnical)), total: result.total, page, pageSize, pages: Math.max(1, Math.ceil(result.total / pageSize)) };
 }
 
-export async function getCallDetail(context: AuthorizationContext, callId: string, selected: SelectedOrganizationScope = {}): Promise<CallDetail | null> {
+export async function getCallDetail(context: AuthorizationContext, callId: string, selected: SelectedOrganizationScope = {}, includeTechnical = false): Promise<CallDetail | null> {
   const repository = new ScopedSalesRepository(getSql());
   const row = await repository.getCatalogCallById(context, callId, selected);
   if (!row) return null;
-  const attempts = await repository.listAnalysisAttempts(context, callId, selected);
+  const attempts = includeTechnical ? await repository.listAnalysisAttempts(context, callId, selected) : [];
+  const catalog = mapCatalog(row, includeTechnical);
   return {
-    ...mapCatalog(row),
+    ...catalog,
+    finalModel: includeTechnical ? catalog.finalModel : null,
+    escalated: includeTechnical ? catalog.escalated : false,
     analysis: row.result_json ? StoredAnalysisOutputSchema.parse(row.result_json) : null,
-    escalationReasons: row.escalation_reasons ?? [], rubricVersion: row.rubric_version,
-    promptVersion: row.prompt_version, schemaVersion: row.schema_version,
-    confidencePolicyVersion: row.confidence_policy_version, latencyMs: row.latency_ms,
-    costUsd: row.cost_usd === null ? null : Number(row.cost_usd),
+    escalationReasons: includeTechnical ? row.escalation_reasons ?? [] : [], rubricVersion: includeTechnical ? row.rubric_version : null,
+    promptVersion: includeTechnical ? row.prompt_version : null, schemaVersion: includeTechnical ? row.schema_version : null,
+    confidencePolicyVersion: includeTechnical ? row.confidence_policy_version : null, latencyMs: includeTechnical ? row.latency_ms : null,
+    costUsd: includeTechnical && row.cost_usd !== null ? Number(row.cost_usd) : null,
     humanReviewRequested: row.human_review_requested ?? false, unscorableReason: row.unscorable_reason,
     attempts: attempts.map((attempt) => ({
       role: attempt.role, attemptNumber: attempt.attempt_number, model: attempt.model, provider: attempt.provider,
@@ -143,7 +147,7 @@ export async function getCallTranscript(context: AuthorizationContext, callId: s
   return new ScopedSalesRepository(getSql()).getCallTranscript(context, callId, selected);
 }
 
-export async function getProgressData(context: AuthorizationContext, selected: SelectedOrganizationScope = {}) {
+export async function getProgressData(context: AuthorizationContext, selected: SelectedOrganizationScope = {}, includeTechnical = false) {
   const repository = new ScopedSalesRepository(getSql());
   const [progress, active] = await Promise.all([repository.getBacklogProgress(context, selected), repository.listActiveAnalyses(context, selected)]);
   return {
@@ -151,13 +155,15 @@ export async function getProgressData(context: AuthorizationContext, selected: S
       total: progress.total, analyzed: progress.analyzed, processing: progress.processing, pending: progress.pending,
       awaitingTranscript: progress.awaiting_transcript, accessIssue: progress.access_issue,
       associationReview: progress.association_review, failed: progress.failed, quarantine: progress.quarantine,
-      stages: {
+      stages: includeTechnical ? {
         transcript: progress.stage_transcript, queue: progress.stage_queue, primary: progress.stage_primary,
         validation: progress.stage_validation, escalation: progress.stage_escalation,
         finalization: progress.stage_finalization, completed: progress.stage_completed,
-      },
+      } : { transcript: 0,queue: 0,primary: 0,validation: 0,escalation: 0,finalization: 0,completed: 0 },
     },
-    active: active.map((item) => ({ callId: item.call_id, sellerName: item.seller_name, stage: item.stage, model: item.model, startedAt: item.started_at?.toISOString() ?? null })),
+    active: active.map((item) => ({ callId: item.call_id,sellerName: item.seller_name,
+      stage: includeTechnical ? item.stage : "processing",model: includeTechnical ? item.model : null,
+      startedAt: item.started_at?.toISOString() ?? null })),
   };
 }
 

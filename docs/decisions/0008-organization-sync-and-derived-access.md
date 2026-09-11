@@ -17,10 +17,10 @@ O modelo anterior mantinha escopos de Leader e Supervisor explicitamente por con
 - Uma linha ausente não inativa uma Person nem encerra seus papéis. Somente uma linha representada com mudança explícita encerra relações; um campo de papel inválido preserva apenas o papel correspondente, e identidade de líder inválida preserva liderança anterior nos times envolvidos.
 - `sellers` continua compatível para ingestão: resolve uma Person organization-first pelo V-code, mas não pode sobrescrever sua identidade ou atividade. Reconciliação por nome só consome times legados sem frente e rejeita reivindicação ambígua entre várias frentes, evitando colapsar homônimos.
 - Contas podem ser ligadas a `Person`. O Effective Access é a união de produtos supervisionados, times liderados e self; `leader_in_training` não concede acesso.
-- Admin é exclusivamente um System Role e sempre global. A fonte organizacional nunca o concede.
+- Admin e Platform Admin são exclusivamente System Roles e sempre globais. A fonte organizacional nunca concede nenhum deles.
 - O Selected Scope é validado pela interseção com o Effective Access dentro das queries PostgreSQL, inclusive listagens, detalhes/transcripts por ID e agregados. Métricas de Pessoas/Times podem receber o mesmo dia da composição histórica.
 - Escopos manuais antigos permanecem somente como fallback para contas ainda não vinculadas. No primeiro publish, times legados equivalentes são reconciliados pelo mesmo UUID antes de uma conta migrar para acesso derivado, preservando calls e scopes históricos.
 
 ## Consequências
 
-O mesmo conjunto de read models serve Admin, Supervisor, Líder e Person. Mudanças futuras de time não reclassificam calls antigas, e falhas ou reduções anormais na planilha preservam o último snapshot publicado. A derivação de acesso passa a depender de Organization Sync saudável, mas uma falha do sync não remove a organização anterior.
+O mesmo conjunto de read models serve Platform Admin, Admin, Supervisor, Líder e Person. Mudanças futuras de time não reclassificam calls antigas, e falhas ou reduções anormais na planilha preservam o último snapshot publicado. A derivação de acesso passa a depender de Organization Sync saudável, mas uma falha do sync não remove a organização anterior.

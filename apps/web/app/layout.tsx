@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Manrope, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
+import { PlatformPreviewFrame } from "./components/PlatformPreviewFrame";
 
 const manrope = Manrope({
   variable: "--font-body",
@@ -20,7 +21,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="pt-BR">
-      <body className={`${manrope.variable} ${jakarta.variable}`}>{children}</body>
+      <body className={`${manrope.variable} ${jakarta.variable}`}><PlatformPreviewFrame />{children}</body>
     </html>
   );
 }

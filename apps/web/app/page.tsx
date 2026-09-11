@@ -1,4 +1,4 @@
-import { getAiSpendData, getDashboardData, getProgressData } from "@/lib/data";
+import { getDashboardData, getProgressData } from "@/lib/data";
 import { hasCapability } from "@igd/auth";
 import { requireUser } from "@/lib/auth/session";
 import { logoutAction } from "@/app/logout/actions";
@@ -41,11 +41,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const requested = parseOrganizationSelection(await searchParams);
   const selected = Object.keys(requested).length ? requested : defaultOrganizationSelection(user);
   const canManage = hasCapability(user, "users:manage");
-  const canSeeSpend = hasCapability(user, "spend:execute");
-  const [data, progress, aiSpend, organizationRows] = await Promise.all([
+  const canSeePlatform = hasCapability(user, "platform:observe");
+  const [data, progress, organizationRows] = await Promise.all([
     getDashboardData(user, selected),
-    getProgressData(user, selected),
-    canSeeSpend ? getAiSpendData(user) : Promise.resolve(null),
+    getProgressData(user, selected, canSeePlatform),
     new PostgresOrganizationRepository(getSql()).getTree(user),
   ]);
   const call = data.call;
@@ -59,6 +58,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <a href={scopeHref("/people", selected)}>Pessoas</a>
             <a href={scopeHref("/teams", selected)}>Times</a>
             <a href={scopeHref("/calls", selected)}>Calls</a>
+            {canManage ? <a href="/admin/integrity">Admin</a> : null}
+            {canSeePlatform ? <a href="/platform">Platform</a> : null}
             <form action={logoutAction}><button type="submit">Sair</button></form>
           </div>
         </header>
@@ -95,9 +96,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <a href={scopeHref("/calls", selected)}><span>◉</span> Calls</a>
           <a href={scopeHref("/organization", selected)}><span>◇</span> Organização</a>
           <a href="#coaching"><span>↗</span> Coaching</a>
+          {canManage ? <span className="nav-group-label">Admin</span> : null}
           {canManage ? <a href="/admin/users"><span>⚙</span> Usuários e acessos <AdminBadge /></a> : null}
           {canManage ? <a href="/admin/organization-sync"><span>↻</span> Sincronização <AdminBadge /></a> : null}
           {canManage ? <a href="/admin/integrity"><span>!</span> Integridade <AdminBadge /></a> : null}
+          {canSeePlatform ? <span className="nav-group-label">Platform</span> : null}
+          {canSeePlatform ? <a href="/platform"><span>⌘</span> Operação técnica</a> : null}
         </nav>
         <div className="sidebar-foot">
           <div className="pulse-dot" />
@@ -136,7 +140,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <article className="metric-card"><p>Oportunidade mais comum</p><strong className="word-stat">{summary.topOpportunityLabel}</strong><span className="metric-note warning">Distribuição real da amostra</span></article>
         </section>
 
-        <LiveProgress initialData={progress} initialAiSpend={aiSpend} />
+        <LiveProgress initialData={progress} technical={canSeePlatform} />
 
         <section className="panel team-panel" id="equipe">
           <div className="team-heading">
@@ -290,11 +294,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <ol>{analysis.coaching_actions.map((item, index) => <li key={item}><span>{String(index + 1).padStart(2, "0")}</span><p>{item}</p></li>)}</ol>
           </article>
           <article className="panel audit-card">
-            <p className="eyebrow">Trilha de auditoria</p><h3>Resultado versionado</h3>
+            <p className="eyebrow">Trilha de auditoria</p><h3>{canSeePlatform ? "Resultado versionado" : "Registro da análise"}</h3>
             <dl>
-              <div><dt>Modelo</dt><dd>{call.model}</dd></div>
-              <div><dt>Rubrica</dt><dd>{call.rubricVersion}</dd></div>
-              <div><dt>Prompt</dt><dd>{call.promptVersion}</dd></div>
+              {canSeePlatform ? <><div><dt>Modelo</dt><dd>{call.model}</dd></div><div><dt>Rubrica</dt><dd>{call.rubricVersion}</dd></div><div><dt>Prompt</dt><dd>{call.promptVersion}</dd></div></> : null}
               <div><dt>Analisado em</dt><dd>{formatDate(call.analyzedAt)}</dd></div>
             </dl>
             <a className="text-link" href={scopeHref(`/calls/${call.id}`, selected)}>Abrir transcript sob demanda</a>

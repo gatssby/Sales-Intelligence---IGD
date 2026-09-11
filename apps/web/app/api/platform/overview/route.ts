@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { hasCapability } from "@igd/auth";
+import { PostgresPlatformObservabilityRepository } from "@igd/db";
 import { getCurrentUser } from "@/lib/auth/session";
-import { getAiSpendData } from "@/lib/data";
+import { getSql } from "@/lib/database";
 
 export const dynamic = "force-dynamic";
 
@@ -11,5 +12,6 @@ export async function GET() {
   if (user.mustChangePassword || !hasCapability(user, "platform:observe")) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
-  return NextResponse.json(await getAiSpendData(user), { headers: { "cache-control": "private, no-store" } });
+  const overview = await new PostgresPlatformObservabilityRepository(getSql()).getOverview(user);
+  return NextResponse.json(overview, { headers: { "cache-control": "private, no-store" } });
 }
