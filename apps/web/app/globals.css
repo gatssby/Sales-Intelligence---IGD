@@ -423,6 +423,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .access-form.panel { background: var(--color-surface-subtle); }
 .form-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
 .access-form label, .auth-form label { display: flex; flex-direction: column; gap: 5px; color: var(--color-text-secondary); font-size: 10px; font-weight: 570; }
+.access-form .field-help { color: var(--color-text-secondary); font-size: 9px; font-weight: 400; line-height: 1.45; }
 .access-form input, .access-form select, .auth-form input { height: 34px; width: 100%; padding: 6px 9px; border: 1px solid var(--color-border); border-radius: var(--radius-control); background: #fff; color: var(--color-text-primary); outline: 0; font-size: 11px; }
 .access-form input:focus, .access-form select:focus, .auth-form input:focus { border-color: rgba(67,117,255,.55); box-shadow: 0 0 0 3px var(--color-accent-wash); }
 .access-form > button, .auth-form button, .access-actions button { min-height: 32px; padding: 4px 12px; border: 1px solid transparent; border-radius: var(--radius-control); background: var(--color-accent); color: #fff; font-size: 11px; font-weight: 590; }
