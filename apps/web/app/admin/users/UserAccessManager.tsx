@@ -3,164 +3,74 @@
 import { useActionState, useState } from "react";
 import type { ManagedUser, ScopeOption } from "@igd/db";
 import type { Role } from "@igd/auth";
-import {
-  createUserAction,
-  resetPasswordAction,
-  toggleUserAction,
-  updateUserAction,
-  type AccessActionState,
-} from "./actions";
+import { createUserAction, resetPasswordAction, toggleUserAction, updateUserAction, type AccessActionState } from "./actions";
+import { accessProfileContent, accessProfileOrder, hasCompatibleLegacyScope, requiresPersonLink } from "./accessProfiles";
 
 const emptyAccessState: AccessActionState = { error: null, message: null, temporaryPassword: null };
 
-const roleLabels: Record<Role, string> = {
-  ADMIN: "Admin",
-  LEADER: "Leader",
-  SUPERVISOR: "Supervisor",
-  SALES_OPS: "Sales Ops",
-};
+const lastLoginFormatter = new Intl.DateTimeFormat("pt-BR", {
+  dateStyle: "short",
+  timeStyle: "short",
+  timeZone: "America/Sao_Paulo",
+});
 
 function ResultMessage({ state }: { state: AccessActionState }) {
-  return (
-    <>
-      {state.error ? <p className="form-error" role="alert">{state.error}</p> : null}
-      {state.message ? <p className="form-success" role="status">{state.message}</p> : null}
-      {state.temporaryPassword ? (
-        <div className="temporary-password" role="status">
-          <strong>Senha temporária — exibida somente agora</strong>
-          <code>{state.temporaryPassword}</code>
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-function ScopeFields({
-  role,
-  teams,
-  products,
-  selectedTeams = [],
-  selectedProducts = [],
-}: {
-  role: Role;
-  teams: ScopeOption[];
-  products: ScopeOption[];
-  selectedTeams?: string[];
-  selectedProducts?: string[];
-}) {
-  const isLeader = role === "LEADER";
-  const isSupervisor = role === "SUPERVISOR";
-  return (
-    <div className="scope-grid">
-      <fieldset disabled={!isLeader}>
-        <legend>Times do líder</legend>
-        {teams.map((team) => (
-          <label className="check-row" key={team.id}>
-            <input name="teamIds" type="checkbox" value={team.id} defaultChecked={selectedTeams.includes(team.id)} />
-            <span>{team.label}<small>{team.productKey}</small></span>
-          </label>
-        ))}
-        {!teams.length ? <small>Nenhum time cadastrado.</small> : null}
-      </fieldset>
-      <fieldset disabled={!isSupervisor}>
-        <legend>Produtos do supervisor</legend>
-        {products.map((product) => (
-          <label className="check-row" key={product.id}>
-            <input name="productKeys" type="checkbox" value={product.id} defaultChecked={selectedProducts.includes(product.id)} />
-            <span>{product.label}</span>
-          </label>
-        ))}
-        {!products.length ? <small>Nenhum produto cadastrado.</small> : null}
-      </fieldset>
-      <p className="scope-review">
-        <strong>Escopo antes de salvar:</strong>{" "}
-        {role === "ADMIN" || role === "SALES_OPS"
-          ? "leitura global, sem associações específicas"
-          : role === "LEADER"
-            ? "somente os times marcados"
-            : "todos os times dos produtos marcados"}.
-        {role === "ADMIN" ? " Inclui ações com custo." : " Conta somente leitura; ações com custo permanecem bloqueadas."}
-      </p>
-    </div>
-  );
+  return <>{state.error ? <p className="form-error" role="alert">{state.error}</p> : null}{state.message ? <p className="form-success" role="status">{state.message}</p> : null}{state.temporaryPassword ? <div className="temporary-password" role="status"><strong>Senha temporária — exibida somente agora</strong><code>{state.temporaryPassword}</code></div> : null}</>;
 }
 
 function RoleSelect({ value, onChange }: { value: Role; onChange: (role: Role) => void }) {
-  return (
-    <label>
-      Papel
-      <select name="role" value={value} onChange={(event) => onChange(event.target.value as Role)}>
-        {(Object.keys(roleLabels) as Role[]).map((role) => <option key={role} value={role}>{roleLabels[role]}</option>)}
-      </select>
-    </label>
-  );
+  const profile = accessProfileContent[value];
+  return <label>Perfil de acesso<select name="role" value={value} onChange={(event) => onChange(event.target.value as Role)}>{accessProfileOrder.map((role) => <option key={role} value={role}>{accessProfileContent[role].label}</option>)}</select><span className="field-help">{profile.description}</span></label>;
 }
 
-function CreateUser({ teams, products }: { teams: ScopeOption[]; products: ScopeOption[] }) {
-  const [role, setRole] = useState<Role>("LEADER");
+function PersonSelect({ people, value, required, onChange }: { people: ScopeOption[]; value: string; required: boolean; onChange: (personId: string) => void }) {
+  return <label>Pessoa vinculada<select name="personId" value={value} required={required} onChange={(event) => onChange(event.target.value)}><option value="">Sem vínculo</option>{people.map((person) => <option key={person.id} value={person.id}>{person.code} · {person.label}</option>)}</select><span className="field-help">Identidade usada para calcular o acesso à organização.</span></label>;
+}
+
+function EffectiveScope({ user, teams, products, pendingRecalculation = false }: { user: ManagedUser; teams: ScopeOption[]; products: ScopeOption[]; pendingRecalculation?: boolean }) {
+  const teamNames = user.teamIds.map((id) => teams.find((team) => team.id === id)?.label ?? id);
+  const productNames = user.productKeys.map((key) => products.find((product) => product.id === key)?.label ?? key);
+  const hasSelf = user.personIds.length > 0;
+  const organizationAccess = [
+    ...productNames.map((product) => `Produtos: ${product}`),
+    ...teamNames.map((team) => `Times: ${team}`),
+    ...(hasSelf ? ["Dados da própria pessoa"] : []),
+  ];
+  const coverage = pendingRecalculation && user.role !== "ADMIN" && user.role !== "SALES_OPS"
+    ? "Será recalculada pela organização após salvar"
+    : user.role === "ADMIN"
+    ? "Toda a operação comercial, com gestão de contas"
+    : user.role === "SALES_OPS"
+      ? "Toda a operação comercial, somente para consulta"
+      : organizationAccess.join(" · ") || "Nenhum acesso derivado da organização";
+  return <div className="scope-review"><strong>Perfil de acesso:</strong> {accessProfileContent[user.role].label}.<br /><strong>Abrangência:</strong> {coverage}.</div>;
+}
+
+function CreateUser({ people }: { people: ScopeOption[] }) {
+  const [role, setRole] = useState<Role>("USER");
+  const [personId, setPersonId] = useState("");
   const [state, action, pending] = useActionState(createUserAction, emptyAccessState);
-  return (
-    <form action={action} className="access-form panel">
-      <div className="section-title"><div><p className="eyebrow">Novo acesso</p><h2>Criar usuário</h2></div></div>
-      <div className="form-grid">
-        <label>Nome<input name="displayName" required /></label>
-        <label>E-mail<input name="email" type="email" required /></label>
-        <RoleSelect value={role} onChange={setRole} />
-      </div>
-      <ScopeFields role={role} teams={teams} products={products} />
-      <ResultMessage state={state} />
-      <button type="submit" disabled={pending}>{pending ? "Criando…" : "Criar e emitir senha temporária"}</button>
-    </form>
-  );
+  return <form action={action} className="access-form panel"><div className="section-title"><div><p className="eyebrow">Nova conta</p><h2>Criar conta</h2></div></div><div className="form-grid"><label>Nome<input name="displayName" required /></label><label>E-mail<input name="email" type="email" required /></label><RoleSelect value={role} onChange={setRole} /><PersonSelect people={people} value={personId} required={requiresPersonLink(role)} onChange={setPersonId} /></div><p className="scope-review">O acesso a produtos, frentes e times é calculado a partir da Pessoa vinculada. Não é necessário preencher permissões manualmente. O perfil Administrador da Plataforma não está disponível nesta área comercial.</p><ResultMessage state={state} /><button type="submit" disabled={pending}>{pending ? "Criando…" : "Criar conta e gerar senha temporária"}</button></form>;
 }
 
-function ManagedUserCard({ user, teams, products }: { user: ManagedUser; teams: ScopeOption[]; products: ScopeOption[] }) {
+function ManagedUserCard({ user, people, teams, products }: { user: ManagedUser; people: ScopeOption[]; teams: ScopeOption[]; products: ScopeOption[] }) {
   const [role, setRole] = useState<Role>(user.role);
+  const [personId, setPersonId] = useState(user.personId ?? "");
   const [updateState, updateAction, updating] = useActionState(updateUserAction, emptyAccessState);
   const [toggleState, toggleAction, toggling] = useActionState(toggleUserAction, emptyAccessState);
   const [resetState, resetAction, resetting] = useActionState(resetPasswordAction, emptyAccessState);
-  return (
-    <article className="panel user-card">
-      <div className="user-card-heading">
-        <div><h3>{user.displayName}</h3><p>{user.email}</p></div>
-        <span className={`status-pill ${user.active ? "" : "inactive"}`}>{user.active ? "Ativo" : "Inativo"}</span>
-      </div>
-      <form action={updateAction} className="access-form compact">
-        <input type="hidden" name="userId" value={user.id} />
-        <div className="form-grid">
-          <label>Nome<input name="displayName" defaultValue={user.displayName} required /></label>
-          <label>E-mail<input name="email" type="email" defaultValue={user.email} required /></label>
-          <RoleSelect value={role} onChange={setRole} />
-        </div>
-        <ScopeFields role={role} teams={teams} products={products} selectedTeams={user.teamIds} selectedProducts={user.productKeys} />
-        <ResultMessage state={updateState} />
-        <button type="submit" disabled={updating}>{updating ? "Salvando…" : "Salvar papel e escopo"}</button>
-      </form>
-      <div className="access-actions">
-        <form action={toggleAction}>
-          <input type="hidden" name="userId" value={user.id} />
-          <input type="hidden" name="active" value={String(!user.active)} />
-          <button className="secondary" type="submit" disabled={toggling}>{user.active ? "Desativar conta" : "Reativar conta"}</button>
-        </form>
-        <form action={resetAction}>
-          <input type="hidden" name="userId" value={user.id} />
-          <button className="secondary" type="submit" disabled={resetting}>Emitir nova senha temporária</button>
-        </form>
-      </div>
-      <ResultMessage state={toggleState} />
-      <ResultMessage state={resetState} />
-      <small>Último login: {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString("pt-BR") : "nunca"}</small>
-    </article>
-  );
+  const linked = people.find((person) => person.id === user.personId);
+  const personChanged = personId !== (user.personId ?? "");
+  const keepLegacyTeams = !personId && !user.personId && role === "LEADER";
+  const keepLegacyProducts = !personId && !user.personId && role === "SUPERVISOR";
+  const hasLegacyScope = !personId && !user.personId && hasCompatibleLegacyScope(role, user.teamIds, user.productKeys);
+  const personRequired = requiresPersonLink(role) && !hasLegacyScope;
+  const scopePreviewUser = personId
+    ? { ...user, role }
+    : { ...user, role, teamIds: keepLegacyTeams ? user.teamIds : [], productKeys: keepLegacyProducts ? user.productKeys : [] };
+  return <article className="panel user-card"><div className="user-card-heading"><div><h3>{user.displayName}</h3><p>{user.email} · {linked ? `Pessoa vinculada: ${linked.code} · ${linked.label}` : "Sem pessoa vinculada"}</p></div><span className={`status-pill ${user.active ? "" : "inactive"}`}>{user.active ? "Conta ativa" : "Conta inativa"}</span></div><form action={updateAction} className="access-form compact"><input type="hidden" name="userId" value={user.id} />{keepLegacyTeams ? user.teamIds.map((id) => <input key={id} type="hidden" name="teamIds" value={id} />) : null}{keepLegacyProducts ? user.productKeys.map((key) => <input key={key} type="hidden" name="productKeys" value={key} />) : null}<div className="form-grid"><label>Nome<input name="displayName" defaultValue={user.displayName} required /></label><label>E-mail<input name="email" type="email" defaultValue={user.email} required /></label><RoleSelect value={role} onChange={setRole} /><PersonSelect people={people} value={personId} required={personRequired} onChange={setPersonId} /></div><EffectiveScope user={scopePreviewUser} teams={teams} products={products} pendingRecalculation={personChanged} /><ResultMessage state={updateState} /><button type="submit" disabled={updating}>{updating ? "Salvando…" : "Salvar alterações"}</button></form><div className="access-actions"><form action={toggleAction}><input type="hidden" name="userId" value={user.id} /><input type="hidden" name="active" value={String(!user.active)} /><button className="secondary" type="submit" disabled={toggling}>{user.active ? "Desativar conta" : "Reativar conta"}</button></form><form action={resetAction}><input type="hidden" name="userId" value={user.id} /><button className="secondary" type="submit" disabled={resetting}>Gerar nova senha temporária</button></form></div><ResultMessage state={toggleState} /><ResultMessage state={resetState} /><small>Último acesso: {user.lastLoginAt ? lastLoginFormatter.format(new Date(user.lastLoginAt)) : "nunca"}</small></article>;
 }
 
-export function UserAccessManager({ users, teams, products }: { users: ManagedUser[]; teams: ScopeOption[]; products: ScopeOption[] }) {
-  return (
-    <>
-      <CreateUser teams={teams} products={products} />
-      <section className="user-list">
-        {users.map((user) => <ManagedUserCard key={user.id} user={user} teams={teams} products={products} />)}
-      </section>
-    </>
-  );
+export function UserAccessManager({ users, teams, products, people }: { users: ManagedUser[]; teams: ScopeOption[]; products: ScopeOption[]; people: ScopeOption[] }) {
+  return <><CreateUser people={people} /><section className="user-list">{users.map((user) => <ManagedUserCard key={user.id} user={user} people={people} teams={teams} products={products} />)}</section></>;
 }

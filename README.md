@@ -19,9 +19,13 @@ A entrada controlada de calls agora é desacoplada da origem e deduplicada por `
 
 A descoberta autônoma do Google Drive usa o mesmo OAuth renovável, registra documentos antes de criar calls e reconcilia origens legadas pelo mesmo `transcript_file_id`. O fluxo, os defaults seguros e a operação estão em [docs/drive-discovery.md](docs/drive-discovery.md) e no [ADR 0007](docs/decisions/0007-drive-discovery-and-temporal-attribution.md).
 
+A organização atual é sincronizada de uma Google Sheet oficial por um módulo separado e read-only. Candidates passam por validação fail-closed antes de publicar relações temporais e acesso derivado no PostgreSQL. Consulte [docs/organization-sync.md](docs/organization-sync.md) e o [ADR 0008](docs/decisions/0008-organization-sync-and-derived-access.md).
+
 O procedimento específico para validar o JSONL, importar somente o catálogo e construir a fila fair do primeiro lote INSIDER está em [docs/insider-first-batch-runbook.md](docs/insider-first-batch-runbook.md).
 
 O deploy em `sales-igd.com.br` usa Next.js em container e nginx com HTTPS, mantendo PostgreSQL e a porta do app limitados ao loopback da VPS. O procedimento de atualização e rollback está em [docs/production-runbook.md](docs/production-runbook.md).
+
+A apresentação do produto segue o Figma canônico e os tokens/primitives documentados em [docs/design-system.md](docs/design-system.md). Mudanças visuais devem consultar essa referência antes de introduzir novos padrões.
 
 A autenticação individual da aplicação é a camada principal de acesso. O controle por papel/escopo e a aposentadoria do Basic Auth legado do nginx estão documentados em [docs/authentication-access-control.md](docs/authentication-access-control.md).
 

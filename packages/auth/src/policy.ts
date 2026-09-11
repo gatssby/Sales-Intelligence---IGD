@@ -1,4 +1,4 @@
-export const roles = ["ADMIN", "LEADER", "SUPERVISOR", "SALES_OPS"] as const;
+export const roles = ["ADMIN", "USER", "LEADER", "SUPERVISOR", "SALES_OPS"] as const;
 export type Role = (typeof roles)[number];
 
 export const capabilities = [
@@ -13,7 +13,15 @@ export type Capability = (typeof capabilities)[number];
 export type DataScope =
   | { kind: "GLOBAL" }
   | { kind: "TEAMS"; teamIds: readonly string[] }
-  | { kind: "PRODUCTS"; productKeys: readonly string[] };
+  | { kind: "PRODUCTS"; productKeys: readonly string[] }
+  | { kind: "ORGANIZATION"; teamIds: readonly string[]; productKeys: readonly string[]; personIds: readonly string[] };
+
+export type SelectedOrganizationScope = {
+  productKey?: string | null;
+  frontKey?: string | null;
+  teamId?: string | null;
+  personId?: string | null;
+};
 
 export type AuthorizationContext = {
   userId: string;
@@ -27,6 +35,7 @@ export type AuthorizationContext = {
 
 const roleCapabilities: Readonly<Record<Role, ReadonlySet<Capability>>> = {
   ADMIN: new Set(capabilities),
+  USER: new Set(["calls:read", "analytics:read"]),
   LEADER: new Set(["calls:read", "analytics:read"]),
   SUPERVISOR: new Set(["calls:read", "analytics:read"]),
   SALES_OPS: new Set(["calls:read", "analytics:read"]),
@@ -51,16 +60,20 @@ export function buildAuthorizationContext(input: {
   role: Role;
   teamIds?: readonly string[];
   productKeys?: readonly string[];
+  personIds?: readonly string[];
   mustChangePassword?: boolean;
 }): AuthorizationContext {
   const teamIds = [...new Set(input.teamIds ?? [])];
   const productKeys = [...new Set((input.productKeys ?? []).map((key) => key.trim().toLowerCase()))];
+  const personIds = [...new Set(input.personIds ?? [])];
   const scope: DataScope =
-    input.role === "LEADER"
+    input.role === "ADMIN" || input.role === "SALES_OPS"
+      ? { kind: "GLOBAL" }
+      : input.role === "LEADER" && personIds.length === 0 && productKeys.length === 0
       ? { kind: "TEAMS", teamIds }
-      : input.role === "SUPERVISOR"
+      : input.role === "SUPERVISOR" && personIds.length === 0 && teamIds.length === 0
         ? { kind: "PRODUCTS", productKeys }
-        : { kind: "GLOBAL" };
+        : { kind: "ORGANIZATION", teamIds, productKeys, personIds };
 
   return {
     userId: input.userId,
@@ -70,6 +83,25 @@ export function buildAuthorizationContext(input: {
     capabilities: capabilitiesForRole(input.role),
     scope,
     mustChangePassword: input.mustChangePassword ?? false,
+  };
+}
+
+export function buildDevelopmentAuthBypass(input: {
+  nodeEnv: string | undefined;
+  enabled: string | undefined;
+}): AuthorizationContext | null {
+  if (input.nodeEnv === "production" || input.enabled !== "true") return null;
+
+  const context = buildAuthorizationContext({
+    userId: "dev-auth-bypass",
+    email: "dev-auth-bypass@example.invalid",
+    displayName: "Local Development Admin",
+    role: "ADMIN",
+  });
+
+  return {
+    ...context,
+    capabilities: new Set([...context.capabilities].filter((capability) => capability !== "spend:execute")),
   };
 }
 
@@ -94,22 +126,27 @@ export async function executeSpendGuarded<T>(
 
 export function canAccessData(
   context: AuthorizationContext,
-  resource: { teamId?: string | null; productKey: string },
+  resource: { teamId?: string | null; productKey: string; personId?: string | null },
 ): boolean {
   if (context.scope.kind === "GLOBAL") return true;
   if (context.scope.kind === "TEAMS") {
     return Boolean(resource.teamId && context.scope.teamIds.includes(resource.teamId));
   }
-  return context.scope.productKeys.includes(resource.productKey.trim().toLowerCase());
+  if (context.scope.kind === "PRODUCTS") return context.scope.productKeys.includes(resource.productKey.trim().toLowerCase());
+  return context.scope.productKeys.includes(resource.productKey.trim().toLowerCase())
+    || Boolean(resource.teamId && context.scope.teamIds.includes(resource.teamId))
+    || Boolean(resource.personId && context.scope.personIds.includes(resource.personId));
 }
 
 export function validateRoleScopes(input: {
   role: Role;
+  personId?: string | null;
   teamIds?: readonly string[];
   productKeys?: readonly string[];
 }): void {
   const teamCount = new Set(input.teamIds ?? []).size;
   const productCount = new Set(input.productKeys ?? []).size;
+  if (input.personId) return;
   if (input.role === "LEADER" && (teamCount === 0 || productCount > 0)) {
     throw new Error("leader_requires_one_or_more_teams_only");
   }
@@ -119,6 +156,7 @@ export function validateRoleScopes(input: {
   if ((input.role === "ADMIN" || input.role === "SALES_OPS") && (teamCount > 0 || productCount > 0)) {
     throw new Error("global_role_cannot_have_scopes");
   }
+  if (input.role === "USER" && (teamCount > 0 || productCount > 0)) throw new Error("user_scope_is_derived_from_person");
 }
 
 export function isRole(value: string): value is Role {

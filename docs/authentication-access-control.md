@@ -1,15 +1,18 @@
 # Autenticação e controle de acesso
 
-## Matriz inicial
+## Matriz de perfis de acesso
 
-| Papel | Escopo de leitura | `users:manage` | `settings:manage` | `calls:read` | `analytics:read` | `spend:execute` |
-| --- | --- | ---: | ---: | ---: | ---: | ---: |
-| Admin | Global | Sim | Sim | Sim | Sim | Sim |
-| Leader | Times associados | Não | Não | Sim | Sim | Não |
-| Supervisor | Produtos associados | Não | Não | Sim | Sim | Não |
-| Sales Ops | Global | Não | Não | Sim | Sim | Não |
+| Perfil exibido | Identificador interno | Abrangência de leitura | `users:manage` | `settings:manage` | `calls:read` | `analytics:read` | `spend:execute` |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Administrador | `ADMIN` | Global | Sim | Sim | Sim | Sim | Sim |
+| Pessoa | `USER` | Pessoa vinculada e responsabilidades organizacionais atuais | Não | Não | Sim | Sim | Não |
+| Líder | `LEADER` | Pessoa vinculada e responsabilidades organizacionais atuais | Não | Não | Sim | Sim | Não |
+| Supervisor | `SUPERVISOR` | Pessoa vinculada e responsabilidades organizacionais atuais | Não | Não | Sim | Sim | Não |
+| Operações comerciais | `SALES_OPS` | Global | Não | Não | Sim | Sim | Não |
 
-Leader, Supervisor e Sales Ops são somente leitura nesta versão. Novas capacidades sem custo podem ser acrescentadas à matriz central no futuro. `spend:execute` continua restrita a Admin até outra decisão explícita.
+Pessoa, Líder, Supervisor e Operações comerciais são somente leitura nesta versão. Para contas vinculadas, produtos, frentes, times, liderança, supervisão e dados próprios são derivados da organização publicada; a tela não pede permissões manuais redundantes. Os escopos manuais antigos permanecem apenas como fallback para contas ainda não vinculadas. `spend:execute` continua restrita ao Administrador até outra decisão explícita.
+
+O perfil **Administrador da Plataforma** é técnico e protegido. Sua concessão não faz parte da área comercial de Usuários e acessos, por isso ele não aparece como opção de criação ou edição nessa tela.
 
 ## Controles implementados
 
@@ -40,13 +43,13 @@ O exemplo usa um domínio reservado e não é uma credencial padrão. Substitua 
 
 ## Demais acessos
 
-1. Entre como Admin e abra **Usuários e acessos**.
-2. Informe nome, e-mail e papel.
-3. Para Leader, marque um ou mais times. Para Supervisor, marque um ou mais produtos.
-4. Revise o resumo de escopo antes de salvar.
+1. Entre como Administrador e abra **Usuários e acessos**.
+2. Informe nome, e-mail e perfil de acesso.
+3. Vincule a conta à Pessoa correta pelo código V quando o perfil usar acesso derivado da organização.
+4. Salve e confira a abrangência recalculada pela organização.
 5. Copie a senha temporária exibida uma única vez e entregue-a por canal seguro.
 
-Admin e Sales Ops não aceitam escopo específico. Contas não administrativas nunca recebem `spend:execute` nesta versão.
+Administrador e Operações comerciais usam abrangência global e não aceitam permissões específicas. Contas não administrativas nunca recebem `spend:execute` nesta versão.
 
 ## Comandos que podem aumentar gastos
 
@@ -67,6 +70,16 @@ O arquivo `htpasswd` legado e uma cópia timestampada da configuração nginx an
 Rollback: restaure a cópia nginx anterior, valide com `nginx -t` e faça reload gracioso. Não apague nem reverta as tabelas de autenticação da aplicação; elas preservam usuários, sessões, escopos e auditoria.
 
 ## Validação local
+
+Para abrir o dashboard local sem criar uma sessão, habilite explicitamente o bypass de desenvolvimento:
+
+```bash
+DEV_BYPASS_AUTH=true npm run dev
+```
+
+O bypass só é aceito quando `NODE_ENV !== production` e `DEV_BYPASS_AUTH=true`. Ele cria apenas em memória a identidade sintética `Local Development Admin`, sem cookie ou usuário persistente. O contexto mantém o escopo global e as capacidades administrativas necessárias para revisar as áreas comerciais e administrativas, mas remove explicitamente `spend:execute`; assim, a identidade sintética não pode iniciar fluxos pagos. `NODE_ENV=production` ignora a variável mesmo quando ela vale `true`.
+
+O dashboard continua dependendo do PostgreSQL. Configure `apps/web/.env.local` com `DATABASE_URL` apontando para o túnel local ou use `npm run demo`, que valida o banco e abre o túnel quando necessário.
 
 Use apenas uma instância PostgreSQL local cujo banco termine em `_test`. Os testes recusam host remoto. Rode:
 

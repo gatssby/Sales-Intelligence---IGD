@@ -16,10 +16,11 @@ function userFacingError(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
   if (message.includes("leader_requires")) return "Associe pelo menos um time e nenhum produto ao líder.";
   if (message.includes("supervisor_requires")) return "Associe pelo menos um produto e nenhum time ao supervisor.";
-  if (message.includes("global_role")) return "Admin e Sales Ops usam escopo global e não aceitam escopos específicos.";
+  if (message.includes("global_role")) return "Administrador e Operações comerciais têm acesso a toda a organização e não usam permissões específicas.";
+  if (message.includes("user_requires_person_link")) return "Vincule esta conta a uma pessoa com código V.";
   if (message.includes("unique") || message.includes("duplicate")) return "Já existe uma conta com esse e-mail.";
   if (message.includes("cannot_deactivate_self")) return "Você não pode desativar a própria conta.";
-  if (message.includes("cannot_change_own_role")) return "Você não pode remover o próprio papel de administrador.";
+  if (message.includes("cannot_change_own_role")) return "Você não pode remover o próprio perfil de administrador.";
   if (message.includes("cannot_remove_last_admin")) return "Mantenha pelo menos um administrador ativo.";
   return "Não foi possível salvar o acesso. Revise os campos e tente novamente.";
 }
@@ -34,7 +35,7 @@ export async function createUserAction(
     revalidatePath("/admin/users");
     return {
       error: null,
-      message: `Acesso criado para ${result.user.displayName}. Copie a senha agora.`,
+      message: `Conta criada para ${result.user.displayName}. Copie a senha agora.`,
       temporaryPassword: result.temporaryPassword,
     };
   } catch (error) {
@@ -51,7 +52,7 @@ export async function updateUserAction(
     const userId = String(formData.get("userId") ?? "");
     await new PostgresAuthRepository(getSql()).updateUser(actor, userId, parseUserForm(formData));
     revalidatePath("/admin/users");
-    return { error: null, message: "Papel e escopo atualizados.", temporaryPassword: null };
+    return { error: null, message: "Conta, vínculo e abrangência de acesso atualizados.", temporaryPassword: null };
   } catch (error) {
     return { error: userFacingError(error), message: null, temporaryPassword: null };
   }

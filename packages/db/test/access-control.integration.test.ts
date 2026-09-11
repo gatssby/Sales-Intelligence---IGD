@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 import { executeSpendGuarded, generateTemporaryPassword } from "@igd/auth";
-import { PostgresAuthRepository, ScopedSalesRepository } from "../src/index";
+import { PostgresAuthRepository, PostgresOrganizationRepository, ScopedSalesRepository } from "../src/index";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -172,6 +172,57 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
   await t.test("Sales Ops reads every product and team", async () => {
     assert.equal((await access.getMetrics(salesOps)).analyzed_calls, 3);
     assert.deepEqual(new Set((await access.listCalls(salesOps)).map((call) => call.product_key)), new Set(["alpha", "beta"]));
+  });
+
+  await t.test("organization metrics honor the selected historical call period", async () => {
+    assert.equal((await access.listTeamMetrics(admin, {}, { through: new Date("2000-01-01T00:00:00.000Z") })).length, 0);
+    assert.equal((await access.listPersonMetrics(admin, {}, { from: new Date("2000-01-01T00:00:00.000Z"), through: new Date("2100-01-01T00:00:00.000Z") })).length, 3);
+    await sql`update calls set started_at=case customer_name
+      when 'Customer Alpha North Synthetic' then '2026-01-02T12:00:00.000Z'::timestamptz
+      when 'Customer Alpha East Synthetic' then '2026-01-01T12:00:00.000Z'::timestamptz
+      else started_at end`;
+    await sql`update analysis_runs ar set finished_at=case c.customer_name
+      when 'Customer Alpha North Synthetic' then '2026-01-01T12:00:00.000Z'::timestamptz
+      when 'Customer Alpha East Synthetic' then '2026-01-02T12:00:00.000Z'::timestamptz
+      else ar.finished_at end from calls c where c.id=ar.call_id`;
+    const historical = await access.listCalls(admin, 20, { productKey: "alpha" }, {
+      from: new Date("2026-01-02T00:00:00.000Z"), through: new Date("2026-01-02T23:59:59.999Z"),
+    });
+    assert.deepEqual(historical.map((call) => call.customer_name), ["Customer Alpha North Synthetic"], "call date, not analysis date, controls history and recency");
+  });
+
+  await t.test("linking and re-editing a legacy role derives scope and audits the identity change", async () => {
+    const people = await sql<{ person_id: string }[]>`select person_id from sellers where team_id=${northId} and person_id is not null limit 1`;
+    await sql`
+      insert into team_leaderships(person_id,team_id,valid_from,provenance)
+      values (${people[0].person_id},${northId},now()-interval '1 day','organization_sync')
+    `;
+    await auth.updateUser(admin, leader.userId, {
+      email: "leader@example.invalid",displayName: "Leader Synthetic",role: "LEADER",personId: people[0].person_id,
+    });
+    const linked = (await auth.getActiveActorByEmail("leader@example.invalid"))!;
+    assert.equal((await access.getMetrics(linked)).analyzed_calls, 2);
+    await auth.updateUser(admin, leader.userId, {
+      email: "leader@example.invalid",displayName: "Leader Synthetic Updated",role: "LEADER",personId: people[0].person_id,
+    });
+    const events = await sql<{ count: number }[]>`
+      select count(*)::integer count from admin_audit_events
+      where target_user_id=${leader.userId}
+        and event_type='user.scope_changed'
+        and details->>'change'='person_link'
+    `;
+    assert.equal(events[0].count, 1);
+  });
+
+  await t.test("failed manual organization syncs retain the initiating Admin", async () => {
+    const runId = await new PostgresOrganizationRepository(sql).recordFailure({
+      source: { spreadsheetId: "synthetic-sheet", sheetId: 1, revision: null, modifiedTime: null },
+      observedAt: "2026-09-10T20:00:00.000Z",
+      errorCode: "synthetic_google_failure",
+      triggeredByUserId: admin.userId,
+    });
+    const runs = await sql<{ triggered_by_user_id: string | null }[]>`select triggered_by_user_id from organization_sync_runs where id=${runId}`;
+    assert.equal(runs[0].triggered_by_user_id, admin.userId);
   });
 
   await t.test("Non-admin spend attempts return the deny path without provider or job calls", async () => {

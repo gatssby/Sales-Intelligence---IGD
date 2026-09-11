@@ -4,6 +4,7 @@ export type UserFormInput = {
   email: string;
   displayName: string;
   role: Role;
+  personId: string | null;
   teamIds: string[];
   productKeys: string[];
 };
@@ -18,6 +19,7 @@ export function parseUserForm(formData: FormData): UserFormInput {
     email,
     displayName,
     role: roleValue,
+    personId: String(formData.get("personId") ?? "").trim() || null,
     teamIds: formData.getAll("teamIds").map(String),
     productKeys: formData.getAll("productKeys").map(String),
   };

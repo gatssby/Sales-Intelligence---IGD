@@ -84,6 +84,23 @@ ssh oracle-vps 'cd /opt/sales-intelligence && sudo SALES_RELEASE_SHA=$(readlink 
 
 Discovery does not imply analysis. Enabling content persistence or `DRIVE_DISCOVERY_AUTO_QUEUE=true` is a separate checkpoint; never raise the existing AI budget as part of Drive rollout.
 
+## Start Organization Sync safely
+
+Configure `ORGANIZATION_SPREADSHEET_ID`, `ORGANIZATION_SHEET_ID` and optional `ORGANIZATION_SYNC_INTERVAL_MS=300000` in protected `app.env`. Validate the existing Google OAuth and candidate snapshot without PostgreSQL writes:
+
+```bash
+ssh oracle-vps 'cd /opt/sales-intelligence && sudo docker compose run --rm organization-sync node --import tsx scripts/organization-sync.ts'
+```
+
+After a restorable database backup and additive migration, run one controlled publish, inspect its aggregate diff, then start the daemon:
+
+```bash
+ssh oracle-vps 'cd /opt/sales-intelligence && sudo docker compose run --rm organization-sync node --import tsx scripts/organization-sync.ts --apply'
+ssh oracle-vps 'cd /opt/sales-intelligence && sudo SALES_RELEASE_SHA=$(readlink current | sed "s#.*/##") docker compose up -d --no-deps organization-sync'
+```
+
+Organization Sync never writes to Google Sheets and makes no AI requests. A rejected candidate or provider failure preserves the previously published organization.
+
 ## Checks
 
 ```bash
@@ -100,7 +117,7 @@ Expected behavior:
 - unauthenticated data and spend APIs return `401`;
 - individual application credentials create the session used by protected routes;
 - `www` redirects to `https://sales-igd.com.br`;
-- web, worker, discovery and PostgreSQL report healthy;
+- web, worker, discovery, organization-sync and PostgreSQL report healthy;
 - host ports 3100 and 5432 listen only on `127.0.0.1`.
 
 The system `certbot.timer` performs automatic renewal. A non-destructive renewal check can be run with:

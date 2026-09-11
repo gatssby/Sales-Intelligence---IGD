@@ -30,7 +30,7 @@ export function LiveProgress({ initialData, initialAiSpend = null }: { initialDa
     const poll = async () => {
       if (document.visibilityState === "visible") {
         const [response, spendResponse] = await Promise.all([
-          fetch("/api/progress", { cache: "no-store" }),
+          fetch(`/api/progress${window.location.search}`, { cache: "no-store" }),
           canPollAiSpend ? fetch("/api/admin/ai-spend", { cache: "no-store" }) : Promise.resolve(null),
         ]);
         if (response.ok && !cancelled) {

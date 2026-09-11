@@ -4,6 +4,7 @@ import {
   AuthorizationError,
   assertCapability,
   buildAuthorizationContext,
+  buildDevelopmentAuthBypass,
   canAccessData,
   generateTemporaryPassword,
   hashPassword,
@@ -41,11 +42,46 @@ test("Sales Ops has global read but cannot spend or manage users", () => {
   assert.throws(() => assertCapability(salesOps, "spend:execute"), AuthorizationError);
 });
 
+test("development auth bypass is enabled only by an explicit development gate", () => {
+  const localUser = buildDevelopmentAuthBypass({ nodeEnv: "development", enabled: "true" });
+  assert.ok(localUser);
+  assert.equal(localUser.role, "ADMIN");
+  assert.equal(localUser.displayName, "Local Development Admin");
+  assert.equal(localUser.scope.kind, "GLOBAL");
+  assert.equal(localUser.capabilities.has("calls:read"), true);
+  assert.equal(localUser.capabilities.has("analytics:read"), true);
+  assert.equal(localUser.capabilities.has("users:manage"), true);
+  assert.equal(localUser.capabilities.has("settings:manage"), true);
+  assert.equal(localUser.capabilities.has("spend:execute"), false);
+  assert.throws(() => assertCapability(localUser, "spend:execute"), AuthorizationError);
+
+  assert.equal(buildDevelopmentAuthBypass({ nodeEnv: "production", enabled: "true" }), null);
+  assert.ok(buildDevelopmentAuthBypass({ nodeEnv: "test", enabled: "true" }));
+  assert.equal(buildDevelopmentAuthBypass({ nodeEnv: "development", enabled: "TRUE" }), null);
+  assert.equal(buildDevelopmentAuthBypass({ nodeEnv: "development", enabled: undefined }), null);
+});
+
+test("linked app user receives the union of self, led teams and supervised products", () => {
+  const user = buildAuthorizationContext({
+    ...base,
+    role: "USER",
+    personIds: ["person-a"],
+    teamIds: ["team-a"],
+    productKeys: ["alpha"],
+  });
+  assert.equal(canAccessData(user, { teamId: "team-x", productKey: "alpha", personId: "person-x" }), true);
+  assert.equal(canAccessData(user, { teamId: "team-a", productKey: "beta", personId: "person-x" }), true);
+  assert.equal(canAccessData(user, { teamId: "team-x", productKey: "beta", personId: "person-a" }), true);
+  assert.equal(canAccessData(user, { teamId: "team-x", productKey: "beta", personId: "person-x" }), false);
+});
+
 test("Role/scope validation rejects incoherent combinations", () => {
   assert.throws(() => validateRoleScopes({ role: "LEADER" }), /leader_requires/);
   assert.throws(() => validateRoleScopes({ role: "SUPERVISOR", productKeys: [] }), /supervisor_requires/);
   assert.throws(() => validateRoleScopes({ role: "SALES_OPS", teamIds: ["team-a"] }), /global_role/);
   assert.doesNotThrow(() => validateRoleScopes({ role: "LEADER", teamIds: ["team-a"] }));
+  assert.doesNotThrow(() => validateRoleScopes({ role: "LEADER", personId: "person-a" }));
+  assert.doesNotThrow(() => validateRoleScopes({ role: "SUPERVISOR", personId: "person-a" }));
 });
 
 test("Passwords are strongly hashed and temporary passwords are not recoverable from the hash", async () => {
