@@ -42,6 +42,21 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 :focus-visible { outline: 2px solid rgba(67, 117, 255, .72); outline-offset: 2px; }
 ::selection { background: rgba(67, 117, 255, .18); }
 
+.preview-control { position: fixed; z-index: 50; top: 12px; right: 64px; color: var(--color-text-primary); }
+.preview-control summary { cursor: pointer; list-style: none; border: 1px solid var(--color-border); border-radius: var(--radius-control); background: rgba(255,255,255,.96); padding: 8px 11px; font-size: 11px; font-weight: 620; box-shadow: 0 8px 24px rgba(0,0,0,.08); }
+.preview-control > div { width: 280px; margin-top: 8px; padding: 14px; border: 1px solid var(--color-border); border-radius: var(--radius-card); background: #fff; box-shadow: 0 18px 45px rgba(0,0,0,.13); display: grid; gap: 10px; }
+.preview-control label { display: grid; gap: 5px; color: var(--color-text-secondary); font-size: 11px; font-weight: 580; }
+.preview-control select, .preview-control button { width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: 8px; background: #fff; color: var(--color-text-primary); font-size: 11px; }
+.preview-control button { color: #fff; background: var(--color-accent); }
+.preview-active { position: fixed; z-index: 55; top: 10px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 32px); border: 1px solid rgba(67,117,255,.3); border-radius: 999px; background: #f5f8ff; color: var(--color-text-primary); padding: 6px 7px 6px 13px; box-shadow: 0 8px 28px rgba(0,0,0,.1); font-size: 11px; }
+.preview-active span { color: var(--color-accent); font-weight: 650; text-transform: uppercase; letter-spacing: .07em; }
+.preview-active strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.preview-active button { border: 0; border-radius: 999px; background: #fff; color: var(--color-text-primary); padding: 7px 10px; font-size: 10px; }
+.platform-list { display: grid; gap: 10px; margin-top: 18px; }
+.platform-list > div { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-control); background: var(--color-surface-subtle); }
+.platform-list strong { font-size: 12px; }
+.platform-list span, .platform-list p { color: var(--color-text-secondary); font-size: 11px; line-height: 1.5; }
+
 .ui-icon { display: inline-grid; place-items: center; width: var(--icon-size); height: var(--icon-size); flex: 0 0 var(--icon-size); }
 .ui-icon img { display: block; width: 100%; height: 100%; }
 

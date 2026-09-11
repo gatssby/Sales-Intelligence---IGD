@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { PostgresAuthRepository } from "@igd/db";
 import { parseUserForm } from "@/lib/auth/forms";
-import { requireCapability } from "@/lib/auth/session";
+import { requireMutationCapability } from "@/lib/auth/session";
 import { getSql } from "@/lib/database";
 
 export type AccessActionState = {
@@ -29,7 +29,7 @@ export async function createUserAction(
   _previous: AccessActionState,
   formData: FormData,
 ): Promise<AccessActionState> {
-  const actor = await requireCapability("users:manage");
+  const actor = await requireMutationCapability("users:manage");
   try {
     const result = await new PostgresAuthRepository(getSql()).createUser(actor, parseUserForm(formData));
     revalidatePath("/admin/users");
@@ -47,7 +47,7 @@ export async function updateUserAction(
   _previous: AccessActionState,
   formData: FormData,
 ): Promise<AccessActionState> {
-  const actor = await requireCapability("users:manage");
+  const actor = await requireMutationCapability("users:manage");
   try {
     const userId = String(formData.get("userId") ?? "");
     await new PostgresAuthRepository(getSql()).updateUser(actor, userId, parseUserForm(formData));
@@ -62,7 +62,7 @@ export async function toggleUserAction(
   _previous: AccessActionState,
   formData: FormData,
 ): Promise<AccessActionState> {
-  const actor = await requireCapability("users:manage");
+  const actor = await requireMutationCapability("users:manage");
   try {
     const userId = String(formData.get("userId") ?? "");
     const active = String(formData.get("active")) === "true";
@@ -78,7 +78,7 @@ export async function resetPasswordAction(
   _previous: AccessActionState,
   formData: FormData,
 ): Promise<AccessActionState> {
-  const actor = await requireCapability("users:manage");
+  const actor = await requireMutationCapability("users:manage");
   try {
     const userId = String(formData.get("userId") ?? "");
     const temporaryPassword = await new PostgresAuthRepository(getSql()).resetPassword(actor, userId);

@@ -22,6 +22,7 @@ try {
     const users = await tx<{ id: string; email: string }[]>`
       insert into app_users (email, display_name, role, active, must_change_password)
       values
+        ('platform@example.invalid', 'Platform Admin Synthetic', 'PLATFORM_ADMIN', true, false),
         ('admin@example.invalid', 'Admin Synthetic', 'ADMIN', true, false),
         ('leader@example.invalid', 'Leader Synthetic', 'LEADER', true, false),
         ('supervisor@example.invalid', 'Supervisor Synthetic', 'SUPERVISOR', true, false),
@@ -36,7 +37,7 @@ try {
     await tx`insert into user_team_scopes (user_id, team_id) values (${leader.id}, ${alphaTeam.id})`;
     await tx`insert into user_product_scopes (user_id, product_key) values (${supervisor.id}, 'alpha')`;
   });
-  console.log("Synthetic Admin, Leader, Supervisor and Sales Ops accounts created. The password was not logged.");
+  console.log("Synthetic Platform Admin, Admin, Leader, Supervisor and Sales Ops accounts created. The password was not logged.");
 } finally {
   await sql.end();
 }

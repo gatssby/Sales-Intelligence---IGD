@@ -2,13 +2,17 @@ import { createHash, randomBytes } from "node:crypto";
 import postgres, { type Sql, type TransactionSql } from "postgres";
 import {
   assertCapability,
+  assertMutationAllowed,
   buildAuthorizationContext,
+  buildPreviewAuthorizationContext,
   generateTemporaryPassword,
   hashPassword,
   isRole,
   validateRoleScopes,
   verifyPassword,
   type AuthorizationContext,
+  type PreviewMode,
+  type PreviewRole,
   type Role,
 } from "@igd/auth";
 
@@ -49,6 +53,13 @@ export type UserMutationInput = {
 };
 
 export type ScopeOption = { id: string; label: string; productKey?: string; code?: string };
+
+export type PreviewSubject = {
+  kind: Exclude<PreviewRole, "ADMIN">;
+  personId: string;
+  code: string;
+  displayName: string;
+};
 
 type AuthRow = {
   id: string;
@@ -275,6 +286,8 @@ export class PostgresAuthRepository {
 
   async createUser(actor: AuthorizationContext, input: UserMutationInput): Promise<{ user: ManagedUser; temporaryPassword: string }> {
     assertCapability(actor, "users:manage");
+    assertMutationAllowed(actor);
+    if (input.role === "PLATFORM_ADMIN") throw new Error("platform_admin_requires_internal_grant");
     validateRoleScopes(input);
     if (input.role === "USER" && !input.personId) throw new Error("user_requires_person_link");
     const email = normalizeEmail(input.email);
@@ -302,9 +315,11 @@ export class PostgresAuthRepository {
 
   async updateUser(actor: AuthorizationContext, userId: string, input: UserMutationInput): Promise<ManagedUser> {
     assertCapability(actor, "users:manage");
+    assertMutationAllowed(actor);
+    if (input.role === "PLATFORM_ADMIN") throw new Error("platform_admin_requires_internal_grant");
     validateRoleScopes(input);
     if (input.role === "USER" && !input.personId) throw new Error("user_requires_person_link");
-    if (actor.userId === userId && input.role !== "ADMIN") throw new Error("cannot_change_own_role");
+    if (actor.userId === userId && input.role !== actor.role) throw new Error("cannot_change_own_role");
     const email = normalizeEmail(input.email);
     await this.sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(741954)`;
@@ -316,6 +331,7 @@ export class PostgresAuthRepository {
         from app_users u where u.id = ${userId} for update
       `;
       if (!previous[0]) throw new Error("user_not_found");
+      if (previous[0].role === "PLATFORM_ADMIN") throw new Error("platform_admin_requires_internal_grant");
       if (previous[0].active && previous[0].role === "ADMIN" && input.role !== "ADMIN") {
         const admins = await tx<{ count: number }[]>`
           select count(*)::integer as count from app_users where role = 'ADMIN' and active = true
@@ -371,6 +387,7 @@ export class PostgresAuthRepository {
 
   async setUserActive(actor: AuthorizationContext, userId: string, active: boolean): Promise<void> {
     assertCapability(actor, "users:manage");
+    assertMutationAllowed(actor);
     if (actor.userId === userId && !active) throw new Error("cannot_deactivate_self");
     await this.sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(741954)`;
@@ -378,6 +395,7 @@ export class PostgresAuthRepository {
         select role, active from app_users where id = ${userId} for update
       `;
       if (!current[0] || current[0].active === active) return;
+      if (current[0].role === "PLATFORM_ADMIN") throw new Error("platform_admin_requires_internal_grant");
       if (!active && current[0].role === "ADMIN") {
         const admins = await tx<{ count: number }[]>`
           select count(*)::integer as count from app_users where role = 'ADMIN' and active = true
@@ -401,6 +419,11 @@ export class PostgresAuthRepository {
 
   async resetPassword(actor: AuthorizationContext, userId: string): Promise<string> {
     assertCapability(actor, "users:manage");
+    assertMutationAllowed(actor);
+    const target = await this.sql<{ role: string }[]>`select role from app_users where id=${userId}`;
+    if (target[0]?.role === "PLATFORM_ADMIN" && actor.role !== "PLATFORM_ADMIN") {
+      throw new Error("platform_admin_requires_internal_grant");
+    }
     const temporaryPassword = generateTemporaryPassword();
     const passwordHash = await hashPassword(temporaryPassword);
     await this.sql.begin(async (tx) => {
@@ -429,7 +452,7 @@ export class PostgresAuthRepository {
     const passwordHash = await hashPassword(input.password);
     return this.sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(741953)`;
-      const existing = await tx`select 1 from app_users where role = 'ADMIN' limit 1`;
+      const existing = await tx`select 1 from app_users where role in ('PLATFORM_ADMIN','ADMIN') limit 1`;
       if (existing.length) throw new Error("bootstrap_admin_already_exists");
       const rows = await tx<{ id: string }[]>`
         insert into app_users (email, display_name, role, active, must_change_password)
@@ -439,6 +462,120 @@ export class PostgresAuthRepository {
       await tx`insert into user_credentials (user_id, password_hash) values (${rows[0].id}, ${passwordHash})`;
       return rows[0].id;
     });
+  }
+
+  async bootstrapPlatformAdmin(emailInput: string): Promise<string> {
+    const email = normalizeEmail(emailInput);
+    return this.sql.begin(async (tx) => {
+      await tx`select pg_advisory_xact_lock(741955)`;
+      const existing = await tx`select 1 from app_users where role='PLATFORM_ADMIN' limit 1`;
+      if (existing.length) throw new Error("bootstrap_platform_admin_already_exists");
+      const target = await tx<{ id: string }[]>`
+        select id from app_users where email=${email} and role='ADMIN' and active=true for update
+      `;
+      if (!target[0]) throw new Error("bootstrap_platform_admin_requires_active_admin");
+      await tx`
+        update app_users
+        set role='PLATFORM_ADMIN',session_version=session_version+1,updated_at=now()
+        where id=${target[0].id}
+      `;
+      await tx`update auth_sessions set revoked_at=now() where user_id=${target[0].id} and revoked_at is null`;
+      await tx`
+        insert into admin_audit_events(actor_user_id,target_user_id,event_type,details)
+        values (${target[0].id},${target[0].id},'platform_admin.granted',${tx.json({ previousRole: "ADMIN" })})
+      `;
+      return target[0].id;
+    });
+  }
+
+  async listPreviewSubjects(actor: AuthorizationContext): Promise<PreviewSubject[]> {
+    assertCapability(actor, "preview:use");
+    const rows = await this.sql<{
+      id: string;
+      seller_code: string;
+      full_name: string;
+      is_leader: boolean;
+      is_supervisor: boolean;
+    }[]>`
+      select
+        person.id,person.seller_code,person.full_name,
+        exists(select 1 from team_leaderships leadership
+          where leadership.person_id=person.id and leadership.valid_from<=now()
+            and (leadership.valid_to is null or now()<leadership.valid_to)) as is_leader,
+        exists(select 1 from person_organization_roles role
+          where role.person_id=person.id and role.role_kind='supervisor' and role.valid_from<=now()
+            and (role.valid_to is null or now()<role.valid_to)) as is_supervisor
+      from people person
+      where person.active=true and person.seller_code is not null
+      order by person.full_name,person.seller_code
+    `;
+    return rows.flatMap((row) => {
+      const common = { personId: row.id, code: row.seller_code, displayName: row.full_name };
+      const subjects: PreviewSubject[] = [{ kind: "PERSON", ...common }];
+      if (row.is_leader) subjects.push({ kind: "LEADER", ...common });
+      if (row.is_supervisor) subjects.push({ kind: "SUPERVISOR", ...common });
+      return subjects;
+    });
+  }
+
+  async resolvePreviewContext(
+    actor: AuthorizationContext,
+    input: { kind: PreviewRole; subjectPersonId?: string | null },
+  ): Promise<AuthorizationContext> {
+    assertCapability(actor, "preview:use");
+    if (input.kind === "ADMIN") {
+      return buildPreviewAuthorizationContext(actor, {
+        kind: "ADMIN",subjectPersonId: null,subjectCode: null,subjectDisplayName: "Admin comercial",
+      });
+    }
+    if (!input.subjectPersonId) throw new Error("preview_subject_required");
+    const rows = await this.sql<{
+      id: string;
+      seller_code: string;
+      full_name: string;
+      team_ids: string[];
+      product_keys: string[];
+      is_leader: boolean;
+      is_supervisor: boolean;
+    }[]>`
+      select
+        person.id,person.seller_code,person.full_name,
+        coalesce((select array_agg(distinct leadership.team_id::text order by leadership.team_id::text)
+          from team_leaderships leadership where leadership.person_id=person.id
+            and leadership.valid_from<=now() and (leadership.valid_to is null or now()<leadership.valid_to)), '{}') team_ids,
+        coalesce((select array_agg(distinct role.product_key order by role.product_key)
+          from person_organization_roles role where role.person_id=person.id and role.role_kind='supervisor'
+            and role.valid_from<=now() and (role.valid_to is null or now()<role.valid_to)), '{}') product_keys,
+        exists(select 1 from team_leaderships leadership where leadership.person_id=person.id
+          and leadership.valid_from<=now() and (leadership.valid_to is null or now()<leadership.valid_to)) is_leader,
+        exists(select 1 from person_organization_roles role where role.person_id=person.id and role.role_kind='supervisor'
+          and role.valid_from<=now() and (role.valid_to is null or now()<role.valid_to)) is_supervisor
+      from people person where person.id=${input.subjectPersonId} and person.active=true limit 1
+    `;
+    const subject = rows[0];
+    if (!subject || (input.kind === "LEADER" && !subject.is_leader) || (input.kind === "SUPERVISOR" && !subject.is_supervisor)) {
+      throw new Error("preview_subject_not_eligible");
+    }
+    return buildPreviewAuthorizationContext(actor, {
+      kind: input.kind,
+      subjectPersonId: subject.id,
+      subjectCode: subject.seller_code,
+      subjectDisplayName: subject.full_name,
+      personIds: [subject.id],
+      teamIds: subject.team_ids,
+      productKeys: subject.product_keys,
+    });
+  }
+
+  async recordPreviewEvent(actor: AuthorizationContext, event: "preview.started" | "preview.ended", preview: PreviewMode | null): Promise<void> {
+    if (actor.role !== "PLATFORM_ADMIN") throw new Error("preview_forbidden");
+    await this.sql`
+      insert into admin_audit_events(actor_user_id,event_type,details)
+      values (${actor.userId},${event},${this.sql.json({
+        previewRole: preview?.kind ?? null,
+        previewSubjectPersonId: preview?.subjectPersonId ?? null,
+      })})
+    `;
   }
 
   async getActiveActorByEmail(emailInput: string): Promise<AuthorizationContext | null> {

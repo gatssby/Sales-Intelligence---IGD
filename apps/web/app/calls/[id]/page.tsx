@@ -6,6 +6,7 @@ import { parseOrganizationSelection, scopeHref } from "@/lib/organization-scope"
 import { AppShell } from "@/app/components/AppShell";
 import { Avatar, EmptyState, ProgressBar, ScoreRing, SectionHeader, StatusBadge } from "@/app/components/VisualPrimitives";
 import { Icon } from "@/app/components/Icon";
+import { hasCapability } from "@igd/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,8 @@ const formatCost = (value: number | null) => value === null ? "—" : `$${value.
 export default async function CallDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await requireCapability("calls:read");
   const selected = parseOrganizationSelection(await searchParams);
-  const call = await getCallDetail(user, (await params).id, selected);
+  const technical = hasCapability(user, "platform:observe");
+  const call = await getCallDetail(user, (await params).id, selected, technical);
   if (!call) notFound();
   const analysis = call.analysis;
   const transcriptTone = call.transcriptStatus === "available" ? "success" : call.transcriptStatus === "access_issue" ? "error" : "warning";
@@ -75,7 +77,7 @@ export default async function CallDetailPage({ params, searchParams }: { params:
         </>
       ) : <section className="panel"><EmptyState icon="report" title="Análise ainda não disponível" description="A call permanece no catálogo e seu estado operacional continuará sendo atualizado pelo sistema." /></section>}
 
-      <details className="panel audit-drawer">
+      {technical ? <details className="panel audit-drawer">
         <summary><span><Icon name="integrations" size={18} /><strong>Detalhes técnicos e auditoria</strong><small>Modelo, versões, custo, tentativas e transcript bruto</small></span><Icon name="chevronDown" size={16} /></summary>
         <div className="audit-content">
           <div className="audit-facts">
@@ -84,7 +86,7 @@ export default async function CallDetailPage({ params, searchParams }: { params:
           {call.attempts.length ? <div className="audit-attempts"><h3>Tentativas de análise</h3><div className="table-container"><table className="data-table"><thead><tr><th>Papel</th><th>Modelo</th><th>Status</th><th>Custo</th><th>Latência</th><th>Erro</th></tr></thead><tbody>{call.attempts.map((attempt) => <tr key={`${attempt.role}-${attempt.attemptNumber}`}><td>{attempt.role} #{attempt.attemptNumber}</td><td>{attempt.model.split("/").at(-1)}</td><td><StatusBadge tone={attempt.status === "completed" ? "success" : attempt.status.includes("fail") ? "error" : "neutral"}>{attempt.status}</StatusBadge></td><td>{formatCost(attempt.costUsd)}</td><td>{attempt.latencyMs === null ? "—" : `${attempt.latencyMs} ms`}</td><td>{attempt.errorCode ?? "—"}</td></tr>)}</tbody></table></div></div> : null}
           <div className="transcript-area"><SectionHeader eyebrow="Artefato de origem" title="Transcrição bruta" description="Carregada apenas sob demanda dentro do escopo autorizado." icon="calls" /><TranscriptPanel endpoint={`/api/calls/${call.id}/transcript`} available={call.transcriptStatus === "available"} /></div>
         </div>
-      </details>
+      </details> : null}
     </AppShell>
   );
 }

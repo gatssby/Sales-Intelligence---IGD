@@ -46,20 +46,22 @@ function EffectiveScope({ user, teams, products, pendingRecalculation = false }:
   return <div className="scope-review"><strong>Perfil de acesso:</strong> {accessProfileContent[user.role].label}.<br /><strong>Abrangência:</strong> {coverage}.</div>;
 }
 
-function CreateUser({ people }: { people: ScopeOption[] }) {
+function CreateUser({ people, readOnly }: { people: ScopeOption[]; readOnly: boolean }) {
   const [role, setRole] = useState<Role>("USER");
   const [personId, setPersonId] = useState("");
   const [state, action, pending] = useActionState(createUserAction, emptyAccessState);
+  if (readOnly) return <section className="panel"><p className="eyebrow">Visualização ativa</p><h2>Gestão de acessos somente para consulta</h2><p>Criação, alteração, senha temporária e desativação ficam bloqueadas durante a visualização.</p></section>;
   return <form action={action} className="access-form panel"><div className="section-title"><div><p className="eyebrow">Nova conta</p><h2>Criar conta</h2></div></div><div className="form-grid"><label>Nome<input name="displayName" required /></label><label>E-mail<input name="email" type="email" required /></label><RoleSelect value={role} onChange={setRole} /><PersonSelect people={people} value={personId} required={requiresPersonLink(role)} onChange={setPersonId} /></div><p className="scope-review">O acesso a produtos, frentes e times é calculado a partir da Pessoa vinculada. Não é necessário preencher permissões manualmente. O perfil Administrador da Plataforma não está disponível nesta área comercial.</p><ResultMessage state={state} /><button type="submit" disabled={pending}>{pending ? "Criando…" : "Criar conta e gerar senha temporária"}</button></form>;
 }
 
-function ManagedUserCard({ user, people, teams, products }: { user: ManagedUser; people: ScopeOption[]; teams: ScopeOption[]; products: ScopeOption[] }) {
+function ManagedUserCard({ user, people, teams, products, readOnly }: { user: ManagedUser; people: ScopeOption[]; teams: ScopeOption[]; products: ScopeOption[]; readOnly: boolean }) {
   const [role, setRole] = useState<Role>(user.role);
   const [personId, setPersonId] = useState(user.personId ?? "");
   const [updateState, updateAction, updating] = useActionState(updateUserAction, emptyAccessState);
   const [toggleState, toggleAction, toggling] = useActionState(toggleUserAction, emptyAccessState);
   const [resetState, resetAction, resetting] = useActionState(resetPasswordAction, emptyAccessState);
   const linked = people.find((person) => person.id === user.personId);
+  if (readOnly || user.role === "PLATFORM_ADMIN") return <article className="panel user-card"><div className="user-card-heading"><div><h3>{user.displayName}</h3><p>{user.email} · {linked ? `Pessoa vinculada: ${linked.code} · ${linked.label}` : "Sem pessoa vinculada"}</p></div><span className={`status-pill ${user.active ? "" : "inactive"}`}>{user.active ? "Conta ativa" : "Conta inativa"}</span></div><EffectiveScope user={user} teams={teams} products={products} /><p className="scope-review">{user.role === "PLATFORM_ADMIN" ? "Privilégio protegido por configuração interna; esta área comercial não concede nem remove esse acesso." : "A visualização está ativa. As alterações desta conta estão bloqueadas."}</p></article>;
   const personChanged = personId !== (user.personId ?? "");
   const keepLegacyTeams = !personId && !user.personId && role === "LEADER";
   const keepLegacyProducts = !personId && !user.personId && role === "SUPERVISOR";
@@ -71,6 +73,6 @@ function ManagedUserCard({ user, people, teams, products }: { user: ManagedUser;
   return <article className="panel user-card"><div className="user-card-heading"><div><h3>{user.displayName}</h3><p>{user.email} · {linked ? `Pessoa vinculada: ${linked.code} · ${linked.label}` : "Sem pessoa vinculada"}</p></div><span className={`status-pill ${user.active ? "" : "inactive"}`}>{user.active ? "Conta ativa" : "Conta inativa"}</span></div><form action={updateAction} className="access-form compact"><input type="hidden" name="userId" value={user.id} />{keepLegacyTeams ? user.teamIds.map((id) => <input key={id} type="hidden" name="teamIds" value={id} />) : null}{keepLegacyProducts ? user.productKeys.map((key) => <input key={key} type="hidden" name="productKeys" value={key} />) : null}<div className="form-grid"><label>Nome<input name="displayName" defaultValue={user.displayName} required /></label><label>E-mail<input name="email" type="email" defaultValue={user.email} required /></label><RoleSelect value={role} onChange={setRole} /><PersonSelect people={people} value={personId} required={personRequired} onChange={setPersonId} /></div><EffectiveScope user={scopePreviewUser} teams={teams} products={products} pendingRecalculation={personChanged} /><ResultMessage state={updateState} /><button type="submit" disabled={updating}>{updating ? "Salvando…" : "Salvar alterações"}</button></form><div className="access-actions"><form action={toggleAction}><input type="hidden" name="userId" value={user.id} /><input type="hidden" name="active" value={String(!user.active)} /><button className="secondary" type="submit" disabled={toggling}>{user.active ? "Desativar conta" : "Reativar conta"}</button></form><form action={resetAction}><input type="hidden" name="userId" value={user.id} /><button className="secondary" type="submit" disabled={resetting}>Gerar nova senha temporária</button></form></div><ResultMessage state={toggleState} /><ResultMessage state={resetState} /><small>Último acesso: {user.lastLoginAt ? lastLoginFormatter.format(new Date(user.lastLoginAt)) : "nunca"}</small></article>;
 }
 
-export function UserAccessManager({ users, teams, products, people }: { users: ManagedUser[]; teams: ScopeOption[]; products: ScopeOption[]; people: ScopeOption[] }) {
-  return <><CreateUser people={people} /><section className="user-list">{users.map((user) => <ManagedUserCard key={user.id} user={user} people={people} teams={teams} products={products} />)}</section></>;
+export function UserAccessManager({ users, teams, products, people, readOnly = false }: { users: ManagedUser[]; teams: ScopeOption[]; products: ScopeOption[]; people: ScopeOption[]; readOnly?: boolean }) {
+  return <><CreateUser people={people} readOnly={readOnly} /><section className="user-list">{users.map((user) => <ManagedUserCard key={user.id} user={user} people={people} teams={teams} products={products} readOnly={readOnly} />)}</section></>;
 }

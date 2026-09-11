@@ -13,5 +13,5 @@ export async function GET(request: NextRequest) {
   const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") ?? "1") || 1);
   const pageSize = Math.min(100, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") ?? "50") || 50));
   const selected = parseOrganizationSelection(Object.fromEntries(request.nextUrl.searchParams.entries()));
-  return NextResponse.json(await getCallCatalogPage(user, page, pageSize, selected), { headers: { "cache-control": "private, no-store" } });
+  return NextResponse.json(await getCallCatalogPage(user, page, pageSize, selected, hasCapability(user, "platform:observe")), { headers: { "cache-control": "private, no-store" } });
 }

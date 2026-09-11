@@ -37,6 +37,19 @@ test("organization parser uses V-code identity and never invents a code", () => 
   assert.equal(candidate.memberships[0].validFrom, "2026-09-10T20:00:00.000Z");
 });
 
+test("organization Sheet cannot grant a system role", () => {
+  const candidate = parseOrganizationSheet({
+    observedAt: "2026-09-10T20:00:00.000Z",
+    values: [
+      [...headers, "System Role"],
+      ["V1008", "Pessoa Sintética", "INSIDER", "CLOSERS", "Time Alpha", "Closer", "Pleno", "Fixo", "TRUE", "TRUE", "V1008", "Pessoa Sintética", "FALSE", "FALSE", "PLATFORM_ADMIN"],
+    ],
+  });
+  assert.equal(candidate.accepted, true);
+  assert.equal("role" in candidate.people[0], false);
+  assert.equal("systemRole" in candidate.people[0], false);
+});
+
 test("organization sync errors expose only stable non-sensitive codes", () => {
   assert.equal(safeOrganizationSyncError(new Error("google_sheets_access_denied")), "google_sheets_access_denied");
   assert.equal(safeOrganizationSyncError(new Error("request failed for https://secret.invalid?token=value")), "organization_sync_failed");
