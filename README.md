@@ -25,6 +25,8 @@ O procedimento específico para validar o JSONL, importar somente o catálogo e 
 
 O deploy em `sales-igd.com.br` usa Next.js em container e nginx com HTTPS, mantendo PostgreSQL e a porta do app limitados ao loopback da VPS. O procedimento de atualização e rollback está em [docs/production-runbook.md](docs/production-runbook.md).
 
+A apresentação do produto segue o Figma canônico e os tokens/primitives documentados em [docs/design-system.md](docs/design-system.md). Mudanças visuais devem consultar essa referência antes de introduzir novos padrões.
+
 A autenticação individual da aplicação é a camada principal de acesso. O controle por papel/escopo e a aposentadoria do Basic Auth legado do nginx estão documentados em [docs/authentication-access-control.md](docs/authentication-access-control.md).
 
 ## Escopo inicial
