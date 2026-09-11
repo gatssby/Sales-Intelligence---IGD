@@ -44,6 +44,26 @@ _Evite_: time atual aplicado ao histórico
 Relação temporal em que uma Person exerce liderança sobre um Team.
 _Evite_: Leader como entidade de pessoa separada
 
+**Organization Snapshot**:
+Estado organizacional atual observado em uma fonte oficial e aceito como confiável para publicação. Um snapshot rejeitado nunca substitui o último estado válido.
+_Evite_: planilha como histórico, árvore rígida
+
+**Organizational Role**:
+Relação temporal de uma Person com um escopo da organização, como liderança de Team ou supervisão de Product.
+_Evite_: papel de sistema, conta, Leader como pessoa separada
+
+**System Role**:
+Autoridade interna de uma conta do aplicativo, especialmente Admin, que nunca é concedida pela fonte organizacional.
+_Evite_: cargo, supervisor da planilha
+
+**Effective Access**:
+União dos escopos permitidos pelo System Role e pelos Organizational Roles atuais da Person vinculada à conta.
+_Evite_: filtro visual, escopo enviado pelo cliente
+
+**Selected Scope**:
+Recorte navegacional escolhido dentro do Effective Access para parametrizar os mesmos read models de análise.
+_Evite_: permissão, dashboard separado por papel
+
 ## Avaliação
 
 **Analysis Run**:

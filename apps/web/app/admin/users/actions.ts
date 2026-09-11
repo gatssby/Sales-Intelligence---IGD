@@ -17,6 +17,7 @@ function userFacingError(error: unknown): string {
   if (message.includes("leader_requires")) return "Associe pelo menos um time e nenhum produto ao líder.";
   if (message.includes("supervisor_requires")) return "Associe pelo menos um produto e nenhum time ao supervisor.";
   if (message.includes("global_role")) return "Admin e Sales Ops usam escopo global e não aceitam escopos específicos.";
+  if (message.includes("user_requires_person_link")) return "Vincule a conta de usuário a uma pessoa com V-code.";
   if (message.includes("unique") || message.includes("duplicate")) return "Já existe uma conta com esse e-mail.";
   if (message.includes("cannot_deactivate_self")) return "Você não pode desativar a própria conta.";
   if (message.includes("cannot_change_own_role")) return "Você não pode remover o próprio papel de administrador.";
@@ -51,7 +52,7 @@ export async function updateUserAction(
     const userId = String(formData.get("userId") ?? "");
     await new PostgresAuthRepository(getSql()).updateUser(actor, userId, parseUserForm(formData));
     revalidatePath("/admin/users");
-    return { error: null, message: "Papel e escopo atualizados.", temporaryPassword: null };
+    return { error: null, message: "Conta, vínculo e acesso efetivo atualizados.", temporaryPassword: null };
   } catch (error) {
     return { error: userFacingError(error), message: null, temporaryPassword: null };
   }

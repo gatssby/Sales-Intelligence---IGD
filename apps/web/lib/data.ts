@@ -1,5 +1,5 @@
 import { StoredAnalysisOutputSchema, type AnalysisOutput } from "@igd/ai";
-import type { AuthorizationContext } from "@igd/auth";
+import type { AuthorizationContext, SelectedOrganizationScope } from "@igd/auth";
 import { ScopedSalesRepository, type AiSpendSummary, type ScopedCallCatalogRow, type ScopedCallRow } from "@igd/db";
 import { getSql } from "@/lib/database";
 
@@ -45,13 +45,13 @@ function mapCall(row: ScopedCallRow): DashboardCall {
   };
 }
 
-export async function getDashboardData(context: AuthorizationContext): Promise<DashboardData> {
+export async function getDashboardData(context: AuthorizationContext, selected: SelectedOrganizationScope = {}): Promise<DashboardData> {
   const repository = new ScopedSalesRepository(getSql());
   const [summary, rows, sellers, dimensions] = await Promise.all([
-    repository.getDashboardSummary(context),
-    repository.listCalls(context, 20),
-    repository.listSellerMetrics(context),
-    repository.listDimensionMetrics(context),
+    repository.getDashboardSummary(context, selected),
+    repository.listCalls(context, 20, selected),
+    repository.listSellerMetrics(context, selected),
+    repository.listDimensionMetrics(context, selected),
   ]);
   const calls = rows.map(mapCall);
   return {
@@ -113,8 +113,8 @@ function mapCatalog(row: ScopedCallCatalogRow): CallCatalogItem {
   };
 }
 
-export async function getCallCatalogPage(context: AuthorizationContext, page: number, pageSize = 50) {
-  const result = await new ScopedSalesRepository(getSql()).listCallCatalog(context, { page, pageSize });
+export async function getCallCatalogPage(context: AuthorizationContext, page: number, pageSize = 50, selected: SelectedOrganizationScope = {}) {
+  const result = await new ScopedSalesRepository(getSql()).listCallCatalog(context, { page, pageSize, selected });
   return { calls: result.rows.map(mapCatalog), total: result.total, page, pageSize, pages: Math.max(1, Math.ceil(result.total / pageSize)) };
 }
 
@@ -145,9 +145,9 @@ export async function getCallTranscript(context: AuthorizationContext, callId: s
   return new ScopedSalesRepository(getSql()).getCallTranscript(context, callId);
 }
 
-export async function getProgressData(context: AuthorizationContext) {
+export async function getProgressData(context: AuthorizationContext, selected: SelectedOrganizationScope = {}) {
   const repository = new ScopedSalesRepository(getSql());
-  const [progress, active] = await Promise.all([repository.getBacklogProgress(context), repository.listActiveAnalyses(context)]);
+  const [progress, active] = await Promise.all([repository.getBacklogProgress(context, selected), repository.listActiveAnalyses(context, selected)]);
   return {
     progress: {
       total: progress.total, analyzed: progress.analyzed, processing: progress.processing, pending: progress.pending,

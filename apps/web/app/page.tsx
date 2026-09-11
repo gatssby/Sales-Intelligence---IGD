@@ -4,6 +4,10 @@ import { requireUser } from "@/lib/auth/session";
 import { logoutAction } from "@/app/logout/actions";
 import { LiveProgress } from "@/app/components/LiveProgress";
 import { AdminBadge } from "@/app/components/AdminBadge";
+import { OrganizationScopeSelector } from "@/app/components/OrganizationScopeSelector";
+import { PostgresOrganizationRepository } from "@igd/db";
+import { getSql } from "@/lib/database";
+import { defaultOrganizationSelection, parseOrganizationSelection, scopeHref } from "@/lib/organization-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -32,26 +36,37 @@ const performanceStatus = (score: number) => {
   return { label: "Precisa melhorar", tone: "attention" };
 };
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await requireUser();
+  const requested = parseOrganizationSelection(await searchParams);
+  const selected = Object.keys(requested).length ? requested : defaultOrganizationSelection(user);
   const canManage = hasCapability(user, "users:manage");
   const canSeeSpend = hasCapability(user, "spend:execute");
-  const [data, progress, aiSpend] = await Promise.all([
-    getDashboardData(user),
-    getProgressData(user),
+  const [data, progress, aiSpend, organizationRows] = await Promise.all([
+    getDashboardData(user, selected),
+    getProgressData(user, selected),
     canSeeSpend ? getAiSpendData(user) : Promise.resolve(null),
+    new PostgresOrganizationRepository(getSql()).getTree(user),
   ]);
   const call = data.call;
 
   if (!call) {
     return (
-      <main className="empty-shell">
+      <main className="admin-shell">
+        <header className="admin-header">
+          <div><p className="eyebrow">IGD Sales Intelligence</p><h1>Visão executiva</h1></div>
+          <div className="admin-header-actions">
+            <a href={scopeHref("/people", selected)}>Pessoas</a>
+            <a href={scopeHref("/teams", selected)}>Times</a>
+            <a href={scopeHref("/calls", selected)}>Calls</a>
+            <form action={logoutAction}><button type="submit">Sair</button></form>
+          </div>
+        </header>
+        <OrganizationScopeSelector pathname="/" selected={selected} rows={organizationRows} />
         <section className="empty-card">
           <div className="brand-mark">SI</div>
-          <p className="eyebrow">IGD Sales Intelligence</p>
           <h1>Nenhuma análise disponível no seu escopo.</h1>
-          <p>Seu acesso está ativo, mas não há calls analisadas nos times ou produtos associados.</p>
-          <form action={logoutAction}><button type="submit">Sair</button></form>
+          <p>Seu acesso está ativo. Selecione outro produto, frente, time ou pessoa autorizada para consultar seus dados.</p>
         </section>
       </main>
     );
@@ -74,11 +89,15 @@ export default async function DashboardPage() {
           <div><strong>Sales Intelligence</strong><span>by IGD</span></div>
         </div>
         <nav>
-          <a className="active" href="#executivo"><span>⌁</span> Visão executiva</a>
-          <a href="#equipe"><span>◎</span> Equipe</a>
-          <a href="/calls"><span>◉</span> Calls</a>
+          <a className="active" href="#executivo"><span>⌁</span> Visão Geral</a>
+          <a href={scopeHref("/people", selected)}><span>◎</span> Pessoas</a>
+          <a href={scopeHref("/teams", selected)}><span>◎</span> Times</a>
+          <a href={scopeHref("/calls", selected)}><span>◉</span> Calls</a>
+          <a href={scopeHref("/organization", selected)}><span>◇</span> Organização</a>
           <a href="#coaching"><span>↗</span> Coaching</a>
           {canManage ? <a href="/admin/users"><span>⚙</span> Usuários e acessos <AdminBadge /></a> : null}
+          {canManage ? <a href="/admin/organization-sync"><span>↻</span> Sincronização <AdminBadge /></a> : null}
+          {canManage ? <a href="/admin/integrity"><span>!</span> Integridade <AdminBadge /></a> : null}
         </nav>
         <div className="sidebar-foot">
           <div className="pulse-dot" />
@@ -99,6 +118,8 @@ export default async function DashboardPage() {
             <form action={logoutAction}><button type="submit">Sair</button></form>
           </div>
         </header>
+
+        <OrganizationScopeSelector pathname="/" selected={selected} rows={organizationRows} />
 
         <section className="hero" id="executivo">
           <div>

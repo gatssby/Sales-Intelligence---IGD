@@ -2,6 +2,10 @@ import { requireCapability } from "@/lib/auth/session";
 import { getCallCatalogPage, getProgressData } from "@/lib/data";
 import { logoutAction } from "@/app/logout/actions";
 import { LiveProgress } from "@/app/components/LiveProgress";
+import { OrganizationScopeSelector } from "@/app/components/OrganizationScopeSelector";
+import { PostgresOrganizationRepository } from "@igd/db";
+import { getSql } from "@/lib/database";
+import { defaultOrganizationSelection, parseOrganizationSelection, scopeHref } from "@/lib/organization-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -10,16 +14,24 @@ const labels: Record<string, string> = {
   claimed: "Processando", paused_budget: "Pausada por budget", quarantine: "Revisão", reconciliation_required: "Reconciliação",
 };
 
-export default async function CallsPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
+export default async function CallsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await requireCapability("calls:read");
-  const page = Math.max(1, Number((await searchParams).page ?? "1") || 1);
-  const [catalog, progress] = await Promise.all([getCallCatalogPage(user, page), getProgressData(user)]);
+  const raw = await searchParams;
+  const page = Math.max(1, Number(Array.isArray(raw.page) ? raw.page[0] : raw.page ?? "1") || 1);
+  const requested = parseOrganizationSelection(raw);
+  const selected = Object.keys(requested).length ? requested : defaultOrganizationSelection(user);
+  const [catalog, progress, organizationRows] = await Promise.all([
+    getCallCatalogPage(user, page, 50, selected),
+    getProgressData(user, selected),
+    new PostgresOrganizationRepository(getSql()).getTree(user),
+  ]);
   return (
     <main className="admin-shell calls-shell">
       <header className="admin-header">
         <div><p className="eyebrow">Catálogo oficial</p><h1>Calls</h1><p>{catalog.total.toLocaleString("pt-BR")} calls no seu escopo · página {catalog.page} de {catalog.pages}</p></div>
-        <div className="admin-header-actions"><a href="/">Visão executiva</a><form action={logoutAction}><button className="secondary">Sair</button></form></div>
+        <div className="admin-header-actions"><a href={scopeHref("/", selected)}>Visão Geral</a><a href={scopeHref("/organization", selected)}>Organização</a><form action={logoutAction}><button className="secondary">Sair</button></form></div>
       </header>
+      <OrganizationScopeSelector pathname="/calls" selected={selected} rows={organizationRows} />
       <LiveProgress initialData={progress} />
       <section className="panel calls-table-panel">
         <div className="team-table-wrap"><table className="team-table calls-table">
@@ -35,9 +47,9 @@ export default async function CallsPage({ searchParams }: { searchParams: Promis
           </tr>)}</tbody>
         </table></div>
         <nav className="pagination" aria-label="Paginação">
-          {page > 1 ? <a href={`/calls?page=${page - 1}`}>← Anterior</a> : <span />}
+          {page > 1 ? <a href={scopeHref("/calls", selected, { page: page - 1 })}>← Anterior</a> : <span />}
           <span>{page} / {catalog.pages}</span>
-          {page < catalog.pages ? <a href={`/calls?page=${page + 1}`}>Próxima →</a> : <span />}
+          {page < catalog.pages ? <a href={scopeHref("/calls", selected, { page: page + 1 })}>Próxima →</a> : <span />}
         </nav>
       </section>
     </main>

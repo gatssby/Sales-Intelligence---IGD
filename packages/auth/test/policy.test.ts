@@ -41,6 +41,20 @@ test("Sales Ops has global read but cannot spend or manage users", () => {
   assert.throws(() => assertCapability(salesOps, "spend:execute"), AuthorizationError);
 });
 
+test("linked app user receives the union of self, led teams and supervised products", () => {
+  const user = buildAuthorizationContext({
+    ...base,
+    role: "USER",
+    personIds: ["person-a"],
+    teamIds: ["team-a"],
+    productKeys: ["alpha"],
+  });
+  assert.equal(canAccessData(user, { teamId: "team-x", productKey: "alpha", personId: "person-x" }), true);
+  assert.equal(canAccessData(user, { teamId: "team-a", productKey: "beta", personId: "person-x" }), true);
+  assert.equal(canAccessData(user, { teamId: "team-x", productKey: "beta", personId: "person-a" }), true);
+  assert.equal(canAccessData(user, { teamId: "team-x", productKey: "beta", personId: "person-x" }), false);
+});
+
 test("Role/scope validation rejects incoherent combinations", () => {
   assert.throws(() => validateRoleScopes({ role: "LEADER" }), /leader_requires/);
   assert.throws(() => validateRoleScopes({ role: "SUPERVISOR", productKeys: [] }), /supervisor_requires/);

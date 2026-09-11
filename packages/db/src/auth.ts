@@ -33,19 +33,22 @@ export type ManagedUser = {
   lastLoginAt: string | null;
   createdAt: string;
   updatedAt: string;
+  personId: string | null;
   teamIds: string[];
   productKeys: string[];
+  personIds: string[];
 };
 
 export type UserMutationInput = {
   email: string;
   displayName: string;
   role: Role;
+  personId?: string | null;
   teamIds?: readonly string[];
   productKeys?: readonly string[];
 };
 
-export type ScopeOption = { id: string; label: string; productKey?: string };
+export type ScopeOption = { id: string; label: string; productKey?: string; code?: string };
 
 type AuthRow = {
   id: string;
@@ -55,9 +58,11 @@ type AuthRow = {
   active: boolean;
   must_change_password: boolean;
   session_version: number;
+  person_id: string | null;
   password_hash?: string;
   team_ids: string[] | null;
   product_keys: string[] | null;
+  person_ids: string[] | null;
   last_login_at?: Date | null;
   created_at?: Date;
   updated_at?: Date;
@@ -80,6 +85,7 @@ function contextFromRow(row: AuthRow): AuthorizationContext {
     role: row.role,
     teamIds: row.team_ids ?? [],
     productKeys: row.product_keys ?? [],
+    personIds: row.person_ids ?? [],
     mustChangePassword: row.must_change_password,
   });
 }
@@ -96,8 +102,10 @@ function managedUserFromRow(row: AuthRow): ManagedUser {
     lastLoginAt: row.last_login_at?.toISOString() ?? null,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
+    personId: row.person_id,
     teamIds: row.team_ids ?? [],
     productKeys: row.product_keys ?? [],
+    personIds: row.person_ids ?? [],
   };
 }
 
@@ -129,12 +137,12 @@ export class PostgresAuthRepository {
 
     const rows = await this.sql<AuthRow[]>`
       select
-        u.id, u.email, u.display_name, u.role, u.active, u.must_change_password,
+        u.id, u.email, u.display_name, u.role, u.active, u.must_change_password,u.person_id,
         u.session_version, c.password_hash,
-        coalesce((select array_agg(uts.team_id::text order by uts.team_id::text) from user_team_scopes uts where uts.user_id = u.id), '{}') as team_ids,
-        coalesce((select array_agg(ups.product_key order by ups.product_key) from user_product_scopes ups where ups.user_id = u.id), '{}') as product_keys
+        scope.team_ids,scope.product_keys,scope.person_ids
       from app_users u
       join user_credentials c on c.user_id = u.id
+      join app_user_effective_scopes scope on scope.user_id=u.id
       where u.email = ${email}
       limit 1
     `;
@@ -187,11 +195,11 @@ export class PostgresAuthRepository {
     if (!token) return null;
     const rows = await this.sql<AuthRow[]>`
       select
-        u.id, u.email, u.display_name, u.role, u.active, u.must_change_password, u.session_version,
-        coalesce((select array_agg(uts.team_id::text order by uts.team_id::text) from user_team_scopes uts where uts.user_id = u.id), '{}') as team_ids,
-        coalesce((select array_agg(ups.product_key order by ups.product_key) from user_product_scopes ups where ups.user_id = u.id), '{}') as product_keys
+        u.id, u.email, u.display_name, u.role, u.active, u.must_change_password,u.person_id,u.session_version,
+        scope.team_ids,scope.product_keys,scope.person_ids
       from auth_sessions s
       join app_users u on u.id = s.user_id
+      join app_user_effective_scopes scope on scope.user_id=u.id
       where s.token_hash = ${sha256(token)}
         and s.revoked_at is null
         and s.expires_at > now()
@@ -235,42 +243,47 @@ export class PostgresAuthRepository {
     assertCapability(actor, "users:manage");
     const rows = await this.sql<AuthRow[]>`
       select
-        u.id, u.email, u.display_name, u.role, u.active, u.must_change_password,
+        u.id, u.email, u.display_name, u.role, u.active, u.must_change_password,u.person_id,
         u.session_version, u.last_login_at, u.created_at, u.updated_at,
-        coalesce((select array_agg(uts.team_id::text order by uts.team_id::text) from user_team_scopes uts where uts.user_id = u.id), '{}') as team_ids,
-        coalesce((select array_agg(ups.product_key order by ups.product_key) from user_product_scopes ups where ups.user_id = u.id), '{}') as product_keys
+        scope.team_ids,scope.product_keys,scope.person_ids
       from app_users u
+      join app_user_effective_scopes scope on scope.user_id=u.id
       order by u.display_name, u.email
     `;
     return rows.map(managedUserFromRow);
   }
 
-  async listScopeOptions(actor: AuthorizationContext): Promise<{ teams: ScopeOption[]; products: ScopeOption[] }> {
+  async listScopeOptions(actor: AuthorizationContext): Promise<{ teams: ScopeOption[]; products: ScopeOption[]; people: ScopeOption[] }> {
     assertCapability(actor, "users:manage");
-    const [teams, products] = await Promise.all([
+    const [teams, products, people] = await Promise.all([
       this.sql<{ id: string; display_name: string; product_key: string }[]>`
         select id, display_name, product_key from teams where active = true order by product_key, display_name
       `,
       this.sql<{ key: string; display_name: string }[]>`
         select key, display_name from products where active = true order by display_name
       `,
+      this.sql<{ id: string; seller_code: string; full_name: string }[]>`
+        select id,seller_code,full_name from people where active=true and seller_code is not null order by full_name
+      `,
     ]);
     return {
       teams: teams.map((team) => ({ id: team.id, label: team.display_name, productKey: team.product_key })),
       products: products.map((product) => ({ id: product.key, label: product.display_name })),
+      people: people.map((person) => ({ id: person.id, code: person.seller_code, label: person.full_name })),
     };
   }
 
   async createUser(actor: AuthorizationContext, input: UserMutationInput): Promise<{ user: ManagedUser; temporaryPassword: string }> {
     assertCapability(actor, "users:manage");
     validateRoleScopes(input);
+    if (input.role === "USER" && !input.personId) throw new Error("user_requires_person_link");
     const email = normalizeEmail(input.email);
     const temporaryPassword = generateTemporaryPassword();
     const passwordHash = await hashPassword(temporaryPassword);
     const userId = await this.sql.begin(async (tx) => {
       const users = await tx<{ id: string }[]>`
-        insert into app_users (email, display_name, role, active, must_change_password)
-        values (${email}, ${input.displayName.trim()}, ${input.role}, true, true)
+        insert into app_users (email, display_name, role,person_id, active, must_change_password)
+        values (${email}, ${input.displayName.trim()}, ${input.role},${input.personId ?? null}, true, true)
         returning id
       `;
       const id = users[0].id;
@@ -290,6 +303,7 @@ export class PostgresAuthRepository {
   async updateUser(actor: AuthorizationContext, userId: string, input: UserMutationInput): Promise<ManagedUser> {
     assertCapability(actor, "users:manage");
     validateRoleScopes(input);
+    if (input.role === "USER" && !input.personId) throw new Error("user_requires_person_link");
     if (actor.userId === userId && input.role !== "ADMIN") throw new Error("cannot_change_own_role");
     const email = normalizeEmail(input.email);
     await this.sql.begin(async (tx) => {
@@ -309,7 +323,7 @@ export class PostgresAuthRepository {
         if (admins[0].count <= 1) throw new Error("cannot_remove_last_admin");
       }
       await tx`
-        update app_users set email = ${email}, display_name = ${input.displayName.trim()}, role = ${input.role}, updated_at = now()
+        update app_users set email = ${email}, display_name = ${input.displayName.trim()}, role = ${input.role},person_id=${input.personId ?? null}, updated_at = now()
         where id = ${userId}
       `;
       await this.replaceScopes(tx, userId, input);
@@ -336,6 +350,7 @@ export class PostgresAuthRepository {
   private async replaceScopes(tx: TransactionSql, userId: string, input: UserMutationInput): Promise<void> {
     await tx`delete from user_team_scopes where user_id = ${userId}`;
     await tx`delete from user_product_scopes where user_id = ${userId}`;
+    if (input.personId) return;
     for (const teamId of new Set(input.teamIds ?? [])) {
       await tx`insert into user_team_scopes (user_id, team_id) values (${userId}, ${teamId})`;
     }
@@ -420,10 +435,10 @@ export class PostgresAuthRepository {
     const email = normalizeEmail(emailInput);
     const rows = await this.sql<AuthRow[]>`
       select
-        u.id, u.email, u.display_name, u.role, u.active, u.must_change_password, u.session_version,
-        coalesce((select array_agg(uts.team_id::text order by uts.team_id::text) from user_team_scopes uts where uts.user_id = u.id), '{}') as team_ids,
-        coalesce((select array_agg(ups.product_key order by ups.product_key) from user_product_scopes ups where ups.user_id = u.id), '{}') as product_keys
-      from app_users u where u.email = ${email} and u.active = true limit 1
+        u.id, u.email, u.display_name, u.role, u.active, u.must_change_password,u.person_id,u.session_version,
+        scope.team_ids,scope.product_keys,scope.person_ids
+      from app_users u join app_user_effective_scopes scope on scope.user_id=u.id
+      where u.email = ${email} and u.active = true limit 1
     `;
     return rows[0] ? contextFromRow(rows[0]) : null;
   }

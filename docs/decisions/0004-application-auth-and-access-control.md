@@ -2,7 +2,7 @@
 
 ## Status
 
-Aceita; transição de produção concluída em 2026-09-09.
+Aceita; transição de produção concluída em 2026-09-09. A atribuição manual de escopos organizacionais foi parcialmente substituída pelo [ADR 0008](0008-organization-sync-and-derived-access.md) para contas vinculadas a Person.
 
 ## Contexto
 

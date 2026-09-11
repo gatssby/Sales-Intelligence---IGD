@@ -25,6 +25,9 @@ The first vertical slice started with six tables and now adds source-agnostic in
 - `call_participants`: IGD people present in a Call, independent from `calls.primary_closer_id`.
 - `app_users` and `user_credentials`: individual identity, role, account state and bcrypt hash.
 - `user_team_scopes` and `user_product_scopes`: explicit Leader and Supervisor data boundaries.
+- `app_users.person_id`: optional link from an app account to the canonical IGD person.
+- `person_organization_roles`: temporal supervisor and leader-in-training facts; only supervisor contributes product access.
+- `organization_sync_runs`, `organization_source_snapshots`, `organization_sync_warnings` and `organization_change_events`: fail-closed synchronization audit, candidate fingerprints, data-quality warnings and temporal change provenance.
 - `auth_sessions`: revocable, server-side opaque sessions.
 - `auth_login_attempts`: bounded login throttling without storing the submitted identifier.
 - `admin_audit_events`: security-relevant administrative and blocked-spend events.
@@ -40,3 +43,5 @@ An official run records its strategy version, primary/escalation models, confide
 The admin-only AI spend read model is computed from these persisted records. Missing attempt receipts remain `NULL`; they do not count as free calls. Vercel live spend periodically advances the external baseline floor without double-counting settled receipts.
 
 Application passwords are never stored. `user_credentials.password_hash` accepts bcrypt hashes only. Session cookies carry a random opaque token; PostgreSQL stores only its SHA-256 digest. Account deactivation and password resets both increment `app_users.session_version` and revoke active session rows.
+
+For accounts linked to `people`, `app_user_effective_scopes` derives the union of current supervised products, led teams and self. Legacy explicit scope tables remain only for unlinked accounts during migration and rollback. A call read always applies Effective Access before any Selected Scope supplied through navigation.

@@ -31,6 +31,7 @@
     "drive:discover": "tsx scripts/drive-discovery.ts",
     "drive:report": "tsx scripts/report-drive-discovery.ts",
     "drive:sources": "tsx scripts/manage-drive-source.ts",
+    "organization:sync": "tsx scripts/organization-sync.ts",
     "auth:bootstrap-admin": "tsx scripts/bootstrap-admin.ts",
     "auth:demo-seed": "tsx scripts/seed-auth-demo.ts",
     "test:auth:http": "tsx scripts/test-auth-http.ts"

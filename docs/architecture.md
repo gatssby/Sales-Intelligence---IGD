@@ -20,6 +20,8 @@ A arquitetura será dividida em cinco camadas:
 
 PostgreSQL permanece a fonte de verdade. Discovery, attribution, reconciliação e fila ficam em código versionado; n8n não participa do fluxo definitivo do Drive.
 
+A organização atual segue um fluxo separado: Google Sheets read-only → candidate validado → publicação temporal PostgreSQL → Effective Access/read models. Drive Discovery continua responsável apenas por calls e usa a organização válida na data da Call.
+
 ---
 
 ## 3. Ingestão do Google Drive
@@ -337,9 +339,9 @@ A aplicação usa contas individuais mantidas no PostgreSQL. A autorização é 
 
 1. papel (`ADMIN`, `LEADER`, `SUPERVISOR`, `SALES_OPS`);
 2. capacidade (`users:manage`, `settings:manage`, `calls:read`, `analytics:read`, `spend:execute`);
-3. escopo (`GLOBAL`, conjunto de times ou conjunto de produtos).
+3. Effective Access (`GLOBAL` ou união de produtos, times e self) e Selected Scope dentro dessa união.
 
-A matriz papel → capacidades existe em um único módulo. Páginas, APIs e comandos chamam essa camada em vez de comparar papéis diretamente. Consultas de calls e métricas recebem o contexto de autorização e aplicam o predicado de escopo no PostgreSQL. A mesma regra cobre listagens, detalhes por ID e agregações.
+A matriz papel → capacidades existe em um único módulo. Páginas, APIs e comandos chamam essa camada em vez de comparar papéis diretamente. Consultas de calls e métricas recebem o contexto de autorização e aplicam o predicado de escopo no PostgreSQL. Para contas vinculadas a Person, supervisões e lideranças atuais são derivadas do grafo temporal; a mesma regra cobre listagens, detalhes por ID e agregações.
 
 Somente `ADMIN` recebe `spend:execute` nesta versão. Uma tentativa negada termina antes de criar job ou chamar provider e gera um evento de auditoria sem payload da call.
 
