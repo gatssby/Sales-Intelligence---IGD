@@ -6,6 +6,7 @@ import { OrganizationScopeSelector } from "@/app/components/OrganizationScopeSel
 import { PostgresOrganizationRepository } from "@igd/db";
 import { getSql } from "@/lib/database";
 import { defaultOrganizationSelection, parseOrganizationSelection, scopeHref } from "@/lib/organization-scope";
+import { hasCapability } from "@igd/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -20,9 +21,10 @@ export default async function CallsPage({ searchParams }: { searchParams: Promis
   const page = Math.max(1, Number(Array.isArray(raw.page) ? raw.page[0] : raw.page ?? "1") || 1);
   const requested = parseOrganizationSelection(raw);
   const selected = Object.keys(requested).length ? requested : defaultOrganizationSelection(user);
+  const technical = hasCapability(user, "platform:observe");
   const [catalog, progress, organizationRows] = await Promise.all([
-    getCallCatalogPage(user, page, 50, selected),
-    getProgressData(user, selected),
+    getCallCatalogPage(user, page, 50, selected, technical),
+    getProgressData(user, selected, technical),
     new PostgresOrganizationRepository(getSql()).getTree(user),
   ]);
   return (
@@ -32,16 +34,16 @@ export default async function CallsPage({ searchParams }: { searchParams: Promis
         <div className="admin-header-actions"><a href={scopeHref("/", selected)}>Visão Geral</a><a href={scopeHref("/organization", selected)}>Organização</a><form action={logoutAction}><button className="secondary">Sair</button></form></div>
       </header>
       <OrganizationScopeSelector pathname="/calls" selected={selected} rows={organizationRows} />
-      <LiveProgress initialData={progress} />
+      <LiveProgress initialData={progress} technical={technical} />
       <section className="panel calls-table-panel">
         <div className="team-table-wrap"><table className="team-table calls-table">
-          <thead><tr><th>Data</th><th>Vendedor</th><th>Código</th><th>Cliente</th><th>Origem</th><th>Transcript</th><th>Análise</th><th>Score</th><th>Modelo final</th><th>Analisada em</th><th></th></tr></thead>
+          <thead><tr><th>Data</th><th>Vendedor</th><th>Código</th><th>Cliente</th><th>Origem</th><th>Transcript</th><th>Análise</th><th>Score</th>{technical ? <th>Modelo final</th> : null}<th>Analisada em</th><th></th></tr></thead>
           <tbody>{catalog.calls.map((call) => <tr key={call.id}>
             <td>{call.startedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(call.startedAt)) : "—"}</td>
             <td><strong>{call.sellerName}</strong></td><td>{call.sellerCode ?? "—"}</td><td>{call.customerName ?? "Não informado"}</td><td>{call.origin ?? "—"}</td>
             <td><span className={`status-pill ${call.transcriptStatus}`}>{call.transcriptStatus === "available" ? "Disponível" : call.transcriptStatus === "access_issue" ? "Acesso" : "Aguardando"}</span></td>
-            <td>{labels[call.analysisStatus] ?? call.analysisStatus}</td><td>{call.analysisEligibility === "unscorable" ? "Não avaliável" : call.score ?? "—"}</td>
-            <td>{call.finalModel?.split("/").at(-1) ?? "—"}{call.escalated ? " · escalation" : ""}</td>
+            <td>{technical ? labels[call.analysisStatus] ?? call.analysisStatus : call.analysisStatus === "completed" ? "Concluída" : ["quarantine", "failed_terminal"].includes(call.analysisStatus) ? "Requer revisão" : "Em processamento"}</td><td>{call.analysisEligibility === "unscorable" ? "Não avaliável" : call.score ?? "—"}</td>
+            {technical ? <td>{call.finalModel?.split("/").at(-1) ?? "—"}{call.escalated ? " · escalation" : ""}</td> : null}
             <td>{call.analyzedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(call.analyzedAt)) : "—"}</td>
             <td><a className="text-link" href={scopeHref(`/calls/${call.id}`, selected)}>Abrir</a></td>
           </tr>)}</tbody>

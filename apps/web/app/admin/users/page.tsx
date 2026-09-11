@@ -17,7 +17,7 @@ export default async function UsersPage() {
         <div><p className="eyebrow">Administração</p><h1>Usuários e acessos <AdminBadge /></h1><p>Papéis, escopos e credenciais individuais.</p></div>
         <div className="admin-header-actions"><a href="/">Voltar ao dashboard</a><form action={logoutAction}><button className="secondary">Sair</button></form></div>
       </header>
-      <UserAccessManager users={users} teams={options.teams} products={options.products} people={options.people} />
+      <UserAccessManager users={users} teams={options.teams} products={options.products} people={options.people} readOnly={Boolean(actor.preview)} />
     </main>
   );
 }

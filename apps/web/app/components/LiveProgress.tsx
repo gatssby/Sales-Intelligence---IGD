@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { AiSpendSummary } from "@igd/db";
-import { AiSpendPanel } from "./AiSpendPanel";
 
 type ProgressData = {
   progress: {
@@ -19,32 +17,26 @@ const stageLabels: Record<string, string> = {
   escalation: "Escalation", finalization: "Finalização", completed: "Concluída",
 };
 
-export function LiveProgress({ initialData, initialAiSpend = null }: { initialData: ProgressData; initialAiSpend?: AiSpendSummary | null }) {
+export function LiveProgress({ initialData, technical = false }: { initialData: ProgressData;technical?: boolean }) {
   const router = useRouter();
   const [data, setData] = useState(initialData);
-  const [aiSpend, setAiSpend] = useState(initialAiSpend);
-  const canPollAiSpend = initialAiSpend !== null;
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       if (document.visibilityState === "visible") {
-        const [response, spendResponse] = await Promise.all([
-          fetch(`/api/progress${window.location.search}`, { cache: "no-store" }),
-          canPollAiSpend ? fetch("/api/admin/ai-spend", { cache: "no-store" }) : Promise.resolve(null),
-        ]);
+        const response = await fetch(`/api/progress${window.location.search}`, { cache: "no-store" });
         if (response.ok && !cancelled) {
           const next = await response.json() as ProgressData;
           setData(next);
           if (next.progress.analyzed > initialData.progress.analyzed) router.refresh();
         }
-        if (spendResponse?.ok && !cancelled) setAiSpend(await spendResponse.json() as AiSpendSummary);
       }
       if (!cancelled) timer = setTimeout(poll, data.progress.processing > 0 ? 4_000 : 30_000);
     };
     timer = setTimeout(poll, data.progress.processing > 0 ? 4_000 : 30_000);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [canPollAiSpend, data.progress.processing, initialData.progress.analyzed, router]);
+  }, [data.progress.processing, initialData.progress.analyzed, router]);
 
   const progress = data.progress;
   const percent = progress.total ? Math.round(progress.analyzed / progress.total * 1000) / 10 : 0;
@@ -63,21 +55,20 @@ export function LiveProgress({ initialData, initialAiSpend = null }: { initialDa
         <span><b>{progress.associationReview}</b>Revisão de associação</span><span><b>{progress.failed}</b>Falhas</span>
         <span><b>{progress.quarantine}</b>Quarantine de ingestão</span>
       </div>
-      <div className="stage-stepper">
+      {technical ? <div className="stage-stepper">
         {Object.entries(progress.stages).map(([stage, count]) => <span key={stage} className={count > 0 ? "active" : ""}><b>{count}</b>{stageLabels[stage]}</span>)}
-      </div>
+      </div> : null}
       {data.active.length ? (
         <div className="active-analysis">
           <strong>Analisando agora</strong><span>{data.active.length} em execução</span>
           {data.active.map((item) => (
             <a href={`/calls/${item.callId}`} key={item.callId}>
-              <b>{item.sellerName}</b><span>{stageLabels[item.stage] ?? item.stage} · {item.model?.split("/").at(-1) ?? "modelo pendente"} · {item.startedAt ? `${Math.max(0, Math.floor((Date.now() - new Date(item.startedAt).getTime()) / 1000))}s` : "—"}</span>
+              <b>{item.sellerName}</b><span>{technical ? `${stageLabels[item.stage] ?? item.stage} · ${item.model?.split("/").at(-1) ?? "modelo pendente"} · ` : "Em processamento · "}{item.startedAt ? `${Math.max(0, Math.floor((Date.now() - new Date(item.startedAt).getTime()) / 1000))}s` : "—"}</span>
             </a>
           ))}
         </div>
       ) : null}
     </section>
-    {aiSpend ? <AiSpendPanel summary={aiSpend} /> : null}
     </>
   );
 }

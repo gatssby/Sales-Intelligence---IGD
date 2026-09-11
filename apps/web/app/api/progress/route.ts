@@ -11,5 +11,5 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (user.mustChangePassword || !hasCapability(user, "analytics:read")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const selected = parseOrganizationSelection(Object.fromEntries(new URL(request.url).searchParams.entries()));
-  return NextResponse.json(await getProgressData(user, selected), { headers: { "cache-control": "private, no-store" } });
+  return NextResponse.json(await getProgressData(user, selected, hasCapability(user, "platform:observe")), { headers: { "cache-control": "private, no-store" } });
 }

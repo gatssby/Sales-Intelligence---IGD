@@ -1,15 +1,17 @@
 # Autenticação e controle de acesso
 
-## Matriz inicial
+## Matriz de papéis
 
-| Papel | Escopo de leitura | `users:manage` | `settings:manage` | `calls:read` | `analytics:read` | `spend:execute` |
-| --- | --- | ---: | ---: | ---: | ---: | ---: |
-| Admin | Global | Sim | Sim | Sim | Sim | Sim |
-| Leader | Times associados | Não | Não | Sim | Sim | Não |
-| Supervisor | Produtos associados | Não | Não | Sim | Sim | Não |
-| Sales Ops | Global | Não | Não | Sim | Sim | Não |
+| Papel | Escopo | `users:manage` | `settings:manage` | leitura comercial | `spend:execute` | Platform | Preview |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Platform Admin | Global | Sim | Sim | Sim | Sim | Sim | Sim |
+| Admin comercial | Global | Sim | Sim | Sim | Sim | Não | Não |
+| Person vinculada | Self e papéis organizacionais atuais | Não | Não | Sim | Não | Não | Não |
+| Leader legado | Times associados | Não | Não | Sim | Não | Não | Não |
+| Supervisor legado | Produtos associados | Não | Não | Sim | Não | Não | Não |
+| Sales Ops | Global | Não | Não | Sim | Não | Não | Não |
 
-Leader, Supervisor e Sales Ops são somente leitura nesta versão. Novas capacidades sem custo podem ser acrescentadas à matriz central no futuro. `spend:execute` continua restrita a Admin até outra decisão explícita.
+Leader, Supervisor, Person e Sales Ops são somente leitura nesta versão. Diagnósticos exigem `platform:observe`; operações técnicas exigem `platform:operate`; iniciar preview exige `preview:use`.
 
 ## Controles implementados
 
@@ -23,6 +25,7 @@ Leader, Supervisor e Sales Ops são somente leitura nesta versão. Novas capacid
 - escopo obrigatório nas consultas de calls, detalhes e métricas;
 - `403` antes de qualquer provider/job quando falta `spend:execute`;
 - auditoria de criação, papel, escopo, ativação, desativação, reset e gasto bloqueado.
+- Preview Mode exclusivo do Platform Admin, sem troca de sessão e com mutations bloqueadas.
 
 ## Primeiro administrador
 
@@ -37,6 +40,18 @@ unset BOOTSTRAP_PASSWORD BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_NAME
 ```
 
 O exemplo usa um domínio reservado e não é uma credencial padrão. Substitua o e-mail no ambiente autorizado; não grave a senha em `.env`, histórico, ticket ou PR. O primeiro login exige uma nova senha.
+
+## Primeiro Platform Admin
+
+A migration não promove Admins. Em ambiente autorizado, a configuração interna reutiliza exatamente uma conta Admin ativa, preserva o `user_id`, incrementa `session_version`, revoga sessões e registra `platform_admin.granted`:
+
+```bash
+export PLATFORM_ADMIN_EMAIL='maintainer@example.invalid'
+npm run auth:bootstrap-platform-admin -- --apply
+unset PLATFORM_ADMIN_EMAIL
+```
+
+O comando recusa execução se já houver Platform Admin ou se o e-mail não pertencer a um Admin ativo. Organization Sync e a interface comercial de Usuários e Acessos nunca concedem, removem ou editam esse papel.
 
 ## Demais acessos
 
@@ -77,7 +92,7 @@ npm run typecheck
 npm run build
 ```
 
-Para uma demonstração visual, o comando abaixo cria os quatro papéis sintéticos somente nesse banco local. A senha é recebida por variável temporária, não é exibida e não existe no repositório:
+Para uma demonstração visual, o comando abaixo cria cinco papéis sintéticos somente nesse banco local. A senha é recebida por variável temporária, não é exibida e não existe no repositório:
 
 ```bash
 read -s AUTH_DEMO_PASSWORD

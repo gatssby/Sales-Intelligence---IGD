@@ -55,6 +55,6 @@ test("calls and progress APIs apply the URL-selected scope server-side", async (
   ]);
   for (const source of [callsSource,progressSource,detailSource,transcriptSource]) {
     assert.match(source, /parseOrganizationSelection/);
-    assert.match(source, /getProgressData\(user, selected\)|getCallCatalogPage\(user, page, pageSize, selected\)|getCallDetail\(user, \(await context.params\)\.id, selected\)|getCallTranscript\(user, \(await context.params\)\.id, selected\)/);
+    assert.match(source, /getProgressData\(user, selected(?:, hasCapability\(user, "platform:observe"\))?\)|getCallCatalogPage\(user, page, pageSize, selected(?:, hasCapability\(user, "platform:observe"\))?\)|getCallDetail\(user, \(await context.params\)\.id, selected(?:, hasCapability\(user, "platform:observe"\))?\)|getCallTranscript\(user, \(await context.params\)\.id, selected\)/);
   }
 });

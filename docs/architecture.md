@@ -22,6 +22,8 @@ PostgreSQL permanece a fonte de verdade. Discovery, attribution, reconciliação
 
 A organização atual segue um fluxo separado: Google Sheets read-only → candidate validado → publicação temporal PostgreSQL → Effective Access/read models. Drive Discovery continua responsável apenas por calls e usa a organização válida na data da Call.
 
+A autorização separa Platform Admin de Admin comercial. Platform Admin acrescenta observabilidade e operações técnicas ao acesso comercial global; Admin permanece global apenas no produto e na administração operacional. Preview Mode conserva o ator Platform Admin, troca somente o Effective Access usado por reads e bloqueia mutations no seam central de autorização.
+
 ---
 
 ## 3. Ingestão do Google Drive

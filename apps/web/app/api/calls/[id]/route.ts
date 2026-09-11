@@ -10,7 +10,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   if (user.mustChangePassword) return NextResponse.json({ error: "password_change_required" }, { status: 403 });
   if (!hasCapability(user, "calls:read")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const selected = parseOrganizationSelection(Object.fromEntries(request.nextUrl.searchParams.entries()));
-  const call = await getCallDetail(user, (await context.params).id, selected);
+  const call = await getCallDetail(user, (await context.params).id, selected, hasCapability(user, "platform:observe"));
   if (!call) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json({ call }, { headers: { "cache-control": "private, no-store" } });
 }

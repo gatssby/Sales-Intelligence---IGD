@@ -10,6 +10,7 @@ export * from "./budget";
 export * from "./drive-discovery";
 export * from "./lifecycle";
 export * from "./organization";
+export * from "./platform";
 
 export type RepositoryOptions = {
   provider?: string;
