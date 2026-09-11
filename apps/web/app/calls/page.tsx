@@ -30,7 +30,7 @@ export default async function CallsPage({ searchParams }: { searchParams: Promis
   return (
     <AppShell user={{ fullName: user.displayName, role: user.role }} activeRoute="calls" title="Catálogo de Calls" scopeSelector={scopeSelector}>
       <section className="panel" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{ padding: '24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ padding: '24px', borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h2 className="panel-title" style={{ marginBottom: 0 }}>Histórico de Análises</h2>
             <p className="td-secondary">{catalog.total.toLocaleString("pt-BR")} calls no escopo atual · Página {catalog.page} de {catalog.pages}</p>
@@ -75,7 +75,7 @@ export default async function CallsPage({ searchParams }: { searchParams: Promis
                     {call.analysisEligibility === "unscorable" ? (
                       <span className="td-secondary" style={{ fontSize: '13px' }}>Não avaliável</span>
                     ) : (
-                      <strong style={{ fontSize: '18px', color: 'var(--accent-primary)' }}>{call.score ?? "—"}</strong>
+                      <strong style={{ fontSize: '18px', color: 'var(--color-accent)' }}>{call.score ?? "—"}</strong>
                     )}
                   </td>
                   <td>
@@ -87,7 +87,7 @@ export default async function CallsPage({ searchParams }: { searchParams: Promis
           </table>
         </div>
         
-        <div style={{ padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)' }}>
+        <div style={{ padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border)' }}>
           {page > 1 ? (
             <a className="btn btn-outline" href={scopeHref("/calls", selected, { page: page - 1 })}>← Anterior</a>
           ) : <div />}

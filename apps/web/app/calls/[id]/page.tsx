@@ -26,7 +26,7 @@ export default async function CallDetailPage({ params, searchParams }: { params:
       <section className="panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <p className="panel-eyebrow">Metadados da Call</p>
-          <div style={{ display: 'flex', gap: '16px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+          <div style={{ display: 'flex', gap: '16px', fontSize: '14px', color: 'var(--color-text-secondary)' }}>
             <span><strong>Data:</strong> {formatDate(call.startedAt)}</span>
             <span><strong>Produto:</strong> {call.product.toUpperCase()}</span>
             <span><strong>Equipe:</strong> {call.teamName ?? "Sem time"}</span>
@@ -35,7 +35,7 @@ export default async function CallDetailPage({ params, searchParams }: { params:
         </div>
         <div style={{ textAlign: 'right' }}>
           <p className="panel-eyebrow">Score Geral</p>
-          <strong style={{ fontSize: '32px', color: 'var(--accent-primary)', lineHeight: 1 }}>
+          <strong style={{ fontSize: '32px', color: 'var(--color-accent)', lineHeight: 1 }}>
             {call.analysisEligibility === "unscorable" ? "—" : call.score ?? "—"}
           </strong>
         </div>
@@ -43,13 +43,13 @@ export default async function CallDetailPage({ params, searchParams }: { params:
 
       {analysis ? (
         <>
-          <section className="panel" style={{ borderLeft: '4px solid var(--accent-primary)' }}>
+          <section className="panel" style={{ borderLeft: '4px solid var(--color-accent)' }}>
             <p className="panel-eyebrow">Diagnóstico Principal</p>
-            <h2 style={{ fontSize: '24px', fontWeight: 600, margin: '16px 0', lineHeight: 1.4, color: 'var(--text-primary)' }}>
+            <h2 style={{ fontSize: '24px', fontWeight: 600, margin: '16px 0', lineHeight: 1.4, color: 'var(--color-text-primary)' }}>
               {analysis.executive_summary}
             </h2>
             
-            <div style={{ display: 'flex', gap: '32px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', gap: '32px', paddingTop: '16px', borderTop: '1px solid var(--color-border)' }}>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span className="panel-eyebrow">Qualidade da Oportunidade</span>
                 <strong style={{ fontSize: '14px' }}>{analysis.opportunity_quality_label}</strong>
@@ -64,7 +64,7 @@ export default async function CallDetailPage({ params, searchParams }: { params:
               </div>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span className="panel-eyebrow">Revisão Humana</span>
-                <strong style={{ fontSize: '14px', color: call.humanReviewRequested ? 'var(--status-warning)' : 'var(--text-primary)' }}>
+                <strong style={{ fontSize: '14px', color: call.humanReviewRequested ? 'var(--status-warning)' : 'var(--color-text-primary)' }}>
                   {call.humanReviewRequested ? "Recomendada" : "Dispensada"}
                 </strong>
               </div>
@@ -108,7 +108,7 @@ export default async function CallDetailPage({ params, searchParams }: { params:
                 <p className="panel-eyebrow">Coaching Sugerido</p>
                 <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {analysis.coaching_actions.map((item) => (
-                    <li key={item} style={{ fontSize: '14px', lineHeight: 1.5, paddingLeft: '12px', borderLeft: '3px solid var(--accent-highlight)' }}>
+                    <li key={item} style={{ fontSize: '14px', lineHeight: 1.5, paddingLeft: '12px', borderLeft: '3px solid var(--color-accent)' }}>
                       {item}
                     </li>
                   ))}
@@ -126,8 +126,8 @@ export default async function CallDetailPage({ params, searchParams }: { params:
                       <span style={{ fontWeight: 500 }}>{dimension.label}</span>
                       <strong style={{ fontFamily: 'var(--font-mono)' }}>{dimension.score}</strong>
                     </div>
-                    <div style={{ height: '6px', background: 'var(--bg-page)', borderRadius: '4px', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', background: 'var(--accent-primary)', width: `${dimension.score}%` }} />
+                    <div style={{ height: '6px', background: 'var(--color-sidebar)', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', background: 'var(--color-accent)', width: `${dimension.score}%` }} />
                     </div>
                   </div>
                 ))}
@@ -142,8 +142,8 @@ export default async function CallDetailPage({ params, searchParams }: { params:
                         {evidence.timestamp}
                       </time>
                       <div>
-                        <p style={{ fontStyle: 'italic', fontSize: '13px', margin: '0 0 4px', color: 'var(--text-primary)' }}>“{evidence.quote}”</p>
-                        <small style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{evidence.criterion}: {evidence.interpretation}</small>
+                        <p style={{ fontStyle: 'italic', fontSize: '13px', margin: '0 0 4px', color: 'var(--color-text-primary)' }}>“{evidence.quote}”</p>
+                        <small style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>{evidence.criterion}: {evidence.interpretation}</small>
                       </div>
                     </article>
                   ))}
@@ -164,7 +164,7 @@ export default async function CallDetailPage({ params, searchParams }: { params:
         <summary style={{ padding: '16px 24px', fontWeight: 600, fontSize: '14px', listStyle: 'none' }}>
           Detalhes Técnicos & Auditoria
         </summary>
-        <div style={{ padding: '24px', borderTop: '1px solid var(--border)', background: 'var(--bg-page)' }}>
+        <div style={{ padding: '24px', borderTop: '1px solid var(--color-border)', background: 'var(--color-sidebar)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '24px', marginBottom: '32px' }}>
             <div><p className="panel-eyebrow">Status Transcript</p><strong>{call.transcriptStatus}</strong></div>
             <div><p className="panel-eyebrow">Status Análise</p><strong>{call.analysisStatus}</strong></div>

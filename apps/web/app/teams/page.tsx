@@ -41,8 +41,8 @@ export default async function TeamsPage({ searchParams }: { searchParams: Promis
           <input type="hidden" name="front" value={selected.frontKey ?? ""} />
           <input type="hidden" name="team" value={selected.teamId ?? ""} />
           <input type="hidden" name="person" value={selected.personId ?? ""} />
-          <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>Referência temporal:</label>
-          <input type="date" name="at" defaultValue={asOf.value} style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '6px' }} />
+          <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-text-secondary)' }}>Referência temporal:</label>
+          <input type="date" name="at" defaultValue={asOf.value} style={{ border: '1px solid var(--color-border)', borderRadius: '6px', padding: '6px' }} />
           <button type="submit" className="btn btn-outline" style={{ padding: '6px 12px' }}>Aplicar</button>
         </form>
       </section>
@@ -76,14 +76,14 @@ export default async function TeamsPage({ searchParams }: { searchParams: Promis
                     <td>
                       {team.leader_code ? (
                         <>
-                          <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{team.leader_code}</div>
+                          <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>{team.leader_code}</div>
                           <div>{team.leader_name}</div>
                         </>
                       ) : "Sem líder formal"}
                     </td>
                     <td>{headcount} {headcount === 1 ? 'pessoa' : 'pessoas'}</td>
                     <td>{metric?.calls ?? 0} analisadas</td>
-                    <td><strong style={{ color: 'var(--accent-primary)', fontSize: '16px' }}>{metric ? Number(metric.score) : "—"}</strong></td>
+                    <td><strong style={{ color: 'var(--color-accent)', fontSize: '16px' }}>{metric ? Number(metric.score) : "—"}</strong></td>
                     <td><span className="badge badge-success">Ativo</span></td>
                     <td>
                       <div style={{ display: 'flex', gap: '8px' }}>

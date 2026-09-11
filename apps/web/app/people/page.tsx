@@ -46,8 +46,8 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           <input type="hidden" name="front" value={selected.frontKey ?? ""} />
           <input type="hidden" name="team" value={selected.teamId ?? ""} />
           <input type="hidden" name="person" value={selected.personId ?? ""} />
-          <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>Data base:</label>
-          <input type="date" name="at" defaultValue={asOf.value} style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '6px' }} />
+          <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-text-secondary)' }}>Data base:</label>
+          <input type="date" name="at" defaultValue={asOf.value} style={{ border: '1px solid var(--color-border)', borderRadius: '6px', padding: '6px' }} />
           <button type="submit" className="btn btn-outline" style={{ padding: '6px 12px' }}>Aplicar</button>
         </form>
       </section>
@@ -77,7 +77,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
               {personInsights?.recentCalls?.length ? (
                 <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {personInsights.recentCalls.slice(0, 8).map((call) => (
-                    <li key={call.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: 'var(--bg-page)', borderRadius: '8px' }}>
+                    <li key={call.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: 'var(--color-sidebar)', borderRadius: '8px' }}>
                       <span className="td-secondary">{call.startedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(call.startedAt)) : "Sem data"}</span>
                       <strong>Score {call.score ?? "—"}</strong>
                     </li>
@@ -88,7 +88,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
             <div>
               <h3 className="panel-title">Coaching atual (Última Call)</h3>
               {personInsights?.call?.analysis.coaching_actions?.length ? (
-                <ul style={{ paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '12px', color: 'var(--text-secondary)' }}>
+                <ul style={{ paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '12px', color: 'var(--color-text-secondary)' }}>
                   {personInsights.call.analysis.coaching_actions.map((action) => <li key={action}>{action}</li>)}
                 </ul>
               ) : <p className="td-secondary">Sem coaching disponível.</p>}

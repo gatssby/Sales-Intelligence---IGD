@@ -16,13 +16,12 @@ export function AppShell({
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="sidebar-logo">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="24" height="24" rx="6" fill="var(--accent-primary)"/>
-            <path d="M7 17L12 12L17 17" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M7 7L12 12L17 7" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          Sales<span>Intelligence</span>
+        <div className="sidebar-logo" style={{ marginBottom: '32px' }}>
+          <div className="sidebar-logo-icon">1</div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ fontSize: '14px', fontWeight: 500 }}>Sales Intelligence</span>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-secondary)' }}>IGD Workspace</span>
+          </div>
         </div>
         
         <nav className="sidebar-nav">
@@ -31,12 +30,10 @@ export function AppShell({
           <a href="/people" className={`nav-item ${activeRoute === "people" ? "active" : ""}`}>Pessoas</a>
           <a href="/teams" className={`nav-item ${activeRoute === "teams" ? "active" : ""}`}>Times</a>
           <a href="/calls" className={`nav-item ${activeRoute === "calls" ? "active" : ""}`}>Calls</a>
-        </nav>
-        
-        <div className="sidebar-footer sidebar-nav">
+          
           {user.role === 'PLATFORM_ADMIN' && (
             <>
-              <div style={{ padding: '16px 16px 8px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <div style={{ padding: '16px 16px 8px', fontSize: '12px', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
                 Plataforma
               </div>
               <a href="/admin/users" className={`nav-item ${activeRoute === "settings" ? "active" : ""}`}>Usuários e Acessos</a>
@@ -45,6 +42,9 @@ export function AppShell({
               <a href="/admin/ai" className="nav-item">Operações de IA</a>
             </>
           )}
+        </nav>
+        
+        <div className="sidebar-footer sidebar-nav">
           <form action={logoutAction} method="post" style={{ width: "100%" }}>
             <button type="submit" className="nav-item" style={{ width: "100%", justifyContent: "flex-start" }}>Sair ({user.fullName.split(" ")[0]})</button>
           </form>
@@ -53,7 +53,9 @@ export function AppShell({
       
       <div className="app-content">
         <header className="top-header">
-          <h1 className="page-title">{title}</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--color-accent-subtle)', padding: '6px 12px', borderRadius: '6px' }}>
+            <h1 className="page-title" style={{ color: 'var(--color-text-primary)', margin: 0 }}>{title}</h1>
+          </div>
           {scopeSelector}
         </header>
         <main className="main-container">

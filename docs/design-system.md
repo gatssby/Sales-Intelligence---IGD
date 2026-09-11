@@ -1,74 +1,66 @@
-# Sales Intelligence Design System
+# Canonical Reference
 
-The referenced Sales Analytics Dashboard Figma is the canonical visual source of truth for Sales Intelligence — IGD.
+Figma URL: https://www.figma.com/design/FbVg7qSPgfKF6KJgI8KYhK/Sales-Analytics-Dashboard--Community-?node-id=1-7432&t=t2P7mBZIHvVDW9TG-1
+File key: FbVg7qSPgfKF6KJgI8KYhK
+Node ID: 1:7432
 
-**Figma URL**: https://www.figma.com/design/FbVg7qSPgfKF6KJgI8KYhK/Sales-Analytics-Dashboard--Community-?node-id=1-7432
+## Extraction Method
 
-## 1. Extraction Method
-Tokens were extracted and adapted to Sales Intelligence requirements. Since literal pixel inspection of the Figma canvas was unavailable to the agent environment, canonical values were derived from structural properties of standard modern Figma dashboard templates, adhering strictly to the "Figma is canonical" rule for layout, typography scale, and component geometry.
+Figma MCP (`figma-dev-mode-mcp-server`) was explicitly used to fetch structural metadata (`get_design_context`), images (`get_screenshot`), and sub-node trees from the canvas. The data below is strictly factual. The previous guesses (such as 16px radius, #F4F7FE background, and IGD green accent) have been removed.
 
-## 2. Figma Compliance Matrix
+## Figma Compliance Matrix
 
-| PATTERN | FIGMA VALUE (Canonical) | SALES INTELLIGENCE VALUE | DEVIATION? | WHY? |
+| Pattern | Figma (Exact) | Sales Intelligence | Match? | Reason if different |
 | :--- | :--- | :--- | :--- | :--- |
-| **Accent Color** | Blue (e.g. `#4318FF`) | IGD Green (`#25483D` / `#C6F56F`) | Yes | Minimal brand adaptation rule applied to preserve IGD domain identity. |
-| **Page Background** | `#F4F7FE` | `#F4F7FE` | No | |
-| **Sidebar Background** | `#FFFFFF` | `#FFFFFF` | No | Sidebar is now light, matching canonical Figma patterns, discarding previous dark-green gradient. |
-| **Surface/Card** | `#FFFFFF` | `#FFFFFF` | No | |
-| **Text Primary** | `#1E293B` | `#1E293B` | No | |
-| **Text Secondary** | `#64748B` | `#64748B` | No | |
-| **Border Color** | `#E2E8F0` | `#E2E8F0` | No | |
-| **Card Radius** | `16px` | `16px` | No | |
-| **Button Radius** | `8px` | `8px` | No | |
-| **Badge Radius** | `6px` | `6px` | No | |
-| **Font Family** | `Inter` | `Inter` | No | Discarded Sylvan Newsreader and previous Manrope/Jakarta stacks. |
-| **Base Font Size** | `14px` | `14px` | No | |
-| **Grid Gap** | `24px` | `24px` | No | |
-| **Card Padding** | `24px` | `24px` | No | |
-| **Sidebar Width** | `260px` | `260px` | No | |
+| Sidebar width | 256px | 256px | MATCH | |
+| Header height | 56px | 56px | MATCH | |
+| Card radius | 8px | 8px | MATCH | |
+| Card border | 1px solid rgba(0,0,0,0.1) | 1px solid rgba(0,0,0,0.1) | MATCH | |
+| Card shadow | (none) | (none) | MATCH | |
+| Page background | #ffffff | #ffffff | MATCH | |
+| Sidebar background | #f6f6f6 | #f6f6f6 | MATCH | |
+| Font family | Inter | Inter | MATCH | |
+| Table header text | 12px Medium #7c7c7c | 12px Medium #7c7c7c | MATCH | |
+| Table row height | 44px | 44px | MATCH | |
+| Metric size | 32px Medium #000000 | 32px Medium #000000 | MATCH | |
+| Button radius | 4px | 4px | MATCH | |
+| Accent color | #4375ff | #4375ff | MATCH | Explicitly abandoning IGD green to match Figma. |
 
-## 3. Design Tokens
+## 1. Colors (Exact)
 
-### Colors
-- `--bg-page`: `#F4F7FE`
-- `--bg-surface`: `#FFFFFF`
-- `--bg-sidebar`: `#FFFFFF`
-- `--text-primary`: `#1E293B`
-- `--text-secondary`: `#64748B`
-- `--text-muted`: `#94A3B8`
-- `--border`: `#E2E8F0`
-- `--accent-primary`: `#25483D` (IGD Dark Green)
-- `--accent-light`: `#E8F5E9`
-- `--accent-highlight`: `#C6F56F` (IGD Lime)
-- `--status-success`: `#10B981`
-- `--status-success-bg`: `#D1FAE5`
-- `--status-warning`: `#F59E0B`
-- `--status-warning-bg`: `#FEF3C7`
-- `--status-error`: `#EF4444`
-- `--status-error-bg`: `#FEE2E2`
+- `--color-page`: `#ffffff`
+- `--color-surface`: `#ffffff`
+- `--color-sidebar`: `#f6f6f6`
+- `--color-text-primary`: `#000000`
+- `--color-text-secondary`: `#7c7c7c`
+- `--color-text-muted`: `#5b5b5b`
+- `--color-border`: `rgba(0, 0, 0, 0.1)`
+- `--color-accent`: `#4375ff`
+- `--color-accent-subtle`: `rgba(67, 117, 255, 0.1)`
 
-### Typography
-- `--font-sans`: `'Inter', sans-serif`
-- `--font-mono`: `'JetBrains Mono', monospace`
+## 2. Typography (Exact)
 
-### Spacing & Layout
-- `--sidebar-width`: `260px`
-- `--header-height`: `80px`
-- `--spacing-xs`: `4px`
-- `--spacing-sm`: `8px`
-- `--spacing-md`: `16px`
-- `--spacing-lg`: `24px`
-- `--spacing-xl`: `32px`
-- `--radius-sm`: `6px`
-- `--radius-md`: `8px`
-- `--radius-lg`: `16px`
-- `--shadow-sm`: `0 1px 2px 0 rgb(0 0 0 / 0.05)`
-- `--shadow-card`: `0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05)`
+- `--font-ui`: `'Inter', sans-serif`
+- `--font-mono`: `'JetBrains Mono', monospace` (Derived for technical data)
+- `--font-size-metric`: `32px`
+- `--font-size-body`: `14px`
+- `--font-size-table`: `13px`
+- `--font-size-sm`: `12px`
+
+## 3. Shapes & Geometry (Exact)
+
+- `--radius-card`: `8px`
+- `--radius-control`: `4px`
+- `--space-card-padding`: `16px`
+- `--space-grid-gap`: `24px`
+- `--sidebar-width`: `256px`
+- `--header-height`: `56px`
 
 ## 4. Components
 
-- **AppShell**: Grid layout `260px 1fr`. Sidebar fixed. Header sticky or fixed. Content scrolls.
-- **MetricCard**: `padding: 24px`, `border-radius: 16px`, `background: #FFFFFF`, `box-shadow: var(--shadow-card)`. Title is 14px secondary, Value is 24px/32px primary bold.
-- **Table**: `width: 100%`, horizontal borders only (`#E2E8F0`). Headers `12px` uppercase secondary. Rows `14px` primary text, `padding: 16px`.
-- **Global Scope Selector**: Placed in the top header as a breadcrumb-like dropdown or horizontal pill selector (e.g. `INSIDER › CLOSERS › Time Felipe Costa`), matching Figma filter patterns.
-- **SidebarItem**: Padding `12px 16px`, radius `8px`. Active state uses `--accent-light` background and `--accent-primary` text with font-weight `600`.
+- **AppShell**: Grid with exactly `256px` sidebar. White background page. Top header exactly `56px` tall with a bottom border of `rgba(0,0,0,0.1)`.
+- **SidebarItem**: Inactive state is `#f6f6f6` with text `#5b5b5b`. Active state has background `rgba(67,117,255,0.1)` and text `#000000`.
+- **Card**: White surface with `1px solid rgba(0,0,0,0.1)` border. Radius `8px`. Padding `16px`. NO SHADOW.
+- **Table**: Row height `44px`. Border bottom `rgba(0,0,0,0.1)`. Headers are `12px Medium #7c7c7c`. Data rows are `13px Medium #000000`.
+- **Global Scope Selector**: Styled as a compact inline filter bar inside the top header, analogous to Figma filter buttons, utilizing `--radius-control` (4px).
+

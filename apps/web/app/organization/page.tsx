@@ -39,8 +39,8 @@ export default async function OrganizationPage({ searchParams }: { searchParams:
           <input type="hidden" name="front" value={selected.frontKey ?? ""} />
           <input type="hidden" name="team" value={selected.teamId ?? ""} />
           <input type="hidden" name="person" value={selected.personId ?? ""} />
-          <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>Estrutura vigente em:</label>
-          <input type="date" name="at" defaultValue={asOf.value} style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '6px' }} />
+          <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-text-secondary)' }}>Estrutura vigente em:</label>
+          <input type="date" name="at" defaultValue={asOf.value} style={{ border: '1px solid var(--color-border)', borderRadius: '6px', padding: '6px' }} />
           <button type="submit" className="btn btn-outline" style={{ padding: '6px 12px' }}>Aplicar</button>
         </form>
       </section>
@@ -84,7 +84,7 @@ export default async function OrganizationPage({ searchParams }: { searchParams:
                 <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {members.slice(0, 5).map((person) => (
                     <li key={person.person_id!}>
-                      <a href={scopeHref("/people", { productKey: team.product_key, frontKey: team.front_key, teamId: team.team_id, personId: person.person_id }, extra)} style={{ fontSize: '14px', color: 'var(--accent-primary)', fontWeight: 500 }}>
+                      <a href={scopeHref("/people", { productKey: team.product_key, frontKey: team.front_key, teamId: team.team_id, personId: person.person_id }, extra)} style={{ fontSize: '14px', color: 'var(--color-accent)', fontWeight: 500 }}>
                         {person.person_code} · {person.person_name}
                       </a>
                     </li>
@@ -93,7 +93,7 @@ export default async function OrganizationPage({ searchParams }: { searchParams:
                 </ul>
               </div>
               
-              <div style={{ display: 'flex', gap: '12px', marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', gap: '12px', marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid var(--color-border)' }}>
                 <a className="btn btn-primary" style={{ flex: 1 }} href={scopeHref("/", { productKey: team.product_key, frontKey: team.front_key, teamId: team.team_id })}>Analisar Equipe</a>
                 <a className="btn btn-outline" style={{ flex: 1 }} href={scopeHref("/calls", { productKey: team.product_key, frontKey: team.front_key, teamId: team.team_id })}>Ver Calls</a>
               </div>
