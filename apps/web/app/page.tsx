@@ -1,124 +1,108 @@
-import { getAiSpendData, getDashboardData, getProgressData } from "@/lib/data";
-import { hasCapability } from "@igd/auth";
+import { getDashboardData } from "@/lib/data";
 import { requireUser } from "@/lib/auth/session";
 import { OrganizationScopeSelector } from "@/app/components/OrganizationScopeSelector";
 import { PostgresOrganizationRepository } from "@igd/db";
 import { getSql } from "@/lib/database";
 import { defaultOrganizationSelection, parseOrganizationSelection, scopeHref } from "@/lib/organization-scope";
 import { AppShell } from "@/app/components/AppShell";
+import { Avatar, EmptyState, MetricCard, MiniBars, ProgressBar, SectionHeader, StatusBadge } from "@/app/components/VisualPrimitives";
+import { Icon } from "@/app/components/Icon";
 
 export const dynamic = "force-dynamic";
+
+const shortDate = (value: string | null) => value
+  ? new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", timeZone: "America/Sao_Paulo" }).format(new Date(value))
+  : "Sem data";
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await requireUser();
   const requested = parseOrganizationSelection(await searchParams);
   const selected = Object.keys(requested).length ? requested : defaultOrganizationSelection(user);
-  
-  const canManage = hasCapability(user, "users:manage");
-  
   const [data, organizationRows] = await Promise.all([
     getDashboardData(user, selected),
     new PostgresOrganizationRepository(getSql()).getTree(user),
   ]);
-
   const scopeSelector = <OrganizationScopeSelector pathname="/" selected={selected} rows={organizationRows} />;
 
   if (!data.call) {
     return (
       <AppShell user={{ fullName: user.displayName, role: user.role }} activeRoute="overview" title="Visão Geral" scopeSelector={scopeSelector}>
-        <div className="panel" style={{ textAlign: 'center', padding: '64px 24px' }}>
-          <h2 className="panel-title" style={{ fontSize: '18px', marginBottom: '8px' }}>Nenhuma análise disponível</h2>
-          <p className="td-secondary">Seu escopo atual não possui calls analisadas. Ajuste o escopo no topo da página.</p>
-        </div>
+        <div className="page-intro"><div><p className="page-kicker">Performance comercial</p><h2>Visão do seu escopo</h2><p>Indicadores e qualidade das calls dentro da organização autorizada.</p></div></div>
+        <section className="panel"><EmptyState icon="analytics" title="Nenhuma análise disponível" description="Seu escopo atual ainda não possui calls analisadas. Ajuste o Escopo global no topo da página." /></section>
       </AppShell>
     );
   }
 
-  const summary = data.summary!;
+  const summary = data.summary;
   const coveragePercent = Math.round(summary.analyzedCalls / Math.max(summary.transcriptCalls, 1) * 100);
-  
+  const scoredRecentCalls = data.recentCalls.filter((call) => call.score !== null);
+
   return (
     <AppShell user={{ fullName: user.displayName, role: user.role }} activeRoute="overview" title="Visão Geral" scopeSelector={scopeSelector}>
-      
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '8px' }}>
-        <h2 style={{ fontSize: '16px', fontWeight: 600 }}>Performance Comercial</h2>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <div className="scope-node">Calls reais: {summary.analyzedCalls}</div>
-          <div className="scope-node">Todo o histórico</div>
-        </div>
+      <div className="page-intro">
+        <div><p className="page-kicker">Performance comercial</p><h2>Olá, {user.displayName.split(" ")[0]}</h2><p>Acompanhe a qualidade das calls e os principais sinais do escopo atual.</p></div>
+        <div className="page-intro-controls"><span className="control-chip"><Icon name="calls" size={16} />{summary.analyzedCalls} calls reais</span><span className="control-chip"><Icon name="calendar" size={16} />Todo o histórico</span></div>
       </div>
 
       <section className="metrics-grid">
-        <article className="panel metric-card">
-          <p className="panel-eyebrow">Score Médio</p>
-          <strong className="metric-value">{summary.averageScore}</strong>
-        </article>
-        <article className="panel metric-card">
-          <p className="panel-eyebrow">Cobertura IA</p>
-          <strong className="metric-value">{coveragePercent}%</strong>
-        </article>
-        <article className="panel metric-card">
-          <p className="panel-eyebrow">Volume Analisado</p>
-          <strong className="metric-value">{summary.analyzedCalls}</strong>
-        </article>
-        <article className="panel metric-card">
-          <p className="panel-eyebrow">Maior Oportunidade</p>
-          <strong className="metric-value" style={{ fontSize: '18px', paddingTop: '8px', lineHeight: 1.2 }}>{summary.topOpportunityLabel}</strong>
-        </article>
+        <MetricCard label="Score médio" value={summary.averageScore} icon="analytics" note="média das calls avaliáveis" />
+        <MetricCard label="Cobertura de IA" value={`${coveragePercent}%`} icon="report" note={`${summary.transcriptCalls} transcripts no escopo`} />
+        <MetricCard label="Volume analisado" value={summary.analyzedCalls} icon="calls" note={`${summary.sellerCount} pessoas com análise`} />
+        <MetricCard label="Maior oportunidade" value={summary.topOpportunityLabel} icon="organization" compact note="classificação mais recorrente" />
       </section>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '24px' }}>
-        <section className="panel" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '16px' }}>
-            <h2 className="panel-title" style={{ margin: 0 }}>Distribuição por Dimensão</h2>
-          </div>
-          <div className="table-container" style={{ padding: '0 16px' }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Dimensão</th>
-                  <th style={{ width: '80px', textAlign: 'right' }}>Score</th>
-                  <th style={{ width: '80px', textAlign: 'right' }}>Volume</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.call.analysis.dimensions.map((dim) => (
-                  <tr key={dim.key}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ width: '8px', height: '8px', borderRadius: '4px', background: dim.score >= 80 ? 'var(--status-success)' : dim.score >= 65 ? 'var(--status-warning)' : 'var(--status-error)' }} />
-                        {dim.label}
-                      </div>
-                    </td>
-                    <td style={{ textAlign: 'right' }}><strong>{dim.score}</strong></td>
-                    <td style={{ textAlign: 'right' }} className="td-secondary">{summary.analyzedCalls}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-        
-        <section className="panel" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '16px' }}>
-            <h2 className="panel-title" style={{ margin: 0 }}>Ranking da Equipe</h2>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '0 16px 16px' }}>
-            {data.sellers.map((seller, index) => (
-              <div key={seller.sellerName} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                  <span><span className="td-secondary" style={{ marginRight: '8px' }}>{index + 1}.</span> {seller.sellerName}</span>
-                  <strong style={{ fontFamily: 'var(--font-mono)' }}>{seller.score}</strong>
-                </div>
-                <div style={{ height: '6px', background: 'var(--color-sidebar)', borderRadius: '3px', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', background: 'var(--color-accent)', width: `${seller.score}%`, borderRadius: '3px' }} />
-                </div>
+      <section className="analytics-layout">
+        <article className="panel analytics-card">
+          <SectionHeader eyebrow="Qualidade por etapa" title="Distribuição por dimensão" description="Médias consolidadas das calls no escopo atual." icon="analytics" />
+          <div className="dimension-chart">
+            {data.dimensions.map((dimension) => (
+              <div className="dimension-row" key={dimension.key}>
+                <div><span>{dimension.label}</span><small>{dimension.calls} calls</small></div>
+                <ProgressBar value={dimension.score} label={`${dimension.label}: ${dimension.score}`} />
+                <strong>{dimension.score}</strong>
               </div>
             ))}
           </div>
-        </section>
-      </div>
-      
+          {!data.dimensions.length ? <EmptyState icon="analytics" title="Sem dimensões consolidadas" description="As dimensões aparecerão quando existirem análises válidas neste escopo." /> : null}
+        </article>
+
+        <article className="panel ranking-card">
+          <SectionHeader eyebrow="Benchmark interno" title="Ranking de performance" description="Score médio por pessoa, sem reclassificar o histórico." icon="people" />
+          <div className="ranking-list">
+            {data.sellers.slice(0, 7).map((seller, index) => (
+              <div className="ranking-row" key={`${seller.sellerCode}-${seller.sellerName}`}>
+                <span className="ranking-position">{String(index + 1).padStart(2, "0")}</span>
+                <Avatar name={seller.sellerName} code={seller.sellerCode} size="sm" />
+                <div className="ranking-person"><strong>{seller.sellerName}</strong><small>{seller.sellerCode ?? "Sem V-code"} · {seller.calls} calls</small><ProgressBar value={seller.score} /></div>
+                <strong className="ranking-score">{seller.score}</strong>
+              </div>
+            ))}
+          </div>
+          {!data.sellers.length ? <EmptyState icon="people" title="Sem ranking disponível" description="Nenhuma pessoa possui calls avaliáveis no escopo selecionado." /> : null}
+        </article>
+      </section>
+
+      <section className="panel recent-calls-card">
+        <SectionHeader eyebrow="Atividade recente" title="Últimas calls analisadas" description="Amostra recente do escopo, com os scores reais registrados." icon="calls" action={scoredRecentCalls.length ? <MiniBars values={scoredRecentCalls.map((call) => call.score ?? 0)} /> : undefined} />
+        {data.recentCalls.length ? (
+          <div className="table-container">
+            <table className="data-table">
+              <thead><tr><th>Data</th><th>Pessoa</th><th>Cliente</th><th>Produto / time</th><th>Score</th><th>Status</th><th aria-label="Ações" /></tr></thead>
+              <tbody>{data.recentCalls.slice(0, 6).map((call) => (
+                <tr key={call.id}>
+                  <td className="td-secondary">{shortDate(call.startedAt)}</td>
+                  <td><div className="person-cell"><Avatar name={call.sellerName} size="sm" /><strong>{call.sellerName}</strong></div></td>
+                  <td>{call.customerName ?? "Não informado"}</td>
+                  <td><div className="stacked-cell"><strong>{call.product.toUpperCase()}</strong><span>{call.teamName ?? "Sem time atribuído"}</span></div></td>
+                  <td><span className="score-cell">{call.score ?? "—"}</span></td>
+                  <td><StatusBadge tone={call.score === null ? "warning" : "success"}>{call.score === null ? "Não avaliável" : "Analisada"}</StatusBadge></td>
+                  <td className="table-action"><a className="icon-link" href={scopeHref(`/calls/${call.id}`, selected)} aria-label="Abrir detalhe"><Icon name="report" size={16} /></a></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        ) : <EmptyState icon="calls" title="Nenhuma call recente" description="As calls analisadas aparecerão aqui quando estiverem disponíveis." />}
+      </section>
     </AppShell>
   );
 }

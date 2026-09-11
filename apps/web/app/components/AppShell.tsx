@@ -1,66 +1,96 @@
+import type { ReactNode } from "react";
 import { logoutAction } from "@/app/logout/actions";
+import { Icon, type IconName } from "./Icon";
+import { Avatar } from "./VisualPrimitives";
+
+type NavItem = { href: string; label: string; route: string; icon: IconName };
+
+const commercialItems: NavItem[] = [
+  { href: "/", label: "Visão Geral", route: "overview", icon: "overview" },
+  { href: "/organization", label: "Organização", route: "organization", icon: "organization" },
+  { href: "/people", label: "Pessoas", route: "people", icon: "people" },
+  { href: "/teams", label: "Times", route: "teams", icon: "teams" },
+  { href: "/calls", label: "Calls", route: "calls", icon: "calls" },
+];
+
+const adminItems: NavItem[] = [
+  { href: "/admin/users", label: "Usuários e acessos", route: "users", icon: "userPlus" },
+  { href: "/admin/organization-sync", label: "Sincronização", route: "sync", icon: "integrations" },
+  { href: "/admin/integrity", label: "Integridade", route: "integrity", icon: "analytics" },
+  { href: "/admin/ai", label: "Operações de IA", route: "ai", icon: "report" },
+];
+
+function NavigationItem({ item, activeRoute }: { item: NavItem; activeRoute: string }) {
+  const active = activeRoute === item.route || (activeRoute === "settings" && item.route === "users");
+  return <a href={item.href} className={`nav-item ${active ? "active" : ""}`} aria-current={active ? "page" : undefined}><Icon name={item.icon} />{item.label}</a>;
+}
 
 export function AppShell({
   user,
   activeRoute,
   title,
   scopeSelector,
-  children
+  children,
 }: {
   user: { fullName: string; role?: string };
   activeRoute: string;
   title: string;
-  scopeSelector?: React.ReactNode;
-  children: React.ReactNode;
+  scopeSelector?: ReactNode;
+  children: ReactNode;
 }) {
+  const isAdmin = user.role === "ADMIN" || user.role === "PLATFORM_ADMIN";
+  const currentIcon = [...commercialItems, ...adminItems].find((item) => item.route === activeRoute)?.icon ?? "overview";
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="sidebar-logo" style={{ marginBottom: '32px' }}>
-          <div className="sidebar-logo-icon">1</div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: '14px', fontWeight: 500 }}>Sales Intelligence</span>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-secondary)' }}>IGD Workspace</span>
-          </div>
+        <div className="workspace-identity">
+          <div className="sidebar-logo-icon">SI</div>
+          <div className="workspace-copy"><strong>Sales Intelligence</strong><span>IGD Workspace</span></div>
+          <Icon name="chevronDown" size={16} />
         </div>
-        
-        <nav className="sidebar-nav">
-          <a href="/" className={`nav-item ${activeRoute === "overview" ? "active" : ""}`}>Visão Geral</a>
-          <a href="/organization" className={`nav-item ${activeRoute === "organization" ? "active" : ""}`}>Organização</a>
-          <a href="/people" className={`nav-item ${activeRoute === "people" ? "active" : ""}`}>Pessoas</a>
-          <a href="/teams" className={`nav-item ${activeRoute === "teams" ? "active" : ""}`}>Times</a>
-          <a href="/calls" className={`nav-item ${activeRoute === "calls" ? "active" : ""}`}>Calls</a>
-          
-          {user.role === 'PLATFORM_ADMIN' && (
-            <>
-              <div style={{ padding: '16px 16px 8px', fontSize: '12px', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
-                Plataforma
-              </div>
-              <a href="/admin/users" className={`nav-item ${activeRoute === "settings" ? "active" : ""}`}>Usuários e Acessos</a>
-              <a href="/admin/organization-sync" className="nav-item">Sincronização Org.</a>
-              <a href="/admin/integrity" className="nav-item">Integridade</a>
-              <a href="/admin/ai" className="nav-item">Operações de IA</a>
-            </>
-          )}
+
+        <a className="sidebar-search" href="/calls">
+          <span><Icon name="search" />Buscar calls</span>
+          <kbd><Icon name="command" size={14} /> K</kbd>
+        </a>
+
+        <nav className="sidebar-nav" aria-label="Navegação principal">
+          <div className="nav-group">
+            {commercialItems.map((item) => <NavigationItem key={item.route} item={item} activeRoute={activeRoute} />)}
+          </div>
+
+          {isAdmin ? (
+            <div className="nav-group">
+              <p className="nav-group-label">Plataforma</p>
+              {adminItems.map((item) => <NavigationItem key={item.route} item={item} activeRoute={activeRoute} />)}
+            </div>
+          ) : null}
         </nav>
-        
-        <div className="sidebar-footer sidebar-nav">
-          <form action={logoutAction} method="post" style={{ width: "100%" }}>
-            <button type="submit" className="nav-item" style={{ width: "100%", justifyContent: "flex-start" }}>Sair ({user.fullName.split(" ")[0]})</button>
+
+        <div className="sidebar-footer">
+          <div className="sidebar-context-card">
+            <span className="context-card-icon"><Icon name="analytics" /></span>
+            <div><strong>Inteligência comercial</strong><p>Dados reais, leitura por escopo e histórico preservado.</p></div>
+            <a href="/organization">Explorar organização</a>
+          </div>
+          <form action={logoutAction} className="account-row">
+            <Avatar name={user.fullName} size="sm" />
+            <span><strong>{user.fullName}</strong><small>{user.role === "ADMIN" ? "Administrador" : "Acesso comercial"}</small></span>
+            <button type="submit">Sair</button>
           </form>
         </div>
       </aside>
-      
+
       <div className="app-content">
         <header className="top-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--color-accent-subtle)', padding: '6px 12px', borderRadius: '6px' }}>
-            <h1 className="page-title" style={{ color: 'var(--color-text-primary)', margin: 0 }}>{title}</h1>
+          <div className="header-page-identity"><Icon name={currentIcon} /><h1 className="page-title">{title}</h1></div>
+          <div className="header-actions">
+            {scopeSelector}
+            <div className="header-account" title={user.fullName}><Avatar name={user.fullName} size="sm" /><Icon name="chevronDown" size={16} /></div>
           </div>
-          {scopeSelector}
         </header>
-        <main className="main-container">
-          {children}
-        </main>
+        <main className="main-container">{children}</main>
       </div>
     </div>
   );

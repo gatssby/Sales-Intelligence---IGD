@@ -4,182 +4,85 @@ import { getCallDetail } from "@/lib/data";
 import { TranscriptPanel } from "@/app/components/TranscriptPanel";
 import { parseOrganizationSelection, scopeHref } from "@/lib/organization-scope";
 import { AppShell } from "@/app/components/AppShell";
+import { Avatar, EmptyState, ProgressBar, ScoreRing, SectionHeader, StatusBadge } from "@/app/components/VisualPrimitives";
+import { Icon } from "@/app/components/Icon";
 
 export const dynamic = "force-dynamic";
 
 const formatDate = (value: string | null) => value ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(value)) : "Não informada";
+const formatCost = (value: number | null) => value === null ? "—" : `$${value.toFixed(6)}`;
 
 export default async function CallDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await requireCapability("calls:read");
   const selected = parseOrganizationSelection(await searchParams);
   const call = await getCallDetail(user, (await params).id, selected);
   if (!call) notFound();
-  
   const analysis = call.analysis;
-  
-  return (
-    <AppShell user={{ fullName: user.displayName, role: user.role }} activeRoute="calls" title={`${call.customerName ?? "Cliente não informado"} × ${call.sellerName}`}>
-      <div style={{ marginBottom: '24px' }}>
-        <a className="btn btn-outline" style={{ display: 'inline-flex', padding: '6px 12px' }} href={scopeHref("/calls", selected)}>← Voltar para Calls</a>
-      </div>
+  const transcriptTone = call.transcriptStatus === "available" ? "success" : call.transcriptStatus === "access_issue" ? "error" : "warning";
+  const analysisTone = call.analysisStatus === "completed" ? "success" : call.analysisStatus.includes("fail") ? "error" : "warning";
 
-      <section className="panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <p className="panel-eyebrow">Metadados da Call</p>
-          <div style={{ display: 'flex', gap: '16px', fontSize: '14px', color: 'var(--color-text-secondary)' }}>
-            <span><strong>Data:</strong> {formatDate(call.startedAt)}</span>
-            <span><strong>Produto:</strong> {call.product.toUpperCase()}</span>
-            <span><strong>Equipe:</strong> {call.teamName ?? "Sem time"}</span>
-            <span><strong>V-Code:</strong> {call.sellerCode ?? "—"}</span>
-          </div>
+  return (
+    <AppShell user={{ fullName: user.displayName, role: user.role }} activeRoute="calls" title="Detalhe da call">
+      <div className="detail-toolbar"><a className="btn btn-outline" href={scopeHref("/calls", selected)}><Icon name="chevronDown" size={14} className="icon-left" />Voltar para calls</a><div><StatusBadge tone={transcriptTone}>{call.transcriptStatus === "available" ? "Transcript disponível" : call.transcriptStatus === "access_issue" ? "Problema no transcript" : "Aguardando transcript"}</StatusBadge><StatusBadge tone={analysisTone}>{call.analysisStatus === "completed" ? "Análise concluída" : call.analysisStatus}</StatusBadge></div></div>
+
+      <section className="panel call-hero">
+        <div className="call-hero-identity">
+          <Avatar name={call.sellerName} code={call.sellerCode} size="lg" />
+          <div><p className="page-kicker">Relatório analítico</p><h2>{call.customerName ?? "Cliente não informado"} <span>×</span> {call.sellerName}</h2><div className="call-meta-line"><span><Icon name="calendar" size={16} />{formatDate(call.startedAt)}</span><span><Icon name="organization" size={16} />{call.product.toUpperCase()}</span><span><Icon name="teams" size={16} />{call.teamName ?? "Sem time"}</span><span><Icon name="people" size={16} />{call.sellerCode ?? "Sem V-code"}</span></div></div>
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <p className="panel-eyebrow">Score Geral</p>
-          <strong style={{ fontSize: '32px', color: 'var(--color-accent)', lineHeight: 1 }}>
-            {call.analysisEligibility === "unscorable" ? "—" : call.score ?? "—"}
-          </strong>
-        </div>
+        <ScoreRing value={call.analysisEligibility === "unscorable" ? null : call.score} label="Score geral" />
       </section>
 
       {analysis ? (
         <>
-          <section className="panel" style={{ borderLeft: '4px solid var(--color-accent)' }}>
-            <p className="panel-eyebrow">Diagnóstico Principal</p>
-            <h2 style={{ fontSize: '24px', fontWeight: 600, margin: '16px 0', lineHeight: 1.4, color: 'var(--color-text-primary)' }}>
-              {analysis.executive_summary}
-            </h2>
-            
-            <div style={{ display: 'flex', gap: '32px', paddingTop: '16px', borderTop: '1px solid var(--color-border)' }}>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span className="panel-eyebrow">Qualidade da Oportunidade</span>
-                <strong style={{ fontSize: '14px' }}>{analysis.opportunity_quality_label}</strong>
+          <section className="panel diagnosis-card">
+            <div className="diagnosis-accent"><Icon name="analytics" size={24} /></div>
+            <div className="diagnosis-content">
+              <p className="panel-eyebrow">Diagnóstico principal</p>
+              <h2>{analysis.executive_summary}</h2>
+              <div className="diagnosis-facts">
+                <div><span>Qualidade da oportunidade</span><strong>{analysis.opportunity_quality_label}</strong></div>
+                <div><span>Resultado</span><strong>{analysis.call_outcome_label}</strong></div>
+                <div><span>Confiança da IA</span><strong>{Math.round(analysis.confidence * 100)}%</strong></div>
+                <div><span>Revisão humana</span><StatusBadge tone={call.humanReviewRequested ? "warning" : "success"}>{call.humanReviewRequested ? "Recomendada" : "Dispensada"}</StatusBadge></div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span className="panel-eyebrow">Resultado</span>
-                <strong style={{ fontSize: '14px' }}>{analysis.call_outcome_label}</strong>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span className="panel-eyebrow">Confiança da IA</span>
-                <strong style={{ fontSize: '14px' }}>{Math.round(analysis.confidence * 100)}%</strong>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span className="panel-eyebrow">Revisão Humana</span>
-                <strong style={{ fontSize: '14px', color: call.humanReviewRequested ? 'var(--status-warning)' : 'var(--color-text-primary)' }}>
-                  {call.humanReviewRequested ? "Recomendada" : "Dispensada"}
-                </strong>
-              </div>
+              {call.analysisEligibility === "unscorable" ? <div className="inline-alert warning"><Icon name="report" size={18} /><div><strong>Call não avaliável</strong><p>{call.unscorableReason ?? analysis.unscorable_reason}</p></div></div> : null}
             </div>
-            
-            {call.analysisEligibility === "unscorable" && (
-              <div style={{ marginTop: '16px', padding: '12px', background: 'var(--status-warning-bg)', borderRadius: '8px' }}>
-                <strong style={{ color: 'var(--status-warning)' }}>Call não avaliável</strong>
-                <p style={{ fontSize: '14px', marginTop: '4px' }}>{call.unscorableReason ?? analysis.unscorable_reason}</p>
-              </div>
-            )}
           </section>
 
-          <div className="two-column">
-            <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              <h3 className="panel-title">Análise Estrutural</h3>
-              
-              <div>
-                <p className="panel-eyebrow">Pontos Fortes</p>
-                <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {analysis.strengths.map((item, i) => (
-                    <li key={item} style={{ display: 'flex', gap: '12px', fontSize: '14px', lineHeight: 1.5 }}>
-                      <span className="badge badge-success" style={{ height: 'fit-content' }}>0{i + 1}</span> {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              
-              <div>
-                <p className="panel-eyebrow">Vulnerabilidades</p>
-                <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {analysis.critical_failures.map((item, i) => (
-                    <li key={item} style={{ display: 'flex', gap: '12px', fontSize: '14px', lineHeight: 1.5 }}>
-                      <span className="badge badge-error" style={{ height: 'fit-content' }}>0{i + 1}</span> {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              
-              <div>
-                <p className="panel-eyebrow">Coaching Sugerido</p>
-                <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {analysis.coaching_actions.map((item) => (
-                    <li key={item} style={{ fontSize: '14px', lineHeight: 1.5, paddingLeft: '12px', borderLeft: '3px solid var(--color-accent)' }}>
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+          <section className="call-analysis-grid">
+            <div className="analysis-story">
+              <article className="panel insight-card">
+                <SectionHeader eyebrow="Leitura da condução" title="Análise estrutural" description="Forças, vulnerabilidades e a próxima ação recomendada." icon="report" />
+                <div className="insight-section positive"><h3><span><i />Pontos fortes</span><small>{analysis.strengths.length}</small></h3>{analysis.strengths.length ? <ol>{analysis.strengths.map((item, index) => <li key={item}><span>{String(index + 1).padStart(2, "0")}</span><p>{item}</p></li>)}</ol> : <EmptyState icon="analytics" title="Sem forças registradas" description="A análise não retornou pontos fortes estruturados." />}</div>
+                <div className="insight-section negative"><h3><span><i />Vulnerabilidades</span><small>{analysis.critical_failures.length}</small></h3>{analysis.critical_failures.length ? <ol>{analysis.critical_failures.map((item, index) => <li key={item}><span>{String(index + 1).padStart(2, "0")}</span><p>{item}</p></li>)}</ol> : <EmptyState icon="report" title="Sem vulnerabilidades críticas" description="Nenhuma falha crítica foi registrada nesta análise." />}</div>
+                <div className="coaching-panel"><div className="coaching-panel-icon"><Icon name="people" size={20} /></div><div><p className="panel-eyebrow">Coaching sugerido</p>{analysis.coaching_actions.length ? <ol className="coaching-list">{analysis.coaching_actions.map((item, index) => <li key={item}><span>{String(index + 1).padStart(2, "0")}</span><p>{item}</p></li>)}</ol> : <p className="muted-copy">Sem coaching registrado para esta call.</p>}</div></div>
+              </article>
             </div>
 
-            <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              <h3 className="panel-title">Dimensões & Evidências</h3>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-                {analysis.dimensions.map((dimension) => (
-                  <div key={dimension.key} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                      <span style={{ fontWeight: 500 }}>{dimension.label}</span>
-                      <strong style={{ fontFamily: 'var(--font-mono)' }}>{dimension.score}</strong>
-                    </div>
-                    <div style={{ height: '6px', background: 'var(--color-sidebar)', borderRadius: '4px', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', background: 'var(--color-accent)', width: `${dimension.score}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div>
-                <p className="panel-eyebrow">Momentos Chave</p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {analysis.evidence.map((evidence) => (
-                    <article key={`${evidence.timestamp}-${evidence.criterion}`} style={{ display: 'flex', gap: '12px' }}>
-                      <time className="badge badge-neutral" style={{ height: 'fit-content', fontFamily: 'var(--font-mono)' }}>
-                        {evidence.timestamp}
-                      </time>
-                      <div>
-                        <p style={{ fontStyle: 'italic', fontSize: '13px', margin: '0 0 4px', color: 'var(--color-text-primary)' }}>“{evidence.quote}”</p>
-                        <small style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>{evidence.criterion}: {evidence.interpretation}</small>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
+            <div className="analysis-evidence">
+              <article className="panel dimension-card">
+                <SectionHeader eyebrow="Scorecard" title="Dimensões" description="Pontuação registrada por critério da rubrica." icon="analytics" />
+                <div className="dimension-detail-list">{analysis.dimensions.map((dimension) => <div key={dimension.key}><div><span>{dimension.label}</span><strong>{dimension.score}</strong></div><ProgressBar value={dimension.score} /></div>)}</div>
+                {!analysis.dimensions.length ? <EmptyState icon="analytics" title="Sem dimensões" description="A execução não registrou dimensões pontuadas." /> : null}
+              </article>
+              <article className="panel evidence-card">
+                <SectionHeader eyebrow="Evidência auditável" title="Momentos-chave" description="Trechos e interpretações vinculados à análise." icon="calls" />
+                {analysis.evidence.length ? <div className="evidence-timeline">{analysis.evidence.map((evidence, index) => <article key={`${evidence.timestamp}-${evidence.criterion}-${index}`}><div className="timeline-marker"><span>{evidence.timestamp}</span></div><div><p>“{evidence.quote}”</p><small><strong>{evidence.criterion}</strong>{evidence.interpretation}</small></div></article>)}</div> : <EmptyState icon="calls" title="Sem evidências registradas" description="A análise não possui trechos de evidência vinculados." />}
+              </article>
             </div>
-          </div>
+          </section>
         </>
-      ) : (
-        <section className="panel">
-          <h2 className="panel-title">Análise ainda não disponível</h2>
-          <p className="td-secondary">A call permanece no catálogo e o estado operacional é atualizado pelo sistema.</p>
-        </section>
-      )}
+      ) : <section className="panel"><EmptyState icon="report" title="Análise ainda não disponível" description="A call permanece no catálogo e seu estado operacional continuará sendo atualizado pelo sistema." /></section>}
 
-      {/* Audit Drawer */}
-      <details className="panel" style={{ padding: '0', overflow: 'hidden', cursor: 'pointer' }}>
-        <summary style={{ padding: '16px 24px', fontWeight: 600, fontSize: '14px', listStyle: 'none' }}>
-          Detalhes Técnicos & Auditoria
-        </summary>
-        <div style={{ padding: '24px', borderTop: '1px solid var(--color-border)', background: 'var(--color-sidebar)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '24px', marginBottom: '32px' }}>
-            <div><p className="panel-eyebrow">Status Transcript</p><strong>{call.transcriptStatus}</strong></div>
-            <div><p className="panel-eyebrow">Status Análise</p><strong>{call.analysisStatus}</strong></div>
-            <div><p className="panel-eyebrow">Modelo</p><strong>{call.finalModel?.split("/").at(-1) ?? "—"}</strong></div>
-            <div><p className="panel-eyebrow">Rubrica</p><strong>{call.rubricVersion}</strong></div>
-            <div><p className="panel-eyebrow">Prompt</p><strong>{call.promptVersion}</strong></div>
-            <div><p className="panel-eyebrow">Schema</p><strong>{call.schemaVersion}</strong></div>
-            <div><p className="panel-eyebrow">Custo USD</p><strong>{call.costUsd === null ? "—" : `$${call.costUsd.toFixed(6)}`}</strong></div>
-            <div><p className="panel-eyebrow">Latência</p><strong>{call.latencyMs === null ? "—" : `${call.latencyMs} ms`}</strong></div>
+      <details className="panel audit-drawer">
+        <summary><span><Icon name="integrations" size={18} /><strong>Detalhes técnicos e auditoria</strong><small>Modelo, versões, custo, tentativas e transcript bruto</small></span><Icon name="chevronDown" size={16} /></summary>
+        <div className="audit-content">
+          <div className="audit-facts">
+            <div><span>Status transcript</span><strong>{call.transcriptStatus}</strong></div><div><span>Status análise</span><strong>{call.analysisStatus}</strong></div><div><span>Modelo</span><strong>{call.finalModel?.split("/").at(-1) ?? "—"}</strong></div><div><span>Rubrica</span><strong>{call.rubricVersion ?? "—"}</strong></div><div><span>Prompt</span><strong>{call.promptVersion ?? "—"}</strong></div><div><span>Schema</span><strong>{call.schemaVersion ?? "—"}</strong></div><div><span>Custo USD</span><strong>{formatCost(call.costUsd)}</strong></div><div><span>Latência</span><strong>{call.latencyMs === null ? "—" : `${call.latencyMs} ms`}</strong></div>
           </div>
-          
-          <div style={{ marginTop: '24px' }}>
-            <p className="panel-eyebrow">Transcrição Bruta</p>
-            <TranscriptPanel endpoint={`/api/calls/${call.id}/transcript`} available={call.transcriptStatus === "available"} />
-          </div>
+          {call.attempts.length ? <div className="audit-attempts"><h3>Tentativas de análise</h3><div className="table-container"><table className="data-table"><thead><tr><th>Papel</th><th>Modelo</th><th>Status</th><th>Custo</th><th>Latência</th><th>Erro</th></tr></thead><tbody>{call.attempts.map((attempt) => <tr key={`${attempt.role}-${attempt.attemptNumber}`}><td>{attempt.role} #{attempt.attemptNumber}</td><td>{attempt.model.split("/").at(-1)}</td><td><StatusBadge tone={attempt.status === "completed" ? "success" : attempt.status.includes("fail") ? "error" : "neutral"}>{attempt.status}</StatusBadge></td><td>{formatCost(attempt.costUsd)}</td><td>{attempt.latencyMs === null ? "—" : `${attempt.latencyMs} ms`}</td><td>{attempt.errorCode ?? "—"}</td></tr>)}</tbody></table></div></div> : null}
+          <div className="transcript-area"><SectionHeader eyebrow="Artefato de origem" title="Transcrição bruta" description="Carregada apenas sob demanda dentro do escopo autorizado." icon="calls" /><TranscriptPanel endpoint={`/api/calls/${call.id}/transcript`} available={call.transcriptStatus === "available"} /></div>
         </div>
       </details>
     </AppShell>

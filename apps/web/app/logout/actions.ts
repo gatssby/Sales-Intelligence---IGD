@@ -7,7 +7,7 @@ import { clearSessionCookie, readSessionToken } from "@/lib/auth/session";
 
 export async function logoutAction(): Promise<void> {
   const token = await readSessionToken();
-  await new PostgresAuthRepository(getSql()).revokeSession(token);
+  if (token) await new PostgresAuthRepository(getSql()).revokeSession(token);
   await clearSessionCookie();
   redirect("/login");
 }

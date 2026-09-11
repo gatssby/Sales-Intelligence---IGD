@@ -68,6 +68,16 @@ Rollback: restaure a cópia nginx anterior, valide com `nginx -t` e faça reload
 
 ## Validação local
 
+Para abrir o dashboard local sem criar uma sessão, habilite explicitamente o bypass de desenvolvimento:
+
+```bash
+DEV_BYPASS_AUTH=true npm run dev
+```
+
+O bypass só é aceito quando `NODE_ENV !== production` e `DEV_BYPASS_AUTH=true`. Ele cria apenas em memória a identidade sintética `Local Development Admin`, sem cookie ou usuário persistente. O contexto mantém o escopo global e as capacidades administrativas necessárias para revisar as áreas comerciais e administrativas, mas remove explicitamente `spend:execute`; assim, a identidade sintética não pode iniciar fluxos pagos. `NODE_ENV=production` ignora a variável mesmo quando ela vale `true`.
+
+O dashboard continua dependendo do PostgreSQL. Configure `apps/web/.env.local` com `DATABASE_URL` apontando para o túnel local ou use `npm run demo`, que valida o banco e abre o túnel quando necessário.
+
 Use apenas uma instância PostgreSQL local cujo banco termine em `_test`. Os testes recusam host remoto. Rode:
 
 ```bash

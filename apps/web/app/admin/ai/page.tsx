@@ -3,6 +3,7 @@ import { getAiSpendData, getProgressData } from "@/lib/data";
 import { defaultOrganizationSelection } from "@/lib/organization-scope";
 import { LiveProgress } from "@/app/components/LiveProgress";
 import { AppShell } from "@/app/components/AppShell";
+import { Icon } from "@/app/components/Icon";
 
 export const dynamic = "force-dynamic";
 
@@ -16,13 +17,12 @@ export default async function AiOperationsPage() {
   ]);
   
   return (
-    <AppShell user={{ fullName: user.displayName, role: user.role }} activeRoute="settings" title="Operações de IA">
-      <section className="panel" style={{ marginBottom: '24px' }}>
-        <div style={{ marginBottom: '24px' }}>
-          <h2 className="panel-title">Observabilidade da Pipeline de Análise</h2>
-          <p className="td-secondary">Monitoramento de jobs, workers, tokens e custos em tempo real.</p>
-        </div>
-        
+    <AppShell user={{ fullName: user.displayName, role: user.role }} activeRoute="ai" title="Operações de IA">
+      <div className="page-intro">
+        <div><p className="page-kicker">Plataforma</p><h2>Pipeline de análise</h2><p>Observabilidade read-only de backlog, etapas, worker e consumo técnico.</p></div>
+        <span className="control-chip"><Icon name="report" size={16} />Monitoramento operacional</span>
+      </div>
+      <section className="admin-stack">
         <LiveProgress initialData={progress} initialAiSpend={aiSpend} />
       </section>
     </AppShell>

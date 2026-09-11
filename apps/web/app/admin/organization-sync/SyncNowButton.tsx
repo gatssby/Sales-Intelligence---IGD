@@ -7,7 +7,7 @@ export function SyncNowButton() {
   const router = useRouter();
   const [status, setStatus] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  return <div><button type="button" disabled={pending} onClick={async () => {
+  return <div className="sync-now"><button className="btn btn-primary" type="button" disabled={pending} onClick={async () => {
     setPending(true);
     setStatus(null);
     try {

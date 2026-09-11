@@ -86,6 +86,25 @@ export function buildAuthorizationContext(input: {
   };
 }
 
+export function buildDevelopmentAuthBypass(input: {
+  nodeEnv: string | undefined;
+  enabled: string | undefined;
+}): AuthorizationContext | null {
+  if (input.nodeEnv === "production" || input.enabled !== "true") return null;
+
+  const context = buildAuthorizationContext({
+    userId: "dev-auth-bypass",
+    email: "dev-auth-bypass@example.invalid",
+    displayName: "Local Development Admin",
+    role: "ADMIN",
+  });
+
+  return {
+    ...context,
+    capabilities: new Set([...context.capabilities].filter((capability) => capability !== "spend:execute")),
+  };
+}
+
 export function hasCapability(context: AuthorizationContext, capability: Capability): boolean {
   return context.capabilities.has(capability);
 }

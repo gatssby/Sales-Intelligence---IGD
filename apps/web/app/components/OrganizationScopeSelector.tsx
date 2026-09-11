@@ -1,5 +1,6 @@
 import type { SelectedOrganizationScope } from "@igd/auth";
 import type { OrganizationTreeRow } from "@igd/db";
+import { Icon } from "./Icon";
 
 function unique<T>(items: T[], key: (item: T) => string): T[] {
   return [...new Map(items.map((item) => [key(item), item])).values()];
@@ -27,39 +28,45 @@ export function OrganizationScopeSelector({
   return (
     <form className="global-scope-picker" method="get" action={pathname} aria-label="Escopo organizacional global">
       {Object.entries(preserved).filter(([,value]) => value).map(([name,value]) => <input key={name} type="hidden" name={name} value={value} />)}
-      
-      <div className="scope-node">
-        <select name="product" defaultValue={selected.productKey ?? ""}>
-          <option value="">{selected.productKey ? "X Limpar Produto" : "Todos os Produtos"}</option>
+
+      <span className="scope-label"><Icon name="organization" size={16} />Escopo global</span>
+      <div className="scope-node" title="Produto">
+        <Icon name="organization" size={16} />
+        <select name="product" aria-label="Produto" defaultValue={selected.productKey ?? ""}>
+          <option value="">{selected.productKey ? "Limpar produto" : "Todos os produtos"}</option>
           {products.map((row) => <option key={row.product_key} value={row.product_key}>{row.product_name}</option>)}
         </select>
+        <Icon name="chevronDown" size={14} />
       </div>
-      
-      <span className="scope-divider">›</span>
-      <div className="scope-node">
-        <select name="front" defaultValue={selected.frontKey ?? ""}>
-          <option value="">Todas as Frentes</option>
+
+      <div className="scope-node" title="Frente">
+        <Icon name="analytics" size={16} />
+        <select name="front" aria-label="Frente" defaultValue={selected.frontKey ?? ""}>
+          <option value="">Todas as frentes</option>
           {fronts.map((row) => <option key={row.front_key} value={row.front_key}>{row.front_name}</option>)}
         </select>
+        <Icon name="chevronDown" size={14} />
       </div>
-      
-      <span className="scope-divider">›</span>
-      <div className="scope-node">
-        <select name="team" defaultValue={selected.teamId ?? ""}>
-          <option value="">Todos os Times</option>
+
+      <div className="scope-node" title="Time">
+        <Icon name="teams" size={16} />
+        <select name="team" aria-label="Time" defaultValue={selected.teamId ?? ""}>
+          <option value="">Todos os times</option>
           {teams.map((row) => <option key={row.team_id} value={row.team_id}>{row.team_name}</option>)}
         </select>
+        <Icon name="chevronDown" size={14} />
       </div>
-      
-      <span className="scope-divider">›</span>
-      <div className="scope-node">
-        <select name="person" defaultValue={selected.personId ?? ""}>
-          <option value="">Pessoas</option>
+
+      <div className="scope-node" title="Pessoa">
+        <Icon name="people" size={16} />
+        <select name="person" aria-label="Pessoa" defaultValue={selected.personId ?? ""}>
+          <option value="">Todas as pessoas</option>
           {people.map((row) => <option key={row.person_id!} value={row.person_id!}>{row.person_name}</option>)}
         </select>
+        <Icon name="chevronDown" size={14} />
       </div>
-      
-      <button type="submit" className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '12px', marginLeft: '8px', borderRadius: '8px' }}>Aplicar</button>
+
+      <button type="submit" className="btn btn-primary scope-submit">Aplicar</button>
     </form>
   );
 }

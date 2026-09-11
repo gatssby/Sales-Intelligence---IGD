@@ -4,6 +4,8 @@ import { getSql } from "@/lib/database";
 import { UserAccessManager } from "./UserAccessManager";
 import { AdminBadge } from "@/app/components/AdminBadge";
 import { AppShell } from "@/app/components/AppShell";
+import { SectionHeader } from "@/app/components/VisualPrimitives";
+import { Icon } from "@/app/components/Icon";
 
 export const dynamic = "force-dynamic";
 
@@ -13,12 +15,10 @@ export default async function UsersPage() {
   const [users, options] = await Promise.all([repository.listUsers(actor), repository.listScopeOptions(actor)]);
   
   return (
-    <AppShell user={{ fullName: actor.displayName, role: actor.role }} activeRoute="settings" title="Usuários e Acessos">
+    <AppShell user={{ fullName: actor.displayName, role: actor.role }} activeRoute="users" title="Usuários e acessos">
+      <div className="page-intro"><div><p className="page-kicker">Plataforma</p><h2>Controle de acesso</h2><p>Contas individuais, papéis do sistema e escopo efetivo derivado da organização.</p></div><span className="control-chip"><Icon name="userPlus" size={16} />Acesso administrado</span></div>
       <section className="panel">
-        <div style={{ marginBottom: '24px' }}>
-          <h2 className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>Gerenciamento de Acessos <AdminBadge /></h2>
-          <p className="td-secondary">Papéis, escopos e credenciais individuais.</p>
-        </div>
+        <SectionHeader eyebrow="Segurança" title="Gerenciamento de acessos" description="Papéis, escopos e credenciais individuais. A planilha nunca concede Admin." icon="userPlus" action={<AdminBadge />} />
         <UserAccessManager users={users} teams={options.teams} products={options.products} people={options.people} />
       </section>
     </AppShell>
