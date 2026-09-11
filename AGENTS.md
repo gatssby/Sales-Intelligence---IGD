@@ -56,6 +56,17 @@ Antes de mudanças estruturais, ler:
 
 Se uma decisão alterar limites entre componentes, modelo de dados, estratégia de ingestão ou versionamento da IA, criar um ADR em `docs/decisions/`.
 
+## Design visual
+
+Antes de introduzir ou alterar padrões visuais no frontend:
+
+1. ler `docs/design-system.md`;
+2. inspecionar o Figma canônico com Figma MCP quando o comportamento visual estiver incerto;
+3. reutilizar primeiro os tokens, assets e primitives existentes;
+4. não criar uma linguagem visual paralela por página.
+
+Referência canônica: [Sales Analytics Dashboard — node `1:7432`](https://www.figma.com/design/FbVg7qSPgfKF6KJgI8KYhK/Sales-Analytics-Dashboard--Community-?node-id=1-7432). O repositório define o comportamento do produto; o Figma define sua apresentação.
+
 ## n8n
 
 - Workflows devem ser exportados para `n8n/workflows/`.

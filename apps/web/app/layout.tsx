@@ -1,26 +1,18 @@
-import type { Metadata } from "next";
-import { Manrope, Plus_Jakarta_Sans } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const manrope = Manrope({
-  variable: "--font-body",
-  subsets: ["latin"],
-});
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
+const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono-face" });
 
-const jakarta = Plus_Jakarta_Sans({
-  variable: "--font-display",
-  subsets: ["latin"],
-});
-
-export const metadata: Metadata = {
-  title: "IGD Sales Intelligence",
-  description: "Inteligência de vendas baseada em evidências de calls reais.",
+export const metadata = {
+  title: "Sales Intelligence",
+  description: "Sales Call Intelligence by IGD",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR">
-      <body className={`${manrope.variable} ${jakarta.variable}`}>{children}</body>
+      <body className={`${inter.variable} ${mono.variable}`}>{children}</body>
     </html>
   );
 }

@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { PostgresAuthRepository } from "@igd/db";
-import { hasCapability, type AuthorizationContext, type Capability } from "@igd/auth";
+import { buildDevelopmentAuthBypass, hasCapability, type AuthorizationContext, type Capability } from "@igd/auth";
 import { getSql } from "@/lib/database";
 
 const DEV_COOKIE = "igd_session";
@@ -38,6 +38,12 @@ export async function readSessionToken(): Promise<string> {
 }
 
 export async function getCurrentUser(): Promise<AuthorizationContext | null> {
+  const developmentUser = buildDevelopmentAuthBypass({
+    nodeEnv: process.env.NODE_ENV,
+    enabled: process.env.DEV_BYPASS_AUTH,
+  });
+  if (developmentUser) return developmentUser;
+
   const token = await readSessionToken();
   if (!token) return null;
   return new PostgresAuthRepository(getSql()).getSession(token);

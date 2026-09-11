@@ -4,6 +4,7 @@ import {
   AuthorizationError,
   assertCapability,
   buildAuthorizationContext,
+  buildDevelopmentAuthBypass,
   canAccessData,
   generateTemporaryPassword,
   hashPassword,
@@ -39,6 +40,25 @@ test("Sales Ops has global read but cannot spend or manage users", () => {
   assert.equal(canAccessData(salesOps, { teamId: "team-b", productKey: "beta" }), true);
   assert.throws(() => assertCapability(salesOps, "users:manage"), AuthorizationError);
   assert.throws(() => assertCapability(salesOps, "spend:execute"), AuthorizationError);
+});
+
+test("development auth bypass is enabled only by an explicit development gate", () => {
+  const localUser = buildDevelopmentAuthBypass({ nodeEnv: "development", enabled: "true" });
+  assert.ok(localUser);
+  assert.equal(localUser.role, "ADMIN");
+  assert.equal(localUser.displayName, "Local Development Admin");
+  assert.equal(localUser.scope.kind, "GLOBAL");
+  assert.equal(localUser.capabilities.has("calls:read"), true);
+  assert.equal(localUser.capabilities.has("analytics:read"), true);
+  assert.equal(localUser.capabilities.has("users:manage"), true);
+  assert.equal(localUser.capabilities.has("settings:manage"), true);
+  assert.equal(localUser.capabilities.has("spend:execute"), false);
+  assert.throws(() => assertCapability(localUser, "spend:execute"), AuthorizationError);
+
+  assert.equal(buildDevelopmentAuthBypass({ nodeEnv: "production", enabled: "true" }), null);
+  assert.ok(buildDevelopmentAuthBypass({ nodeEnv: "test", enabled: "true" }));
+  assert.equal(buildDevelopmentAuthBypass({ nodeEnv: "development", enabled: "TRUE" }), null);
+  assert.equal(buildDevelopmentAuthBypass({ nodeEnv: "development", enabled: undefined }), null);
 });
 
 test("linked app user receives the union of self, led teams and supervised products", () => {
