@@ -4,6 +4,7 @@ import { PostgresAuthRepository } from "@igd/db";
 import {
   assertMutationAllowed,
   buildDevelopmentAuthBypass,
+  buildUnavailablePreviewAuthorizationContext,
   hasCapability,
   isPreviewRole,
   type AuthorizationContext,
@@ -118,7 +119,7 @@ export async function getCurrentUser(): Promise<AuthorizationContext | null> {
   try {
     return await new PostgresAuthRepository(getSql()).resolvePreviewContext(actor, preview);
   } catch {
-    return actor;
+    return buildUnavailablePreviewAuthorizationContext(actor, preview);
   }
 }
 

@@ -15,9 +15,10 @@ O System Role Admin acumulava governo comercial e detalhes úteis apenas para ma
 - A migration apenas amplia o domínio permitido de `app_users.role`; não promove, duplica ou altera Admins existentes.
 - Organization Sync não lê nem escreve System Roles. A promoção inicial reutiliza uma conta Admin ativa por um comando interno explícito, preserva seu `user_id`, revoga sessões e registra auditoria. O fluxo comercial de usuários nunca oferece nem aceita `PLATFORM_ADMIN`.
 - Diagnósticos técnicos são expostos por um read model sanitizado e uma área Platform agrupada. Tokens, secrets, cursores, conteúdo bruto de environment variables e erros brutos não pertencem à interface; somente presença, estado, timestamps, contagens, versões e códigos normalizados.
-- Preview Mode não cria sessão nem token de impersonation. Um cookie HTTP-only guarda apenas o papel/persona selecionado; cada request revalida que o ator real continua sendo Platform Admin e resolve novamente o Effective Access no PostgreSQL.
+- Preview Mode não cria sessão nem token de impersonation. Um cookie HTTP-only guarda apenas o papel/persona selecionado; cada request revalida que o ator real continua sendo Platform Admin e resolve novamente o Effective Access no PostgreSQL. Falha nessa resolução conserva um preview sem capacidades e sem escopo até saída explícita, nunca restaura autoridade silenciosamente.
 - O `AuthorizationContext` preserva `userId`, e-mail e `role` do ator real. Durante preview, `accessRole`, capacidades e scope representam a visão simulada, enquanto `preview` registra o Preview Subject.
 - Todo preview é somente leitura. O guard central de mutation é aplicado também nos repositórios administrativos, e endpoints técnicos perdem suas capacidades no contexto simulado. Iniciar e encerrar preview registram o Platform Admin real como ator.
+- Mutações da conta e das credenciais do Platform Admin também são protegidas no PostgreSQL. Bootstrap e troca da própria senha usam uma autorização local à transação, o que mantém versões anteriores seguras durante deploy/rollback. A promoção exige que a conta Admin já tenha concluído a troca de senha temporária.
 
 ## Consequências
 

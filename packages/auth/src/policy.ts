@@ -156,6 +156,31 @@ export function buildPreviewAuthorizationContext(
   };
 }
 
+export function buildUnavailablePreviewAuthorizationContext(
+  actor: AuthorizationContext,
+  input: {
+    kind: PreviewRole;
+    subjectPersonId: string | null;
+    subjectUserId?: string | null;
+  },
+): AuthorizationContext {
+  if (actor.role !== "PLATFORM_ADMIN") throw new AuthorizationError("preview:use");
+  return {
+    ...actor,
+    accessRole: input.kind,
+    capabilities: new Set<Capability>(),
+    scope: { kind: "ORGANIZATION", teamIds: [], productKeys: [], personIds: [] },
+    preview: {
+      kind: input.kind,
+      subjectPersonId: input.subjectPersonId,
+      subjectUserId: input.subjectUserId ?? null,
+      subjectCode: null,
+      subjectDisplayName: "Identidade indisponível",
+      readOnly: true,
+    },
+  };
+}
+
 export function buildDevelopmentAuthBypass(input: {
   nodeEnv: string | undefined;
   enabled: string | undefined;

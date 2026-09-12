@@ -7,6 +7,7 @@ import {
   buildAuthorizationContext,
   buildDevelopmentAuthBypass,
   buildPreviewAuthorizationContext,
+  buildUnavailablePreviewAuthorizationContext,
   canAccessData,
   generateTemporaryPassword,
   hashPassword,
@@ -68,6 +69,19 @@ test("read-only preview keeps the real Platform actor and blocks mutation and sp
   assert.equal(preview.role, "PLATFORM_ADMIN");
   assert.equal(preview.accessRole, "LEADER");
   assert.deepEqual(preview.scope, { kind: "TEAMS", teamIds: ["team-a"] });
+  assert.throws(() => assertMutationAllowed(preview), /preview_read_only/);
+  assert.throws(() => assertCapability(preview, "spend:execute"), AuthorizationError);
+});
+
+test("an unavailable preview identity stays fail-closed until explicit exit", () => {
+  const platform = buildAuthorizationContext({ ...base, role: "PLATFORM_ADMIN" });
+  const preview = buildUnavailablePreviewAuthorizationContext(platform, {
+    kind: "SUPERVISOR", subjectPersonId: "person-no-longer-active", subjectUserId: null,
+  });
+  assert.equal(preview.role, "PLATFORM_ADMIN");
+  assert.equal(preview.preview?.subjectDisplayName, "Identidade indisponível");
+  assert.deepEqual(preview.scope, { kind: "ORGANIZATION", teamIds: [], productKeys: [], personIds: [] });
+  assert.equal(preview.capabilities.size, 0);
   assert.throws(() => assertMutationAllowed(preview), /preview_read_only/);
   assert.throws(() => assertCapability(preview, "spend:execute"), AuthorizationError);
 });

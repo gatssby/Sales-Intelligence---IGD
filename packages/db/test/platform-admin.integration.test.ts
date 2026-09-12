@@ -4,7 +4,7 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildAuthorizationContext } from "@igd/auth";
+import { buildAuthorizationContext, hashPassword } from "@igd/auth";
 import postgres from "postgres";
 import { PostgresAuthRepository, PostgresPlatformObservabilityRepository } from "../src/index.js";
 
@@ -37,6 +37,10 @@ integration("Platform Admin migration, internal grant and preview access", async
       values ('existing.admin@example.invalid','Existing Admin','ADMIN',true,false) returning id
     `;
     await adminSql`
+      insert into user_credentials(user_id,password_hash)
+      values (${existing[0].id},${await hashPassword("CurrentOwnerPassword123")})
+    `;
+    await adminSql`
       insert into app_users(email,display_name,role,active,must_change_password)
       values ('review.user@example.invalid','Review User','USER',true,false)
     `;
@@ -66,6 +70,16 @@ integration("Platform Admin migration, internal grant and preview access", async
     const sql = postgres(scopedUrl.toString(), { max: 3 });
     const auth = new PostgresAuthRepository(sql);
     try {
+      const commercialActor = buildAuthorizationContext({
+        userId: existing[0].id,email: "existing.admin@example.invalid",displayName: "Existing Admin",role: "ADMIN",
+      });
+      const temporaryPassword = await auth.resetPassword(commercialActor, existing[0].id);
+      await assert.rejects(
+        () => auth.bootstrapPlatformAdmin("existing.admin@example.invalid"),
+        /completed_password_change/,
+        "a temporary password must be claimed by its owner before Platform promotion",
+      );
+      await auth.changeOwnPassword(existing[0].id, temporaryPassword, "OwnerControlledPassword123");
       const promotedId = await auth.bootstrapPlatformAdmin("existing.admin@example.invalid");
       assert.equal(promotedId, existing[0].id);
       const actor = await auth.getActiveActorByEmail("existing.admin@example.invalid");
@@ -75,6 +89,22 @@ integration("Platform Admin migration, internal grant and preview access", async
       assert.equal((await sql<{ count: number }[]>`select count(*)::integer count from app_users`)[0].count, 2);
       assert.equal((await sql<{ count: number }[]>`select count(*)::integer count from admin_audit_events where event_type='platform_admin.granted' and actor_user_id=${existing[0].id}`)[0].count, 1);
       await assert.rejects(() => auth.bootstrapPlatformAdmin("existing.admin@example.invalid"), /already_exists/);
+      await assert.rejects(
+        () => sql`update app_users set active=false where id=${existing[0].id}`,
+        /platform_admin_requires_internal_grant/,
+        "a previous release cannot deactivate the Platform account",
+      );
+      await assert.rejects(
+        () => sql`update app_users set role='ADMIN' where id=${existing[0].id}`,
+        /platform_admin_requires_internal_grant/,
+        "a previous release cannot demote the Platform account",
+      );
+      await assert.rejects(
+        () => sql`update user_credentials set password_hash='legacy-reset' where user_id=${existing[0].id}`,
+        /platform_admin_requires_internal_grant/,
+        "a previous release cannot reset Platform credentials",
+      );
+      await auth.changeOwnPassword(existing[0].id, "OwnerControlledPassword123", "RotatedPlatformPassword123");
 
       await sql`insert into products(key,display_name,analytics_enabled) values ('alpha','Alpha',true)`;
       const team = await sql<{ id: string }[]>`
@@ -123,7 +153,11 @@ integration("Platform Admin migration, internal grant and preview access", async
       }), /internal_grant/);
       await assert.rejects(() => auth.resetPassword(actor!, actor!.userId), /internal_grant/, "the commercial account manager cannot maintain Platform credentials");
 
-      await sql`update app_users set person_id=${personId("V1008")} where id=${actor!.userId}`;
+      await assert.rejects(
+        () => sql`update app_users set person_id=${personId("V1008")} where id=${actor!.userId}`,
+        /platform_admin_requires_internal_grant/,
+        "organization or legacy account flows cannot attach a Platform account to a Person",
+      );
       await sql`update people set full_name='Person Changed By Organization' where id=${personId("V1008")}`;
       assert.equal((await sql<{ role: string }[]>`select role from app_users where id=${actor!.userId}`)[0].role, "PLATFORM_ADMIN", "organization-owned Person changes cannot grant or revoke the system role");
 

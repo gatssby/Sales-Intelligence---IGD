@@ -36,6 +36,12 @@ test("login and logout clear stale preview selection", async () => {
   assert.equal(clearCalls.length >= 2, true);
 });
 
+test("preview re-resolution failures remain read-only and fail closed", async () => {
+  const source = await readFile(new URL("../lib/auth/session.ts", import.meta.url), "utf8");
+  assert.match(source, /catch \{\s+return buildUnavailablePreviewAuthorizationContext\(actor, preview\);\s+\}/);
+  assert.doesNotMatch(source, /catch \{\s+return actor;\s+\}/);
+});
+
 test("technical pages and endpoints require a Platform capability", async () => {
   const sources = await Promise.all([
     "../app/platform/page.tsx","../app/api/platform/overview/route.ts","../app/api/admin/ai-spend/route.ts",

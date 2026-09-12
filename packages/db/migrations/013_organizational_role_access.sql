@@ -76,6 +76,74 @@ alter table app_users add constraint app_users_access_origin_check
     or (access_origin='REVIEW' and role in ('USER','LEADER','SUPERVISOR','SALES_OPS'))
   );
 
+-- Platform authority is protected in PostgreSQL as well as in the current application.
+-- This keeps a previous immutable release safe during a rolling deploy or rollback. Only
+-- the explicit current-release bootstrap and Platform self-service password flow set this
+-- transaction-local marker; older commercial account-management code cannot set it.
+create or replace function guard_platform_admin_account()
+returns trigger
+language plpgsql
+as $$
+begin
+  if current_setting('sales_intelligence.platform_admin_management',true)='authorized' then
+    return case when tg_op='DELETE' then old else new end;
+  end if;
+
+  if tg_op='DELETE' then
+    if old.role='PLATFORM_ADMIN' or old.access_origin='SYSTEM' then
+      raise exception 'platform_admin_requires_internal_grant' using errcode='42501';
+    end if;
+    return old;
+  end if;
+
+  if (
+    old.role='PLATFORM_ADMIN' or new.role='PLATFORM_ADMIN'
+    or old.access_origin='SYSTEM' or new.access_origin='SYSTEM'
+  ) and (
+    new.role is distinct from old.role
+    or new.access_origin is distinct from old.access_origin
+    or new.active is distinct from old.active
+    or new.person_id is distinct from old.person_id
+    or new.must_change_password is distinct from old.must_change_password
+    or new.session_version is distinct from old.session_version
+  ) then
+    raise exception 'platform_admin_requires_internal_grant' using errcode='42501';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists app_users_guard_platform_admin on app_users;
+create trigger app_users_guard_platform_admin
+before update or delete on app_users
+for each row execute function guard_platform_admin_account();
+
+create or replace function guard_platform_admin_credentials()
+returns trigger
+language plpgsql
+as $$
+declare
+  target_user_id uuid;
+  is_protected boolean;
+begin
+  if current_setting('sales_intelligence.platform_admin_management',true)='authorized' then
+    return case when tg_op='DELETE' then old else new end;
+  end if;
+  target_user_id=case when tg_op='DELETE' then old.user_id else new.user_id end;
+  select (role='PLATFORM_ADMIN' or access_origin='SYSTEM') into is_protected
+  from app_users where id=target_user_id;
+  if coalesce(is_protected,false) then
+    raise exception 'platform_admin_requires_internal_grant' using errcode='42501';
+  end if;
+  return case when tg_op='DELETE' then old else new end;
+end;
+$$;
+
+drop trigger if exists user_credentials_guard_platform_admin on user_credentials;
+create trigger user_credentials_guard_platform_admin
+before insert or update or delete on user_credentials
+for each row execute function guard_platform_admin_credentials();
+
 alter table person_organization_roles drop constraint if exists person_organization_roles_role_kind_check;
 alter table person_organization_roles add constraint person_organization_roles_role_kind_check
   check (role_kind in ('closer','sdr','leader','leader_in_training','supervisor','administrator'));

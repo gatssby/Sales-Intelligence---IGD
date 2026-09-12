@@ -301,6 +301,13 @@ export class PostgresAuthRepository {
       throw new Error("current_password_invalid");
     }
     await this.sql.begin(async (tx) => {
+      const account = await tx<{ role: Role }[]>`
+        select role from app_users where id=${userId} for update
+      `;
+      if (!account[0]) throw new Error("user_not_found");
+      if (account[0].role === "PLATFORM_ADMIN") {
+        await tx`select set_config('sales_intelligence.platform_admin_management','authorized',true)`;
+      }
       await tx`update user_credentials set password_hash = ${nextHash}, password_updated_at = now() where user_id = ${userId}`;
       await tx`
         update app_users
@@ -652,13 +659,16 @@ export class PostgresAuthRepository {
   async resetPassword(actor: AuthorizationContext, userId: string): Promise<string> {
     assertCapability(actor, "users:manage");
     assertMutationAllowed(actor);
-    const target = await this.sql<{ role: string }[]>`select role from app_users where id=${userId}`;
-    if (target[0]?.role === "PLATFORM_ADMIN") {
-      throw new Error("platform_admin_requires_internal_grant");
-    }
     const temporaryPassword = generateTemporaryPassword();
     const passwordHash = await hashPassword(temporaryPassword);
     await this.sql.begin(async (tx) => {
+      const target = await tx<{ role: Role }[]>`
+        select role from app_users where id=${userId} for update
+      `;
+      if (!target[0]) throw new Error("user_not_found");
+      if (target[0].role === "PLATFORM_ADMIN") {
+        throw new Error("platform_admin_requires_internal_grant");
+      }
       const updated = await tx<{ user_id: string }[]>`
         update user_credentials set password_hash = ${passwordHash}, password_updated_at = now()
         where user_id = ${userId}
@@ -700,12 +710,15 @@ export class PostgresAuthRepository {
     const email = normalizeEmail(emailInput);
     return this.sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(741955)`;
+      await tx`select set_config('sales_intelligence.platform_admin_management','authorized',true)`;
       const existing = await tx`select 1 from app_users where role='PLATFORM_ADMIN' limit 1`;
       if (existing.length) throw new Error("bootstrap_platform_admin_already_exists");
       const target = await tx<{ id: string }[]>`
-        select id from app_users where email=${email} and role='ADMIN' and active=true for update
+        select id from app_users
+        where email=${email} and role='ADMIN' and active=true and must_change_password=false
+        for update
       `;
-      if (!target[0]) throw new Error("bootstrap_platform_admin_requires_active_admin");
+      if (!target[0]) throw new Error("bootstrap_platform_admin_requires_active_admin_with_completed_password_change");
       await tx`
         update app_users
         set role='PLATFORM_ADMIN',access_origin='SYSTEM',session_version=session_version+1,updated_at=now()

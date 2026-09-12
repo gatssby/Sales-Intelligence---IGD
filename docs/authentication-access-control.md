@@ -20,7 +20,7 @@ Contas comerciais novas escolhem uma origem explícita. `ORGANIZATION` resolve `
 
 Em **Usuários e acessos**, o Administrador escolhe primeiro **Organização IGD** ou **Manual**. Organização IGD exige uma Pessoa publicada e não oferece escopo editável. Manual exige um perfil e apenas seu vínculo compatível: Pessoa para Closer/SDR (inclusive criação de identidade analítica sintética), um ou mais Times para Líder/Líder em treinamento, exatamente um Produto para Supervisor e nenhum recorte para Administrador. A tela mostra origem, cargo/perfil, vínculo e abrangência calculada.
 
-Contas históricas `USER`, `LEADER`, `SUPERVISOR` e `SALES_OPS` continuam reconhecidas para rollback. A migração converte para `ORGANIZATION` somente as contas já vinculadas a uma Person gerenciada pela organização; Administradores preservados e perfis manuais inequívocos tornam-se `MANUAL`; casos ambíguos ficam em `REVIEW`. Uma conta Manual nunca é convertida pelo sync. Quando surge uma correspondência organizacional única, a interface apenas sugere **Vínculo organizacional disponível** e exige confirmação explícita; a conversão é auditada. A área comercial nunca pode conceder, editar, desativar ou redefinir a senha de um Administrador da Plataforma.
+Contas históricas `USER`, `LEADER`, `SUPERVISOR` e `SALES_OPS` continuam reconhecidas para rollback. A migração converte para `ORGANIZATION` somente as contas já vinculadas a uma Person gerenciada pela organização; Administradores preservados e perfis manuais inequívocos tornam-se `MANUAL`; casos ambíguos ficam em `REVIEW`. Uma conta Manual nunca é convertida pelo sync. Quando surge uma correspondência organizacional única, a interface apenas sugere **Vínculo organizacional disponível** e exige confirmação explícita; a conversão é auditada. A área comercial nunca pode conceder, editar, desativar ou redefinir a senha de um Administrador da Plataforma. Triggers no PostgreSQL preservam essa proteção mesmo durante uma janela curta de deploy ou rollback para a versão anterior; somente os fluxos internos atuais abrem a autorização transacional explícita.
 
 ## Controles de segurança
 
@@ -44,7 +44,7 @@ BOOTSTRAP_ADMIN_PASSWORD="$BOOTSTRAP_PASSWORD" npm run auth:bootstrap-admin
 unset BOOTSTRAP_PASSWORD BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_NAME
 ```
 
-Para a concessão técnica inicial, um operador autorizado promove uma conta Administrador ativa. O comando preserva `user_id`, revoga sessões e audita o evento; ele exige `--apply` e não lê a planilha:
+Para a concessão técnica inicial, um operador autorizado promove uma conta Administrador ativa que já concluiu a troca de qualquer senha temporária. O comando preserva `user_id`, revoga sessões e audita o evento; ele exige `--apply` e não lê a planilha:
 
 ```bash
 DATABASE_URL='postgresql://...' PLATFORM_ADMIN_EMAIL='maintainer@example.invalid' \
@@ -57,7 +57,7 @@ Os caminhos `calls:import -- --apply --request-analysis`, `analysis:process -- -
 
 ## Visualizar como
 
-Somente o Administrador da Plataforma pode iniciar **Visualizar como** para Administrador, Supervisor, Líder, Líder em treinamento, Closer ou SDR. A escolha referencia uma identidade real: Person com cargo vigente para Organização IGD ou conta ativa para Manual. O servidor recalcula o escopo pela mesma view canônica, mantém o ator técnico real na auditoria e bloqueia mutations e gasto até **Sair da visualização**.
+Somente o Administrador da Plataforma pode iniciar **Visualizar como** para Administrador, Supervisor, Líder, Líder em treinamento, Closer ou SDR. A escolha referencia uma identidade real: Person com cargo vigente para Organização IGD ou conta ativa para Manual. O servidor recalcula o escopo pela mesma view canônica, mantém o ator técnico real na auditoria e bloqueia mutations e gasto até **Sair da visualização**. Se a identidade deixar de ser válida durante a visualização, o contexto permanece sem capacidades e sem dados, identificado como **Identidade indisponível**; a autoridade da Plataforma só volta após a saída explícita.
 
 ## Desenvolvimento e validação
 
