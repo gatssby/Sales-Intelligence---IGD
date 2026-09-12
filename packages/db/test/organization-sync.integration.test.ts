@@ -40,7 +40,7 @@ integration("organization publish is temporal, idempotent and fail-closed", asyn
   const source = { spreadsheetId: "synthetic-sheet", sheetId: 123, revision: "1", modifiedTime: "2026-08-10T20:00:00.000Z" };
 
   try {
-    await sql`insert into products(key,display_name) values ('insider','INSIDER')`;
+    await sql`insert into products(key,display_name,analytics_enabled) values ('insider','INSIDER',true)`;
     const legacyAlpha = await sql<{ id: string }[]>`
       insert into teams(team_key,display_name,product_key) values ('insider:time-alpha','Time Alpha','insider') returning id
     `;
@@ -169,21 +169,45 @@ integration("organization publish is temporal, idempotent and fail-closed", asyn
       where leadership.person_id=${leaderId} and leadership.valid_to is null
     `;
     assert.deepEqual(currentLeadership.map((item) => item.team_key), ["insider:closers:time-beta"]);
-    await sql`insert into app_users(email,display_name,role,person_id) values
-      ('leader@example.invalid','Leader Synthetic','USER',${leaderId}),
-      ('supervisor@example.invalid','Supervisor Synthetic','USER',${supervisorId}),
-      ('trainee@example.invalid','Trainee Synthetic','USER',${traineeId}),
-      ('self@example.invalid','Self Synthetic','USER',${selfId})`;
+    await sql`insert into app_users(email,display_name,role,access_origin,person_id) values
+      ('leader@example.invalid','Leader Synthetic','ORGANIZATION','ORGANIZATION',${leaderId}),
+      ('supervisor@example.invalid','Supervisor Synthetic','ORGANIZATION','ORGANIZATION',${supervisorId}),
+      ('trainee@example.invalid','Trainee Synthetic','ORGANIZATION','ORGANIZATION',${traineeId}),
+      ('self@example.invalid','Self Synthetic','ORGANIZATION','ORGANIZATION',${selfId})`;
     const leader = (await new PostgresAuthRepository(sql).getActiveActorByEmail("leader@example.invalid"))!;
     const supervisor = (await new PostgresAuthRepository(sql).getActiveActorByEmail("supervisor@example.invalid"))!;
     const trainee = (await new PostgresAuthRepository(sql).getActiveActorByEmail("trainee@example.invalid"))!;
     const self = (await new PostgresAuthRepository(sql).getActiveActorByEmail("self@example.invalid"))!;
-    assert.deepEqual(leader.scope.kind === "ORGANIZATION" ? leader.scope.productKeys : [], []);
-    assert.deepEqual(leader.scope.kind === "ORGANIZATION" ? leader.scope.teamIds : [], [currentLeadership[0].id]);
-    assert.deepEqual(supervisor.scope.kind === "ORGANIZATION" ? supervisor.scope.productKeys : [], ["insider"]);
-    assert.deepEqual(trainee.scope.kind === "ORGANIZATION" ? trainee.scope.teamIds : [], []);
-    assert.deepEqual(trainee.scope.kind === "ORGANIZATION" ? trainee.scope.productKeys : [], []);
+    assert.equal(leader.accessRole, "LEADER");
+    assert.deepEqual(leader.scope.kind === "TEAMS" ? leader.scope.teamIds : [], [currentLeadership[0].id]);
+    assert.equal(supervisor.accessRole, "SUPERVISOR");
+    assert.deepEqual(supervisor.scope.kind === "PRODUCTS" ? supervisor.scope.productKeys : [], ["insider"]);
+    assert.equal(trainee.accessRole, "LEADER_IN_TRAINING");
+    assert.deepEqual(trainee.scope.kind === "TEAMS" ? trainee.scope.teamIds : [], [betaTeam[0].id]);
     assert.deepEqual(self.scope.kind === "ORGANIZATION" ? self.scope.personIds : [], [selfId]);
+
+    const roleChanged = parseOrganizationSheet({ observedAt: "2026-08-11T22:00:00.000Z", values: [
+      headers,
+      ["V9000", "Líer Sintético", "INSIDER", "CLOSERS", "Time Beta", "Líder", "Sênior", "Fixo", "TRUE", "TRUE", "V9000", "Líder Sintético", "FALSE", "FALSE"],
+      ["V9001", "Pessoa Sintética Renomeada", "INSIDER", "CLOSERS", "Time Beta", "SDR", "Pleno", "Fixo", "TRUE", "TRUE", "V9000", "Líder Sintético", "FALSE", "FALSE"],
+      ["V9002", "Supervisora Sintética", "INSIDER", "CLOSERS", "Time Beta", "Supervisora", "Sênior", "Fixo", "TRUE", "TRUE", "V9000", "Líder Sintético", "FALSE", "TRUE"],
+      ["V9003", "Líder em Treinamento", "INSIDER", "CLOSERS", "Time Beta", "Closer", "Pleno", "Fixo", "TRUE", "TRUE", "V9000", "Líder Sintético", "TRUE", "FALSE"],
+    ] });
+    const roleChangePreview = await repository.previewCandidate(roleChanged);
+    assert.equal(roleChangePreview.accountEffectiveAccessChanges, 1);
+    assert.equal(roleChangePreview.accountRoleTransitions["CLOSER->SDR"], 1);
+    assert.equal(roleChangePreview.organizationRoleTransitions["closer:insider->sdr:insider"], 1);
+    assert.equal((await repository.publishCandidate({ candidate: roleChanged, source: { ...source, revision: "2-role-change" } })).organizationRolesChanged, 2);
+    const selfAfterRoleChange = (await new PostgresAuthRepository(sql).getActiveActorByEmail("self@example.invalid"))!;
+    assert.equal(selfAfterRoleChange.accessRole, "SDR", "a linked account must adopt the new cargo without a manual account edit");
+    const selfRoleHistory = await sql<{ role_kind: string; valid_from: Date; valid_to: Date | null }[]>`
+      select role_kind,valid_from,valid_to from person_organization_roles
+      where person_id=${selfId} order by valid_from
+    `;
+    assert.deepEqual(selfRoleHistory.map((role) => [role.role_kind,role.valid_from.toISOString(),role.valid_to?.toISOString() ?? null]), [
+      ["closer", "2026-08-10T20:00:00.000Z", "2026-08-11T22:00:00.000Z"],
+      ["sdr", "2026-08-11T22:00:00.000Z", null],
+    ]);
 
     const malformedLeadership = parseOrganizationSheet({ observedAt: "2026-08-12T00:00:00.000Z", values: [
       headers,
@@ -201,7 +225,7 @@ integration("organization publish is temporal, idempotent and fail-closed", asyn
     const selfSeller = await sql<{ id: string }[]>`
       update sellers set team_name='Time Beta',team_id=${betaTeam[0].id} where seller_code='V9001' returning id
     `;
-    await sql`insert into products(key,display_name) values ('fl','FL')`;
+    await sql`insert into products(key,display_name,analytics_enabled) values ('fl','FL',true)`;
     const flTeam = await sql<{ id: string }[]>`insert into teams(team_key,display_name,product_key,front_key) values ('fl:closers:time-outside','Time Outside','fl','closers') returning id`;
     const outsider = await sql<{ id: string }[]>`insert into people(seller_code,full_name) values ('V9010','Pessoa Outside') returning id`;
     const outsiderSeller = await sql<{ id: string }[]>`
@@ -225,7 +249,7 @@ integration("organization publish is temporal, idempotent and fail-closed", asyn
     const access = new ScopedSalesRepository(sql);
     assert.equal((await access.listCallCatalog(leader, { page: 1, pageSize: 50 })).total, 1, "leader must see only the led team");
     assert.equal((await access.listCallCatalog(supervisor, { page: 1, pageSize: 50 })).total, 2, "supervisor must see the complete product across teams");
-    assert.equal((await access.listCallCatalog(trainee, { page: 1, pageSize: 50 })).total, 0, "leader in training must receive no elevated access");
+    assert.equal((await access.listCallCatalog(trainee, { page: 1, pageSize: 50 })).total, 1, "leader in training must see the current team");
     assert.equal((await access.listCallCatalog(self, { page: 1, pageSize: 50 })).total, 1, "person must see self only");
     assert.equal((await access.listCallCatalog(self, { page: 1, pageSize: 50, selected: { personId: outsider[0].id } })).total, 0, "URL scope manipulation must fail closed");
     const selfCall = (await sql<{ id: string }[]>`select id from calls where external_key='organization-self-call'`)[0];
@@ -240,11 +264,11 @@ integration("organization publish is temporal, idempotent and fail-closed", asyn
     ] });
     assert.equal((await repository.publishCandidate({ candidate: malformedRole, source: { ...source, revision: "4" } })).status, "warning");
     const supervisorAfterMalformed = (await new PostgresAuthRepository(sql).getActiveActorByEmail("supervisor@example.invalid"))!;
-    assert.deepEqual(supervisorAfterMalformed.scope.kind === "ORGANIZATION" ? supervisorAfterMalformed.scope.productKeys : [], ["insider"], "malformed role data must preserve prior access");
+    assert.deepEqual(supervisorAfterMalformed.scope.kind === "PRODUCTS" ? supervisorAfterMalformed.scope.productKeys : [], ["insider"], "malformed role data must preserve prior access");
     assert.equal((await sql<{ count: number }[]>`
       select count(*)::integer count from person_organization_roles
       where person_id=${traineeId} and role_kind='leader_in_training' and valid_to is null
-    `)[0].count, 0, "a valid leader-in-training FALSE must revoke that role even when Supervisor is malformed");
+    `)[0].count, 1, "an invalid role signal must preserve the prior role rather than partially recalculating it");
 
     const partial = parseOrganizationSheet({ observedAt: "2026-08-13T20:00:00.000Z", values: [
       headers,
@@ -254,7 +278,7 @@ integration("organization publish is temporal, idempotent and fail-closed", asyn
     ] });
     assert.equal((await repository.publishCandidate({ candidate: partial, source: { ...source, revision: "5" } })).status, "success");
     const supervisorAfterPartial = (await new PostgresAuthRepository(sql).getActiveActorByEmail("supervisor@example.invalid"))!;
-    assert.deepEqual(supervisorAfterPartial.scope.kind === "ORGANIZATION" ? supervisorAfterPartial.scope.productKeys : [], ["insider"], "an omitted row must preserve prior supervisor scope");
+    assert.deepEqual(supervisorAfterPartial.scope.kind === "PRODUCTS" ? supervisorAfterPartial.scope.productKeys : [], ["insider"], "an omitted row must preserve prior supervisor scope");
 
     const inactive = parseOrganizationSheet({ observedAt: "2026-08-14T20:00:00.000Z", values: [
       headers,
@@ -277,6 +301,68 @@ integration("organization publish is temporal, idempotent and fail-closed", asyn
     const admin = buildAuthorizationContext({ userId: randomUUID(),email: "admin@example.invalid",displayName: "Admin",role: "ADMIN" });
     assert.equal((await repository.listPeople(admin)).some((person) => person.person_code === "V9002" && !person.person_active), true, "inactive canonical people remain visible to Admin");
     assert.equal((await new PostgresAuthRepository(sql).listScopeOptions(admin)).people.some((person) => person.code === "V9002" && person.label.includes("inativa")), true, "linked inactive people remain identifiable in Admin Access");
+
+    await sql`insert into products(key,display_name,analytics_enabled) values ('ingressos','Ingressos',false)`;
+    const ingressosTeam = await sql<{ id: string }[]>`
+      insert into teams(team_key,display_name,product_key,front_key) values ('ingressos:closers:time-ingressos','Time Ingressos','ingressos','closers') returning id
+    `;
+    const ingressosPerson = await sql<{ id: string }[]>`
+      insert into people(seller_code,full_name,active,organization_attributes) values ('V9990','Pessoa Ingressos',true,'{"organizationManaged":true}') returning id
+    `;
+    await sql`insert into person_team_memberships(person_id,team_id,valid_from,provenance) values (${ingressosPerson[0].id},${ingressosTeam[0].id},now(),'synthetic_test')`;
+    const ingressosSeller = await sql<{ id: string }[]>`
+      insert into sellers(display_name,seller_code,product,team_name,team_id,person_id)
+      values ('Pessoa Ingressos','V9990','INGRESSOS','Time Ingressos',${ingressosTeam[0].id},${ingressosPerson[0].id}) returning id
+    `;
+    await sql`insert into calls(seller_id,external_key,product_key,status,primary_closer_id,team_id)
+      values (${ingressosSeller[0].id},'organization-ingressos-call','ingressos','metadata_ready',${ingressosPerson[0].id},${ingressosTeam[0].id})`;
+    assert.equal((await sql<{ count: number }[]>`select count(*)::integer count from teams where product_key='ingressos'`)[0].count, 1, "Ingressos remains represented in the organization");
+    assert.equal((await repository.getTree(admin)).some((row) => row.product_key === "ingressos"), false, "Ingressos stays out of analytical navigation");
+    assert.equal((await repository.listPeople(admin)).some((person) => person.person_code === "V9990"), false, "Ingressos people stay out of analytical listings");
+    assert.equal((await new PostgresAuthRepository(sql).listScopeOptions(admin)).products.some((product) => product.id === "ingressos"), false, "Ingressos cannot be selected as an analytical access scope");
+    assert.equal((await access.listCallCatalog(admin, { page: 1, pageSize: 50, selected: { productKey: "ingressos" } })).total, 0, "Ingressos calls stay out of analytical read models");
+
+    const adminAccount = await sql<{ id: string }[]>`
+      insert into app_users(email,display_name,role,access_origin)
+      values ('manual.admin@example.invalid','Manual Admin Synthetic','ADMIN','MANUAL') returning id
+    `;
+    const adminActor = buildAuthorizationContext({
+      userId: adminAccount[0].id,email: "manual.admin@example.invalid",displayName: "Manual Admin Synthetic",role: "ADMIN",
+    });
+    const manualPerson = await sql<{ id: string }[]>`
+      insert into people(seller_code,full_name,active,organization_attributes)
+      values ('V9015','Pessoa Manual Sintética',true,'{"organizationManaged":false}') returning id
+    `;
+    const manualAccount = await sql<{ id: string }[]>`
+      insert into app_users(email,display_name,role,access_origin,person_id)
+      values ('manual.person@example.invalid','Pessoa Manual Sintética','CLOSER','MANUAL',${manualPerson[0].id}) returning id
+    `;
+    const matched = parseOrganizationSheet({ observedAt: "2026-08-15T20:00:00.000Z", values: [
+      headers,
+      ["V9000", "Líer Sintético", "INSIDER", "CLOSERS", "Time Beta", "Líder", "Sênior", "Fixo", "TRUE", "TRUE", "V9000", "Líder Sintético", "FALSE", "FALSE"],
+      ["V9001", "Pessoa Sintética Renomeada", "INSIDER", "CLOSERS", "Time Beta", "Closer", "Pleno", "Fixo", "TRUE", "TRUE", "V9000", "Líder Sintético", "FALSE", "FALSE"],
+      ["V9002", "Supervisora Sintética", "INSIDER", "CLOSERS", "Time Beta", "Supervisora", "Sênior", "Fixo", "TRUE", "FALSE", "V9000", "Líder Sintético", "FALSE", "TRUE"],
+      ["V9003", "Líder em Treinamento", "INSIDER", "CLOSERS", "Time Beta", "Closer", "Pleno", "Fixo", "TRUE", "TRUE", "V9000", "Líder Sintético", "TRUE", "FALSE"],
+      ["V9015", "Pessoa Manual Sintética", "INSIDER", "CLOSERS", "Time Beta", "Closer", "Pleno", "Fixo", "TRUE", "TRUE", "V9000", "Líder Sintético", "FALSE", "FALSE"],
+    ] });
+    const matchedPreview = await repository.previewCandidate(matched);
+    assert.equal(matchedPreview.accountEffectiveAccessChanges, 0, "manual accounts are excluded from organization-driven access changes");
+    await repository.publishCandidate({ candidate: matched, source: { ...source, revision: "7" } });
+    const untouched = await sql<{ role: string; access_origin: string; person_id: string }[]>`
+      select role,access_origin,person_id from app_users where id=${manualAccount[0].id}
+    `;
+    assert.equal(untouched[0].role, "CLOSER", "a later Sheet match must not change the manual role");
+    assert.equal(untouched[0].access_origin, "MANUAL", "a later Sheet match must not change the access origin");
+    assert.equal(untouched[0].person_id, manualPerson[0].id);
+    const auth = new PostgresAuthRepository(sql);
+    const listed = (await auth.listUsers(adminActor)).find((user) => user.id === manualAccount[0].id);
+    assert.equal(listed?.organizationMatch?.personId, manualPerson[0].id, "the reviewed organization conversion must be surfaced");
+    await auth.updateUser(adminActor, manualAccount[0].id, {
+      email: "manual.person@example.invalid",displayName: "Pessoa Manual Sintética",role: "ORGANIZATION",personId: manualPerson[0].id,
+    });
+    const converted = (await auth.getActiveActorByEmail("manual.person@example.invalid"))!;
+    assert.equal(converted.role, "ORGANIZATION");
+    assert.equal(converted.accessRole, "CLOSER");
   } finally {
     await sql.end();
     await adminSql.unsafe(`drop schema ${schema} cascade`);

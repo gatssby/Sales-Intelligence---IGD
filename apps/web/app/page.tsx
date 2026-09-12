@@ -26,7 +26,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   if (!data.call) {
     return (
-      <AppShell user={{ fullName: user.displayName, role: user.role }} activeRoute="overview" title="Visão Geral" scopeSelector={scopeSelector}>
+      <AppShell user={{ fullName: user.displayName, role: user.role, accessRole: user.accessRole }} activeRoute="overview" title="Visão Geral" scopeSelector={scopeSelector}>
         <div className="page-intro"><div><p className="page-kicker">Performance comercial</p><h2>Visão do seu escopo</h2><p>Indicadores e qualidade das calls dentro da organização autorizada.</p></div></div>
         <section className="panel"><EmptyState icon="analytics" title="Nenhuma análise disponível" description="Seu escopo atual ainda não possui calls analisadas. Ajuste o Escopo global no topo da página." /></section>
       </AppShell>
@@ -38,7 +38,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const scoredRecentCalls = data.recentCalls.filter((call) => call.score !== null);
 
   return (
-    <AppShell user={{ fullName: user.displayName, role: user.role }} activeRoute="overview" title="Visão Geral" scopeSelector={scopeSelector}>
+    <AppShell user={{ fullName: user.displayName, role: user.role, accessRole: user.accessRole }} activeRoute="overview" title="Visão Geral" scopeSelector={scopeSelector}>
       <div className="page-intro">
         <div><p className="page-kicker">Performance comercial</p><h2>Olá, {user.displayName.split(" ")[0]}</h2><p>Acompanhe a qualidade das calls e os principais sinais do escopo atual.</p></div>
         <div className="page-intro-controls"><span className="control-chip"><Icon name="calls" size={16} />{summary.analyzedCalls} calls reais</span><span className="control-chip"><Icon name="calendar" size={16} />Todo o histórico</span></div>

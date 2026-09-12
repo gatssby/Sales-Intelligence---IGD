@@ -25,10 +25,9 @@ test("organization as-of date is URL-addressable and fail-closed", () => {
 test("default scope follows the highest useful level in effective access", () => {
   const base = { userId: "user", email: "user@example.invalid", displayName: "Synthetic" };
   assert.deepEqual(defaultOrganizationSelection(buildAuthorizationContext({ ...base, role: "ADMIN" })), {});
-  assert.deepEqual(defaultOrganizationSelection(buildAuthorizationContext({ ...base, role: "USER", productKeys: ["insider"], personIds: ["person"] })), { productKey: "insider" });
-  assert.deepEqual(defaultOrganizationSelection(buildAuthorizationContext({ ...base, role: "USER", productKeys: ["insider", "fl"], personIds: ["person"] })), {});
-  assert.deepEqual(defaultOrganizationSelection(buildAuthorizationContext({ ...base, role: "USER", productKeys: ["insider"], teamIds: ["outside-product-team"], personIds: ["person"] })), {});
-  assert.deepEqual(defaultOrganizationSelection(buildAuthorizationContext({ ...base, role: "USER", teamIds: ["team"], personIds: ["person"] })), { teamId: "team" });
-  assert.deepEqual(defaultOrganizationSelection(buildAuthorizationContext({ ...base, role: "USER", teamIds: ["team-a", "team-b"], personIds: ["person"] })), {});
-  assert.deepEqual(defaultOrganizationSelection(buildAuthorizationContext({ ...base, role: "USER", personIds: ["person"] })), { personId: "person" });
+  assert.deepEqual(defaultOrganizationSelection(buildAuthorizationContext({ ...base, role: "ORGANIZATION", accessRole: "SUPERVISOR", productKeys: ["insider"] })), { productKey: "insider" });
+  assert.deepEqual(defaultOrganizationSelection(buildAuthorizationContext({ ...base, role: "ORGANIZATION", accessRole: "SUPERVISOR", productKeys: ["insider", "fl"] })), {});
+  assert.deepEqual(defaultOrganizationSelection(buildAuthorizationContext({ ...base, role: "ORGANIZATION", accessRole: "LEADER", teamIds: ["team"] })), { teamId: "team" });
+  assert.deepEqual(defaultOrganizationSelection(buildAuthorizationContext({ ...base, role: "ORGANIZATION", accessRole: "LEADER_IN_TRAINING", teamIds: ["team-a", "team-b"] })), {});
+  assert.deepEqual(defaultOrganizationSelection(buildAuthorizationContext({ ...base, role: "ORGANIZATION", accessRole: "CLOSER", personIds: ["person"] })), { personId: "person" });
 });

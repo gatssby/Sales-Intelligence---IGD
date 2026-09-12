@@ -16,27 +16,32 @@ const passwordHash = await hashPassword(demoPassword);
 try {
   await sql.begin(async (tx) => {
     await tx`truncate table admin_audit_events, auth_login_attempts, auth_sessions, user_product_scopes, user_team_scopes, user_credentials, app_users cascade`;
-    const teams = await tx<{ id: string; team_key: string }[]>`select id, team_key from teams order by team_key`;
-    const alphaTeam = teams.find((team) => team.team_key === "alpha:north");
-    if (!alphaTeam) throw new Error("synthetic_alpha_team_missing");
+    const people = await tx<{ person_id: string; team_key: string; product_key: string }[]>`
+      select membership.person_id,team.team_key,team.product_key
+      from person_team_memberships membership join teams team on team.id=membership.team_id
+      where membership.valid_to is null order by team.team_key
+    `;
+    const leaderPerson = people.find((person) => person.team_key === "alpha:north");
+    const supervisorPerson = people.find((person) => person.team_key === "alpha:east");
+    const closerPerson = people.find((person) => person.product_key === "beta");
+    if (!leaderPerson || !supervisorPerson || !closerPerson) throw new Error("synthetic_organization_people_missing");
+    await tx`update person_organization_roles set valid_to=now(),updated_at=now() where person_id=${closerPerson.person_id} and valid_to is null`;
+    await tx`insert into person_organization_roles(person_id,role_kind,product_key,valid_from,provenance) values (${closerPerson.person_id},'closer','beta',now(),'synthetic_auth_demo')`;
     const users = await tx<{ id: string; email: string }[]>`
-      insert into app_users (email, display_name, role, active, must_change_password)
+      insert into app_users (email,display_name,role,access_origin,person_id,active,must_change_password)
       values
-        ('admin@example.invalid', 'Admin Synthetic', 'ADMIN', true, false),
-        ('leader@example.invalid', 'Leader Synthetic', 'LEADER', true, false),
-        ('supervisor@example.invalid', 'Supervisor Synthetic', 'SUPERVISOR', true, false),
-        ('sales.ops@example.invalid', 'Sales Ops Synthetic', 'SALES_OPS', true, false)
+        ('platform@example.invalid','Platform Admin Synthetic','PLATFORM_ADMIN','SYSTEM',null,true,false),
+        ('admin@example.invalid','Admin Synthetic','ADMIN','MANUAL',null,true,false),
+        ('leader@example.invalid','Leader Synthetic','ORGANIZATION','ORGANIZATION',${leaderPerson.person_id},true,false),
+        ('supervisor@example.invalid','Supervisor Synthetic','ORGANIZATION','ORGANIZATION',${supervisorPerson.person_id},true,false),
+        ('closer@example.invalid','Closer Synthetic','ORGANIZATION','ORGANIZATION',${closerPerson.person_id},true,false)
       returning id, email
     `;
     for (const user of users) {
       await tx`insert into user_credentials (user_id, password_hash) values (${user.id}, ${passwordHash})`;
     }
-    const leader = users.find((user) => user.email === "leader@example.invalid")!;
-    const supervisor = users.find((user) => user.email === "supervisor@example.invalid")!;
-    await tx`insert into user_team_scopes (user_id, team_id) values (${leader.id}, ${alphaTeam.id})`;
-    await tx`insert into user_product_scopes (user_id, product_key) values (${supervisor.id}, 'alpha')`;
   });
-  console.log("Synthetic Admin, Leader, Supervisor and Sales Ops accounts created. The password was not logged.");
+  console.log("Synthetic Platform Admin, Admin, Leader, Supervisor and Closer accounts created. The password was not logged.");
 } finally {
   await sql.end();
 }

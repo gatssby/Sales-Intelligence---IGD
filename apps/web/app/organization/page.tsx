@@ -27,7 +27,7 @@ export default async function OrganizationPage({ searchParams }: { searchParams:
   const scopeSelector = <OrganizationScopeSelector pathname="/organization" selected={selected} rows={allRows} preserved={extra} />;
 
   return (
-    <AppShell user={{ fullName: user.displayName, role: user.role }} activeRoute="organization" title="Organização" scopeSelector={scopeSelector}>
+    <AppShell user={{ fullName: user.displayName, role: user.role, accessRole: user.accessRole }} activeRoute="organization" title="Organização" scopeSelector={scopeSelector}>
       <div className="page-intro">
         <div><p className="page-kicker">Estrutura comercial</p><h2>Mapa da organização</h2><p>Navegue de Produto para Frente, Time, Liderança e Pessoa sem perder a atribuição histórica.</p></div>
         <TemporalScopeControl action="/organization" selected={selected} value={asOf.value} />

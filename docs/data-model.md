@@ -17,16 +17,16 @@ The first vertical slice started with six tables and now adds source-agnostic in
 - `call_sources`: one or more discovery origins for the same canonical call.
 - `ingestion_runs`: aggregate audit record for a controlled input batch.
 - `ingestion_events`: sparse diagnostic events tied to an ingestion run.
-- `products` and `teams`: normalized authorization scope dimensions.
+- `products` and `teams`: normalized authorization scope dimensions; `products.analytics_enabled` separates organizational presence from analytical navigation.
 - `people` and `person_aliases`: canonical IGD identities and deterministic lookup evidence; `sellers` remains the compatible commercial profile.
 - `fronts`, `person_team_memberships` and `team_leaderships`: separate organization dimensions with temporal validity.
 - `drive_documents` and `drive_document_sources`: pre-Call registry keyed by Google file ID plus source/path provenance.
 - `drive_discovery_state` and `drive_discovery_heartbeats`: Changes API cursor, leases and autonomous scanner health.
 - `call_participants`: IGD people present in a Call, independent from `calls.primary_closer_id`.
-- `app_users` and `user_credentials`: individual identity, role, account state and bcrypt hash.
-- `user_team_scopes` and `user_product_scopes`: explicit Leader and Supervisor data boundaries.
-- `app_users.person_id`: optional link from an app account to the canonical IGD person.
-- `person_organization_roles`: temporal supervisor and leader-in-training facts; only supervisor contributes product access.
+- `app_users` and `user_credentials`: individual identity, account authority/profile, `access_origin`, state and bcrypt hash.
+- `user_team_scopes` and `user_product_scopes`: canonical explicit boundaries for Manual Leader/Leader in training and Supervisor accounts, plus historical boundaries retained for review/rollback.
+- `app_users.person_id`: link to a canonical Person; required by Organization IGD accounts and by Manual Closer/SDR accounts.
+- `person_organization_roles`: temporal Closer, SDR, Leader, Leader in training, Supervisor and Administrator facts.
 - `organization_sync_runs`, `organization_source_snapshots`, `organization_sync_warnings` and `organization_change_events`: fail-closed synchronization audit, candidate fingerprints, data-quality warnings and temporal change provenance.
 - `auth_sessions`: revocable, server-side opaque sessions.
 - `auth_login_attempts`: bounded login throttling without storing the submitted identifier.
@@ -44,4 +44,4 @@ The admin-only AI spend read model is computed from these persisted records. Mis
 
 Application passwords are never stored. `user_credentials.password_hash` accepts bcrypt hashes only. Session cookies carry a random opaque token; PostgreSQL stores only its SHA-256 digest. Account deactivation and password resets both increment `app_users.session_version` and revoke active session rows.
 
-For accounts linked to `people`, `app_user_effective_scopes` derives the union of current supervised products, led teams and self. Legacy explicit scope tables remain only for unlinked accounts during migration and rollback. A call read always applies Effective Access before any Selected Scope supplied through navigation.
+`app_user_effective_scopes` is the single database read model for both origins. Organization IGD accounts derive the current cargo and boundary from temporal organization facts: self for Closer/SDR, current teams for Leader/Leader in training, product for Supervisor and global commercial access for Administrator. Manual accounts use only role-valid explicit boundaries: Person for Closer/SDR, one or more Teams for Leader/Leader in training, exactly one Product for Supervisor and global commercial access for Administrator. A call read always applies Acesso Efetivo before any Selected Scope supplied through navigation.

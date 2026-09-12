@@ -3,84 +3,92 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { accessProfileContent, accessProfileOrder, hasCompatibleLegacyScope, requiresPersonLink } from "../app/admin/users/accessProfiles.js";
+import { accessRoleLabels } from "../app/admin/users/accessProfiles.js";
 import { UserAccessManager } from "../app/admin/users/UserAccessManager.js";
 
-test("access profiles use clear pt-BR labels and match the supported authorization roles", () => {
-  assert.deepEqual(accessProfileOrder, ["ADMIN", "SUPERVISOR", "LEADER", "USER", "SALES_OPS"]);
-  assert.deepEqual(accessProfileOrder.map((role) => accessProfileContent[role].label), [
-    "Administrador",
-    "Supervisor",
-    "Líder",
-    "Pessoa",
-    "Operações comerciais",
-  ]);
-  assert.equal(requiresPersonLink("ADMIN"), false);
-  assert.equal(requiresPersonLink("SALES_OPS"), false);
-  assert.equal(requiresPersonLink("SUPERVISOR"), true);
-  assert.equal(requiresPersonLink("LEADER"), true);
-  assert.equal(requiresPersonLink("USER"), true);
+test("access labels cover every organizational cargo and keep Platform Admin explicit", () => {
+  assert.deepEqual(accessRoleLabels, {
+    PLATFORM_ADMIN: "Administrador da Plataforma",
+    ADMIN: "Administrador",
+    SUPERVISOR: "Supervisor",
+    LEADER: "Líder",
+    LEADER_IN_TRAINING: "Líder em treinamento",
+    CLOSER: "Closer",
+    SDR: "SDR",
+    USER: "Pessoa sem cargo calculado",
+    SALES_OPS: "Acesso anterior sem vínculo",
+  });
 });
 
-test("legacy scopes are retained only for their compatible access profile", () => {
-  assert.equal(hasCompatibleLegacyScope("LEADER", ["team-a"], []), true);
-  assert.equal(hasCompatibleLegacyScope("LEADER", [], ["product-a"]), false);
-  assert.equal(hasCompatibleLegacyScope("SUPERVISOR", [], ["product-a"]), true);
-  assert.equal(hasCompatibleLegacyScope("SUPERVISOR", ["team-a"], []), false);
-  assert.equal(hasCompatibleLegacyScope("ADMIN", ["team-a"], ["product-a"]), false);
-  assert.equal(hasCompatibleLegacyScope("SALES_OPS", ["team-a"], ["product-a"]), false);
-  assert.equal(hasCompatibleLegacyScope("USER", ["team-a"], ["product-a"]), false);
-});
-
-test("new account form renders every supported commercial profile without manual scope fields", () => {
+test("new accounts expose Organization IGD and Manual as explicit access origins", () => {
   const html = renderToStaticMarkup(React.createElement(UserAccessManager, {
     users: [],
     teams: [],
     products: [],
-    people: [],
+    people: [{ id: "person-a", code: "V9001", label: "Pessoa Sintética", accessRole: "CLOSER", organizationManaged: true }],
   }));
 
-  for (const label of accessProfileOrder.map((role) => accessProfileContent[role].label)) {
-    assert.match(html, new RegExp(`>${label}<`));
-  }
+  assert.match(html, /name="role" value="ORGANIZATION"/);
+  assert.match(html, /<select name="personId"[^>]*required/);
+  assert.match(html, /Organização IGD/);
+  assert.match(html, /Manual/);
+  assert.match(html, /Cargo, Produto, Frente, Time e liderança são derivados/);
+  assert.match(html, /Administrador da Plataforma não é concedido/);
   assert.doesNotMatch(html, /name="teamIds"|name="productKeys"/);
 });
 
-test("linked organizational profiles keep the Person link required while legacy scopes remain compatible", () => {
-  const baseUser = {
-    id: "user-a", email: "person@example.invalid", displayName: "Pessoa Sintética", role: "LEADER" as const,
-    active: true, mustChangePassword: false, lastLoginAt: null,
-    createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
-    personId: "person-a", teamIds: ["team-a"], productKeys: [], personIds: ["person-a"],
-  };
-  const people = [{ id: "person-a", code: "V9001", label: "Pessoa Sintética" }];
-  const linkedHtml = renderToStaticMarkup(React.createElement(UserAccessManager, {
-    users: [baseUser], teams: [{ id: "team-a", label: "Time A" }], products: [], people,
+test("linked account renders calculated cargo and friendly scope labels", () => {
+  const html = renderToStaticMarkup(React.createElement(UserAccessManager, {
+    users: [{
+      id: "user-a", email: "person@example.invalid", displayName: "Pessoa Sintética", role: "ORGANIZATION", accessRole: "LEADER",
+      active: true, mustChangePassword: false, lastLoginAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+      personId: "person-a", teamIds: ["team-a"], productKeys: [], personIds: ["person-a"],
+      accessOrigin: "ORGANIZATION", personCode: "V9001", personName: "Pessoa Sintética",
+      organizationProductNames: ["INSIDER"], organizationFrontNames: ["CLOSERS"], organizationTeamNames: ["Time A"], organizationMatch: null,
+    }],
+    teams: [{ id: "team-a", label: "Time A" }],
+    products: [],
+    people: [{ id: "person-a", code: "V9001", label: "Pessoa Sintética", accessRole: "LEADER", organizationManaged: true }],
   }));
-  const linkedPersonSelects = linkedHtml.match(/<select name="personId"[^>]*>/g) ?? [];
-  assert.equal(linkedPersonSelects.length, 2);
-  assert.match(linkedPersonSelects[1], /required/);
 
-  const legacyHtml = renderToStaticMarkup(React.createElement(UserAccessManager, {
-    users: [{ ...baseUser, personId: null, personIds: [] }], teams: [{ id: "team-a", label: "Time A" }], products: [], people,
-  }));
-  const legacyPersonSelects = legacyHtml.match(/<select name="personId"[^>]*>/g) ?? [];
-  assert.equal(legacyPersonSelects.length, 2);
-  assert.doesNotMatch(legacyPersonSelects[1], /required/);
+  assert.match(html, /Cargo:<\/strong> Líder/);
+  assert.match(html, /Origem do acesso:<\/strong> Organização IGD/);
+  assert.match(html, /Frente:<\/strong> CLOSERS/);
+  assert.match(html, /Abrangência:<\/strong> Times: Time A/);
+  assert.doesNotMatch(html, /team-a/);
 });
 
-test("users and access UI avoids implementation terminology", async () => {
+test("Platform Admin account is protected from the commercial access manager", () => {
+  const html = renderToStaticMarkup(React.createElement(UserAccessManager, {
+    users: [{
+      id: "platform-a", email: "platform@example.invalid", displayName: "Administrador Técnico", role: "PLATFORM_ADMIN", accessRole: "PLATFORM_ADMIN",
+      active: true, mustChangePassword: false, lastLoginAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+      personId: null, teamIds: [], productKeys: [], personIds: [],
+      accessOrigin: "SYSTEM", personCode: null, personName: null,
+      organizationProductNames: [], organizationFrontNames: [], organizationTeamNames: [], organizationMatch: null,
+    }],
+    teams: [], products: [], people: [],
+  }));
+
+  assert.match(html, /Privilégio protegido por configuração interna/);
+  assert.doesNotMatch(html, /Desativar conta|Gerar senha temporária/);
+});
+
+test("users and access UI uses natural commercial language", async () => {
   const sources = await Promise.all([
     readFile(new URL("../app/admin/users/UserAccessManager.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/admin/users/page.tsx", import.meta.url), "utf8"),
   ]);
   const content = sources.join("\n");
 
-  assert.match(content, /Perfil de acesso/);
+  assert.match(content, /Cargo/);
+  assert.match(content, /Abrangência/);
   assert.match(content, /Pessoa vinculada/);
   assert.match(content, /Conta ativa/);
   assert.match(content, /Administrador da Plataforma/);
-  assert.match(content, /AdminBadge label="Administrador"/);
-  assert.match(content, /Será recalculada pela organização após salvar/);
+  assert.match(content, /Será calculada pela organização ao salvar/);
+  assert.match(content, /Vínculo organizacional disponível/);
   assert.doesNotMatch(content, /Papel de sistema|Effective scope|Leader legado|Sales Ops|Admin do sistema|Pessoa: self/);
 });

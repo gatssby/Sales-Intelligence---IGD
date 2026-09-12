@@ -22,8 +22,20 @@ export type OrganizationWarningCode =
   | "duplicate_person_code"
   | "conflicting_membership"
   | "conflicting_product"
+  | "conflicting_role_signals"
   | "invalid_boolean"
+  | "unmapped_organizational_role"
   | "malformed_row";
+
+export const organizationalRoleKinds = [
+  "closer",
+  "sdr",
+  "leader",
+  "leader_in_training",
+  "supervisor",
+  "administrator",
+] as const;
+export type OrganizationalRoleKind = (typeof organizationalRoleKinds)[number];
 
 export type OrganizationWarning = {
   code: OrganizationWarningCode;
@@ -42,6 +54,7 @@ export type OrganizationPersonCandidate = {
   canTakeLeads: boolean | null;
   leaderInTraining: boolean | null;
   supervisor: boolean | null;
+  organizationalRole: OrganizationalRoleKind | null;
   productKey: string;
   frontKey: string;
   teamKey: string;
@@ -61,12 +74,6 @@ export type OrganizationLeadershipCandidate = {
   validFrom: string;
 };
 
-export type OrganizationSupervisorCandidate = {
-  personCode: string;
-  productKey: string;
-  validFrom: string;
-};
-
 export type OrganizationCandidate = {
   accepted: boolean;
   rejectionReasons: string[];
@@ -75,7 +82,6 @@ export type OrganizationCandidate = {
   people: OrganizationPersonCandidate[];
   memberships: OrganizationMembershipCandidate[];
   leaderships: OrganizationLeadershipCandidate[];
-  supervisors: OrganizationSupervisorCandidate[];
   products: Array<{ key: string; displayName: string }>;
   fronts: Array<{ key: string; displayName: string }>;
   teams: Array<{ key: string; displayName: string; productKey: string; frontKey: string }>;
@@ -138,6 +144,43 @@ function parseBoolean(value: unknown): boolean | null | "invalid" {
   return "invalid";
 }
 
+const sourceCargoRoles: Readonly<Record<string, "closer" | "sdr" | "administrator">> = {
+  CLOSER: "closer",
+  SDR: "sdr",
+  ADMINISTRADOR: "administrator",
+};
+
+function deriveOrganizationalRole(input: {
+  person: OrganizationPersonCandidate;
+  isLeader: boolean;
+  rowNumber: number;
+  warnings: OrganizationWarning[];
+}): OrganizationalRoleKind | null {
+  const { person, isLeader, rowNumber, warnings } = input;
+  if (person.supervisor === null || person.leaderInTraining === null) return null;
+  if (person.supervisor && person.leaderInTraining) {
+    warnings.push({
+      code: "conflicting_role_signals",
+      rowNumber,
+      personCode: person.personCode,
+      detail: "Supervisor and Leader in Training are both active; the previous role is preserved.",
+    });
+    return null;
+  }
+  if (person.supervisor) return "supervisor";
+  if (person.leaderInTraining) return "leader_in_training";
+  if (isLeader) return "leader";
+  const role = sourceCargoRoles[comparable(person.position)];
+  if (role) return role;
+  warnings.push({
+    code: "unmapped_organizational_role",
+    rowNumber,
+    personCode: person.personCode,
+    detail: "Cargo does not map to an approved organizational role; the previous role is preserved.",
+  });
+  return null;
+}
+
 export function parseOrganizationSheet(input: { values: unknown[][]; observedAt: string }): OrganizationCandidate {
   const observedAt = new Date(input.observedAt).toISOString();
   const header = input.values[0] ?? [];
@@ -147,11 +190,11 @@ export function parseOrganizationSheet(input: { values: unknown[][]; observedAt:
   const people: OrganizationPersonCandidate[] = [];
   const memberships: OrganizationMembershipCandidate[] = [];
   const leaderships: Array<OrganizationLeadershipCandidate & { sourceRowNumber: number; memberCode: string }> = [];
-  const supervisors: OrganizationSupervisorCandidate[] = [];
   const products = new Map<string, string>();
   const fronts = new Map<string, string>();
   const teams = new Map<string, { displayName: string; productKey: string; frontKey: string }>();
   const seenPeople = new Map<string, OrganizationPersonCandidate>();
+  const sourceRowsByPersonCode = new Map<string, number>();
   const conflictingCodes = new Set<string>();
 
   const value = (row: unknown[], name: typeof ORGANIZATION_HEADERS[number]) => row[index.get(name) ?? -1];
@@ -192,8 +235,9 @@ export function parseOrganizationSheet(input: { values: unknown[][]; observedAt:
       seniority: String(value(row, "SENIORIDADE") ?? "").trim() || null,
       employmentType: String(value(row, "REGIME") ?? "").trim() || null,
       canTakeLeads: booleanFields.canTakeLeads === "invalid" ? null : booleanFields.canTakeLeads,
-      leaderInTraining: booleanFields.leaderInTraining === "invalid" ? null : booleanFields.leaderInTraining,
-      supervisor: booleanFields.supervisor === "invalid" ? null : booleanFields.supervisor,
+      leaderInTraining: booleanFields.leaderInTraining === "invalid" ? null : booleanFields.leaderInTraining ?? false,
+      supervisor: booleanFields.supervisor === "invalid" ? null : booleanFields.supervisor ?? false,
+      organizationalRole: null,
       productKey,
       frontKey,
       teamKey,
@@ -212,12 +256,12 @@ export function parseOrganizationSheet(input: { values: unknown[][]; observedAt:
       continue;
     }
     seenPeople.set(personCode, person);
+    sourceRowsByPersonCode.set(personCode, rowNumber);
     people.push(person);
     products.set(productKey, productDisplay);
     fronts.set(frontKey, frontDisplay);
     teams.set(teamKey, { displayName: teamDisplay, productKey, frontKey });
     if (person.active) memberships.push({ personCode, productKey, frontKey, teamKey, validFrom: observedAt });
-    if (person.active && person.supervisor) supervisors.push({ personCode, productKey, validFrom: observedAt });
     const leaderCode = code(value(row, "CODIGO DO LIDER"));
     if (person.active && leaderCode) leaderships.push({ leaderCode, teamKey, validFrom: observedAt, sourceRowNumber: rowNumber, memberCode: personCode });
     else if (person.active && !leaderCode && String(value(row, "NOME DO LIDER") ?? "").trim()) {
@@ -235,6 +279,16 @@ export function parseOrganizationSheet(input: { values: unknown[][]; observedAt:
     });
     return false;
   });
+  const leaderCodes = new Set(resolvedLeaderships.map((leadership) => leadership.leaderCode));
+  for (const person of people) {
+    if (!person.active) continue;
+    person.organizationalRole = deriveOrganizationalRole({
+      person,
+      isLeader: leaderCodes.has(person.personCode),
+      rowNumber: sourceRowsByPersonCode.get(person.personCode) ?? 0,
+      warnings,
+    });
+  }
 
   return {
     accepted: missingHeaders.length === 0 && people.length > 0 && conflictingCodes.size === 0,
@@ -251,7 +305,6 @@ export function parseOrganizationSheet(input: { values: unknown[][]; observedAt:
       `${item.leaderCode}:${item.teamKey}`,
       { leaderCode: item.leaderCode, teamKey: item.teamKey, validFrom: item.validFrom },
     ])).values()],
-    supervisors: [...new Map(supervisors.map((item) => [`${item.personCode}:${item.productKey}`, item])).values()],
     products: [...products].map(([productKey, displayName]) => ({ key: productKey, displayName })),
     fronts: [...fronts].map(([frontKey, displayName]) => ({ key: frontKey, displayName })),
     teams: [...teams].map(([teamKey, item]) => ({ key: teamKey, ...item })),

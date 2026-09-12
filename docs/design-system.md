@@ -122,7 +122,7 @@ ssh -N -L 5433:127.0.0.1:5432 oracle-vps
 Terminal 2:
 
 ```bash
-cd "/Users/gatsby/Workspace/Sales Intelligence - IGD" && DEV_BYPASS_AUTH=true npm run dev
+cd "/Users/gatsby/Workspace/Sales Intelligence - IGD" && DEV_AUTH_BYPASS=true npm run dev
 ```
 
-Then open `http://localhost:3000`. Never configure `DEV_BYPASS_AUTH=true` in production.
+Then open `http://localhost:3000`. Never configure `DEV_AUTH_BYPASS=true` in production.

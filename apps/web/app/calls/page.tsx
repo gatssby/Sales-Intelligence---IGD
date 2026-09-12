@@ -36,7 +36,7 @@ export default async function CallsPage({ searchParams }: { searchParams: Promis
   const reviewOnPage = catalog.calls.filter((call) => ["quarantine", "reconciliation_required"].includes(call.analysisStatus)).length;
 
   return (
-    <AppShell user={{ fullName: user.displayName, role: user.role }} activeRoute="calls" title="Calls" scopeSelector={scopeSelector}>
+    <AppShell user={{ fullName: user.displayName, role: user.role, accessRole: user.accessRole }} activeRoute="calls" title="Calls" scopeSelector={scopeSelector}>
       <div className="page-intro">
         <div><p className="page-kicker">Workspace analítico</p><h2>Catálogo de calls</h2><p>Transcripts, análises e estados operacionais preservados em uma visão de alta densidade.</p></div>
         <div className="call-summary-strip"><span><Icon name="calls" size={16} /><strong>{catalog.total.toLocaleString("pt-BR")}</strong> no escopo</span><span><i className="summary-dot success" /><strong>{analyzedOnPage}</strong> analisadas nesta página</span><span><i className="summary-dot info" /><strong>{transcriptsOnPage}</strong> com transcript</span>{reviewOnPage ? <span><i className="summary-dot warning" /><strong>{reviewOnPage}</strong> em revisão</span> : null}</div>

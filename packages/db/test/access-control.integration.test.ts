@@ -4,7 +4,7 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
-import { executeSpendGuarded, generateTemporaryPassword } from "@igd/auth";
+import { buildAuthorizationContext, executeSpendGuarded, generateTemporaryPassword } from "@igd/auth";
 import { PostgresAuthRepository, PostgresOrganizationRepository, ScopedSalesRepository } from "../src/index";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -104,6 +104,24 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
     where customer_name='Customer Alpha East Synthetic'
   `;
 
+  const organizationPeople = await sql<{ id: string; team_id: string }[]>`
+    select person.id,seller.team_id from sellers seller join people person on person.id=seller.person_id order by seller.team_id
+  `;
+  const northPersonId = organizationPeople.find((person) => person.team_id === northId)!.id;
+  const eastPersonId = organizationPeople.find((person) => person.team_id === eastId)!.id;
+  const southPersonId = organizationPeople.find((person) => person.team_id === southId)!.id;
+  await sql`update people set organization_attributes='{"organizationManaged":true}'::jsonb where id in (${northPersonId},${eastPersonId},${southPersonId})`;
+  await sql`insert into person_team_memberships(person_id,team_id,valid_from,provenance) values
+    (${northPersonId},${northId},now()-interval '1 day','synthetic_test'),
+    (${eastPersonId},${eastId},now()-interval '1 day','synthetic_test'),
+    (${southPersonId},${southId},now()-interval '1 day','synthetic_test')`;
+  await sql`insert into team_leaderships(person_id,team_id,valid_from,provenance) values
+    (${northPersonId},${northId},now()-interval '1 day','synthetic_test')`;
+  await sql`insert into person_organization_roles(person_id,role_kind,product_key,valid_from,provenance) values
+    (${northPersonId},'leader','alpha',now()-interval '1 day','synthetic_test'),
+    (${eastPersonId},'supervisor','alpha',now()-interval '1 day','synthetic_test'),
+    (${southPersonId},'administrator','beta',now()-interval '1 day','synthetic_test')`;
+
   const auth = new PostgresAuthRepository(sql);
   const bootstrapPassword = generateTemporaryPassword();
   await auth.bootstrapAdmin({
@@ -123,23 +141,24 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
   const leaderCreated = await auth.createUser(admin, {
     email: "leader@example.invalid",
     displayName: "Leader Synthetic",
-    role: "LEADER",
-    teamIds: [northId],
+    role: "ORGANIZATION",
+    personId: northPersonId,
   });
   const supervisorCreated = await auth.createUser(admin, {
     email: "supervisor@example.invalid",
     displayName: "Supervisor Synthetic",
-    role: "SUPERVISOR",
-    productKeys: ["alpha"],
+    role: "ORGANIZATION",
+    personId: eastPersonId,
   });
   await auth.createUser(admin, {
-    email: "sales.ops@example.invalid",
-    displayName: "Sales Ops Synthetic",
-    role: "SALES_OPS",
+    email: "organization.admin@example.invalid",
+    displayName: "Organization Admin Synthetic",
+    role: "ORGANIZATION",
+    personId: southPersonId,
   });
   const leader = (await auth.getActiveActorByEmail("leader@example.invalid"))!;
   const supervisor = (await auth.getActiveActorByEmail("supervisor@example.invalid"))!;
-  const salesOps = (await auth.getActiveActorByEmail("sales.ops@example.invalid"))!;
+  const organizationAdmin = (await auth.getActiveActorByEmail("organization.admin@example.invalid"))!;
   const access = new ScopedSalesRepository(sql);
 
   await t.test("Admin reads all data and manages accounts", async () => {
@@ -150,6 +169,9 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
     assert.equal(catalog.rows.length, 2);
     assert.equal("normalized_text" in catalog.rows[0], false, "catalog must not load transcripts");
     assert.equal((await access.getBacklogProgress(admin)).analyzed, 3);
+    await assert.rejects(() => auth.createUser(admin, {
+      email: "forged.profile@example.invalid",displayName: "Forged Profile",role: "SALES_OPS",
+    }), /legacy_access_requires_review/);
   });
 
   await t.test("Leader reads only assigned teams, including aggregates and direct IDs", async () => {
@@ -169,9 +191,11 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
     assert.equal(await access.getCallById(supervisor, callIds.beta), null);
   });
 
-  await t.test("Sales Ops reads every product and team", async () => {
-    assert.equal((await access.getMetrics(salesOps)).analyzed_calls, 3);
-    assert.deepEqual(new Set((await access.listCalls(salesOps)).map((call) => call.product_key)), new Set(["alpha", "beta"]));
+  await t.test("organization-derived Administrator reads every product and team", async () => {
+    assert.equal(organizationAdmin.role, "ORGANIZATION");
+    assert.equal(organizationAdmin.accessRole, "ADMIN");
+    assert.equal((await access.getMetrics(organizationAdmin)).analyzed_calls, 3);
+    assert.deepEqual(new Set((await access.listCalls(organizationAdmin)).map((call) => call.product_key)), new Set(["alpha", "beta"]));
   });
 
   await t.test("organization metrics honor the selected historical call period", async () => {
@@ -191,27 +215,17 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
     assert.deepEqual(historical.map((call) => call.customer_name), ["Customer Alpha North Synthetic"], "call date, not analysis date, controls history and recency");
   });
 
-  await t.test("linking and re-editing a legacy role derives scope and audits the identity change", async () => {
-    const people = await sql<{ person_id: string }[]>`select person_id from sellers where team_id=${northId} and person_id is not null limit 1`;
-    await sql`
-      insert into team_leaderships(person_id,team_id,valid_from,provenance)
-      values (${people[0].person_id},${northId},now()-interval '1 day','organization_sync')
-    `;
+  await t.test("re-editing a linked account preserves its organization-derived scope", async () => {
     await auth.updateUser(admin, leader.userId, {
-      email: "leader@example.invalid",displayName: "Leader Synthetic",role: "LEADER",personId: people[0].person_id,
+      email: "leader@example.invalid",displayName: "Leader Synthetic",role: "ORGANIZATION",personId: northPersonId,
     });
     const linked = (await auth.getActiveActorByEmail("leader@example.invalid"))!;
+    assert.equal(linked.accessRole, "LEADER");
     assert.equal((await access.getMetrics(linked)).analyzed_calls, 2);
     await auth.updateUser(admin, leader.userId, {
-      email: "leader@example.invalid",displayName: "Leader Synthetic Updated",role: "LEADER",personId: people[0].person_id,
+      email: "leader@example.invalid",displayName: "Leader Synthetic Updated",role: "ORGANIZATION",personId: northPersonId,
     });
-    const events = await sql<{ count: number }[]>`
-      select count(*)::integer count from admin_audit_events
-      where target_user_id=${leader.userId}
-        and event_type='user.scope_changed'
-        and details->>'change'='person_link'
-    `;
-    assert.equal(events[0].count, 1);
+    assert.equal((await sql<{ count: number }[]>`select count(*)::integer count from user_team_scopes where user_id=${leader.userId}`)[0].count, 0);
   });
 
   await t.test("failed manual organization syncs retain the initiating Admin", async () => {
@@ -226,7 +240,7 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
   });
 
   await t.test("Non-admin spend attempts return the deny path without provider or job calls", async () => {
-    for (const user of [leader, supervisor, salesOps]) {
+    for (const user of [leader, supervisor, organizationAdmin]) {
       let providerCalls = 0;
       let jobsCreated = 0;
       const result = await executeSpendGuarded(user, {
@@ -244,7 +258,7 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
     assert.equal(blocked[0].count, 3);
   });
 
-  await t.test("AI spend summary is available to Admin and denied to every read-only role", async () => {
+  await t.test("AI spend summary is limited to Platform Admin", async () => {
     await sql`
       insert into ai_budget_accounts (id,limit_usd,safety_reserve_usd,external_spend_baseline_usd)
       values ('sales-intelligence-igd',15,0.1,5.9)
@@ -255,20 +269,88 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
       values (${seller[0].id},'synthetic-admin-spend-pending','alpha','metadata_ready') returning id
     `;
     await sql`insert into analysis_jobs (call_id,status,stage) values (${pending[0].id},'awaiting_transcript','transcript')`;
-    const summary = await access.getAiSpendSummary(admin, {
+    const platform = buildAuthorizationContext({
+      userId: "platform-synthetic",email: "platform@example.invalid",displayName: "Platform Synthetic",role: "PLATFORM_ADMIN",
+    });
+    const summary = await access.getAiSpendSummary(platform, {
       accountId: "sales-intelligence-igd",
       strategyVersion: "insider-cost-quality-v1",
       confidencePolicyVersion: "insider-confidence-v2",
     });
     assert.equal(summary.budgetUsd, 15);
     assert.equal(summary.eligibleBacklog, 1);
-    for (const user of [leader, supervisor, salesOps]) {
+    for (const user of [admin, leader, supervisor, organizationAdmin]) {
       await assert.rejects(() => access.getAiSpendSummary(user, {
         accountId: "sales-intelligence-igd",
         strategyVersion: "insider-cost-quality-v1",
         confidencePolicyVersion: "insider-confidence-v2",
       }), /forbidden/);
     }
+    await sql`delete from analysis_jobs where call_id=${pending[0].id}`;
+    await sql`delete from calls where id=${pending[0].id}`;
+  });
+
+  await t.test("Manual accounts share the canonical role-to-scope policy without Sheet presence", async () => {
+    const closerCreated = await auth.createUser(admin, {
+      email: "manual.closer@example.invalid",displayName: "Manual Closer Synthetic",role: "CLOSER",createManualPerson: true,
+    });
+    const sdrCreated = await auth.createUser(admin, {
+      email: "manual.sdr@example.invalid",displayName: "Manual SDR Synthetic",role: "SDR",createManualPerson: true,
+    });
+    await auth.createUser(admin, {
+      email: "manual.leader@example.invalid",displayName: "Manual Leader Synthetic",role: "LEADER",teamIds: [northId],
+    });
+    await auth.createUser(admin, {
+      email: "manual.trainee@example.invalid",displayName: "Manual Trainee Synthetic",role: "LEADER_IN_TRAINING",teamIds: [southId],
+    });
+    await auth.createUser(admin, {
+      email: "manual.supervisor@example.invalid",displayName: "Manual Supervisor Synthetic",role: "SUPERVISOR",productKeys: ["alpha"],
+    });
+    await auth.createUser(admin, {
+      email: "manual.admin@example.invalid",displayName: "Manual Admin Synthetic",role: "ADMIN",
+    });
+    await assert.rejects(() => auth.createUser(admin, {
+      email: "invalid.supervisor@example.invalid",displayName: "Invalid Supervisor",role: "SUPERVISOR",teamIds: [northId],
+    }), /one_product/);
+    await assert.rejects(() => auth.createUser(admin, {
+      email: "invalid.leader@example.invalid",displayName: "Invalid Leader",role: "LEADER",productKeys: ["alpha"],
+    }), /teams_only/);
+
+    const closer = (await auth.getActiveActorByEmail("manual.closer@example.invalid"))!;
+    const sdr = (await auth.getActiveActorByEmail("manual.sdr@example.invalid"))!;
+    const manualLeader = (await auth.getActiveActorByEmail("manual.leader@example.invalid"))!;
+    const manualTrainee = (await auth.getActiveActorByEmail("manual.trainee@example.invalid"))!;
+    const manualSupervisor = (await auth.getActiveActorByEmail("manual.supervisor@example.invalid"))!;
+    const manualAdmin = (await auth.getActiveActorByEmail("manual.admin@example.invalid"))!;
+    assert.equal(closer.role, "CLOSER");
+    assert.equal(sdr.role, "SDR");
+    assert.equal(closer.scope.kind, "ORGANIZATION");
+    assert.equal(sdr.scope.kind, "ORGANIZATION");
+
+    const manualSellers = await sql<{ id: string; person_id: string }[]>`
+      insert into sellers(display_name,external_reference,product,team_name,team_id,person_id)
+      values
+        ('Manual Closer Synthetic','MANUAL-CLOSER','alpha','East',${eastId},${closer.scope.kind === "ORGANIZATION" ? closer.scope.personIds[0] : null}),
+        ('Manual SDR Synthetic','MANUAL-SDR','beta','South',${southId},${sdr.scope.kind === "ORGANIZATION" ? sdr.scope.personIds[0] : null})
+      returning id,person_id
+    `;
+    const manualCalls = await sql<{ id: string; external_key: string }[]>`
+      insert into calls(seller_id,external_key,product_key,status,primary_closer_id,team_id)
+      values
+        (${manualSellers[0].id},'manual-closer-call','alpha','metadata_ready',${manualSellers[0].person_id},${eastId}),
+        (${manualSellers[1].id},'manual-sdr-call','beta','metadata_ready',${manualSellers[1].person_id},${southId})
+      returning id,external_key
+    `;
+    const manualCallId = new Map(manualCalls.map((call) => [call.external_key, call.id]));
+    assert.deepEqual((await access.listCallCatalog(closer, { page: 1, pageSize: 50 })).rows.map((call) => call.id), [manualCallId.get("manual-closer-call")]);
+    assert.deepEqual((await access.listCallCatalog(sdr, { page: 1, pageSize: 50 })).rows.map((call) => call.id), [manualCallId.get("manual-sdr-call")]);
+    assert.equal((await access.listCallCatalog(manualLeader, { page: 1, pageSize: 50 })).total, 2);
+    assert.equal((await access.listCallCatalog(manualTrainee, { page: 1, pageSize: 50 })).total, 2);
+    assert.equal((await access.listCallCatalog(manualSupervisor, { page: 1, pageSize: 50 })).total, 3);
+    assert.equal((await access.listCallCatalog(manualAdmin, { page: 1, pageSize: 50 })).total, 5);
+    const managed = await auth.listUsers(admin);
+    assert.equal(managed.find((user) => user.id === closerCreated.user.id)?.accessOrigin, "MANUAL");
+    assert.equal(managed.find((user) => user.id === sdrCreated.user.id)?.accessOrigin, "MANUAL");
   });
 
   await t.test("Inactive users cannot authenticate and existing sessions are invalidated", async () => {

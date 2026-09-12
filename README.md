@@ -19,7 +19,7 @@ A entrada controlada de calls agora é desacoplada da origem e deduplicada por `
 
 A descoberta autônoma do Google Drive usa o mesmo OAuth renovável, registra documentos antes de criar calls e reconcilia origens legadas pelo mesmo `transcript_file_id`. O fluxo, os defaults seguros e a operação estão em [docs/drive-discovery.md](docs/drive-discovery.md) e no [ADR 0007](docs/decisions/0007-drive-discovery-and-temporal-attribution.md).
 
-A organização atual é sincronizada de uma Google Sheet oficial por um módulo separado e read-only. Candidates passam por validação fail-closed antes de publicar relações temporais e acesso derivado no PostgreSQL. Consulte [docs/organization-sync.md](docs/organization-sync.md) e o [ADR 0008](docs/decisions/0008-organization-sync-and-derived-access.md).
+A organização atual é sincronizada de uma Google Sheet oficial por um módulo separado e somente leitura. Snapshots passam por validação com falha segura antes de publicar relações temporais; contas com origem **Organização IGD** recebem automaticamente o Cargo Organizacional e a abrangência vigentes. Contas com origem **Manual** usam a mesma matriz canônica de perfis, mas preservam a abrangência administrada e não são sobrescritas pelo sync; um vínculo organizacional detectado exige conversão explícita e auditada. FL e INSIDER participam das análises, enquanto Ingressos permanece organizado sem aparecer na navegação analítica. Consulte [docs/organization-sync.md](docs/organization-sync.md) e o [ADR 0010](docs/decisions/0010-organizational-cargo-and-derived-access.md).
 
 O procedimento específico para validar o JSONL, importar somente o catálogo e construir a fila fair do primeiro lote INSIDER está em [docs/insider-first-batch-runbook.md](docs/insider-first-batch-runbook.md).
 
@@ -27,7 +27,7 @@ O deploy em `sales-igd.com.br` usa Next.js em container e nginx com HTTPS, mante
 
 A apresentação do produto segue o Figma canônico e os tokens/primitives documentados em [docs/design-system.md](docs/design-system.md). Mudanças visuais devem consultar essa referência antes de introduzir novos padrões.
 
-A autenticação individual da aplicação é a camada principal de acesso. O controle por papel/escopo e a aposentadoria do Basic Auth legado do nginx estão documentados em [docs/authentication-access-control.md](docs/authentication-access-control.md).
+A autenticação individual da aplicação é a camada principal de acesso. A matriz Closer, SDR, Líder, Líder em treinamento, Supervisor e Administrador é aplicada no servidor; Administração da Plataforma permanece uma autoridade técnica separada. Consulte [docs/authentication-access-control.md](docs/authentication-access-control.md) e [docs/platform-admin.md](docs/platform-admin.md).
 
 ## Escopo inicial
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { hasCapability } from "@igd/auth";
+import { assertMutationAllowed, hasCapability, type Capability } from "@igd/auth";
 import { parseOrganizationSheet, safeOrganizationSyncError } from "@igd/core";
 import { PostgresOrganizationRepository } from "@igd/db";
 import { GoogleOAuthRefreshTokenProvider, GoogleSheetsOrganizationClient } from "@igd/google";
@@ -8,25 +8,30 @@ import { getSql } from "@/lib/database";
 
 export const dynamic = "force-dynamic";
 
-async function admin() {
+async function platform(capability: Capability) {
   const user = await getCurrentUser();
   if (!user) return { response: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
-  if (user.mustChangePassword || !hasCapability(user, "settings:manage")) {
+  if (user.mustChangePassword || !hasCapability(user, capability)) {
     return { response: NextResponse.json({ error: "forbidden" }, { status: 403 }) };
   }
   return { user };
 }
 
 export async function GET() {
-  const authorization = await admin();
+  const authorization = await platform("platform:observe");
   if ("response" in authorization) return authorization.response;
   const runs = await new PostgresOrganizationRepository(getSql()).getSyncStatus(authorization.user, 20);
   return NextResponse.json(runs, { headers: { "cache-control": "private, no-store" } });
 }
 
 export async function POST() {
-  const authorization = await admin();
+  const authorization = await platform("platform:operate");
   if ("response" in authorization) return authorization.response;
+  try {
+    assertMutationAllowed(authorization.user);
+  } catch {
+    return NextResponse.json({ error: "preview_read_only" }, { status: 403 });
+  }
   const spreadsheetId = process.env.ORGANIZATION_SPREADSHEET_ID?.trim();
   const sheetId = Number(process.env.ORGANIZATION_SHEET_ID);
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID?.trim();
