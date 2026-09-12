@@ -13,7 +13,7 @@ A planilha atual expressa Closer e SDR diretamente em **Cargo**. As demais respo
 
 Supervisor tem precedência sobre as demais responsabilidades e Líder em treinamento tem precedência sobre Líder/Cargo. Se Supervisor e Líder em treinamento aparecem simultaneamente, se um booleano é inválido ou se Cargo não pertence ao vocabulário aprovado, o cargo anterior é preservado e um aviso auditável é registrado. `PLATFORM_ADMIN` e qualquer coluna externa semelhante são ignorados: a organização nunca concede Administração da Plataforma.
 
-Cada mudança encerra o intervalo anterior em `person_organization_roles` e inicia um novo no instante observado. Uma conta vinculada não precisa ser editada; seu próximo request recebe o cargo e a abrangência vigentes.
+Cada mudança encerra o intervalo anterior em `person_organization_roles` e inicia um novo no instante observado. Uma conta de origem Organização IGD vinculada não precisa ser editada; seu próximo request recebe o cargo e a abrangência vigentes. Contas de origem Manual não são alteradas. Quando uma identidade manual passa a ter correspondência organizacional única, a gestão de usuários apenas apresenta a sugestão de vínculo; a mudança de origem exige confirmação explícita e evento de auditoria.
 
 ## Configuração
 
@@ -38,7 +38,7 @@ npm run organization:sync
 npm run organization:sync -- --plan
 ```
 
-O comando renova OAuth, lê metadata, revision, aba e valores, valida headers e imprime somente título, contagens, warnings e estados OK/FAIL. Ele não exige banco, não publica e faz zero requests de IA.
+O comando renova OAuth, lê metadata, revision, aba e valores, valida headers e imprime somente título, contagens, warnings e estados OK/FAIL. Com `--plan`, também separa transições do grafo organizacional de mudanças de Acesso Efetivo das contas Organização IGD; contas Manuais ficam fora dessa segunda contagem. Ele não publica e faz zero requests de IA.
 
 ## Publicação controlada
 

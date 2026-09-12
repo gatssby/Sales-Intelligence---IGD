@@ -63,7 +63,7 @@ test("Supervisor reads every team in the assigned product and no other product",
 test("read-only preview keeps the real Platform actor and blocks mutation and spend", () => {
   const platform = buildAuthorizationContext({ ...base, role: "PLATFORM_ADMIN" });
   const preview = buildPreviewAuthorizationContext(platform, {
-    kind: "LEADER", subjectPersonId: "person-a", subjectCode: "V9001", subjectDisplayName: "Pessoa Sintética", teamIds: ["team-a"], personIds: ["person-a"],
+    kind: "LEADER", subjectPersonId: "person-a", subjectUserId: null, subjectCode: "V9001", subjectDisplayName: "Pessoa Sintética", teamIds: ["team-a"], personIds: ["person-a"],
   });
   assert.equal(preview.role, "PLATFORM_ADMIN");
   assert.equal(preview.accessRole, "LEADER");
@@ -91,6 +91,20 @@ test("role validation permits linked organization accounts and rejects sheet-sty
   assert.throws(() => validateRoleScopes({ role: "ORGANIZATION" }), /person_link/);
   assert.throws(() => validateRoleScopes({ role: "ORGANIZATION", personId: "person-a", teamIds: ["team-a"] }), /derived_from_person/);
   assert.throws(() => validateRoleScopes({ role: "PLATFORM_ADMIN" }), /internal_grant/);
+});
+
+test("manual roles accept only their canonical scope shape", () => {
+  assert.doesNotThrow(() => validateRoleScopes({ role: "CLOSER", personId: "person-a" }));
+  assert.doesNotThrow(() => validateRoleScopes({ role: "SDR", personId: "person-a" }));
+  assert.throws(() => validateRoleScopes({ role: "CLOSER" }), /requires_person/);
+  assert.throws(() => validateRoleScopes({ role: "SDR", personId: "person-a", teamIds: ["team-a"] }), /person_only/);
+  assert.doesNotThrow(() => validateRoleScopes({ role: "LEADER", teamIds: ["team-a", "team-b"] }));
+  assert.doesNotThrow(() => validateRoleScopes({ role: "LEADER_IN_TRAINING", teamIds: ["team-a"] }));
+  assert.throws(() => validateRoleScopes({ role: "LEADER", teamIds: [], productKeys: ["alpha"] }), /teams_only/);
+  assert.doesNotThrow(() => validateRoleScopes({ role: "SUPERVISOR", productKeys: ["alpha"] }));
+  assert.throws(() => validateRoleScopes({ role: "SUPERVISOR", productKeys: ["alpha", "beta"] }), /one_product/);
+  assert.doesNotThrow(() => validateRoleScopes({ role: "ADMIN" }));
+  assert.throws(() => validateRoleScopes({ role: "ADMIN", productKeys: ["alpha"] }), /global_role/);
 });
 
 test("Passwords are strongly hashed and temporary passwords are not recoverable from the hash", async () => {

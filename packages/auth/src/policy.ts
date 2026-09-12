@@ -1,8 +1,13 @@
-export const roles = ["PLATFORM_ADMIN", "ADMIN", "ORGANIZATION", "USER", "LEADER", "SUPERVISOR", "SALES_OPS"] as const;
-export type Role = (typeof roles)[number];
-
 export const organizationalAccessRoles = ["CLOSER", "SDR", "LEADER", "LEADER_IN_TRAINING", "SUPERVISOR", "ADMIN"] as const;
 export type OrganizationalAccessRole = (typeof organizationalAccessRoles)[number];
+export const manualAccessRoles = organizationalAccessRoles;
+export type ManualAccessRole = OrganizationalAccessRole;
+
+export const roles = ["PLATFORM_ADMIN", "ORGANIZATION", ...manualAccessRoles, "USER", "SALES_OPS"] as const;
+export type Role = (typeof roles)[number];
+
+export const accessOrigins = ["ORGANIZATION", "MANUAL", "SYSTEM", "REVIEW"] as const;
+export type AccessOrigin = (typeof accessOrigins)[number];
 export type AccessRole = "PLATFORM_ADMIN" | OrganizationalAccessRole | "USER" | "SALES_OPS";
 
 export const previewRoles = ["ADMIN", "SUPERVISOR", "LEADER", "LEADER_IN_TRAINING", "CLOSER", "SDR"] as const;
@@ -36,6 +41,7 @@ export type SelectedOrganizationScope = {
 export type PreviewMode = {
   kind: PreviewRole;
   subjectPersonId: string | null;
+  subjectUserId: string | null;
   subjectCode: string | null;
   subjectDisplayName: string;
   readOnly: true;
@@ -122,6 +128,7 @@ export function buildPreviewAuthorizationContext(
   input: {
     kind: PreviewRole;
     subjectPersonId: string | null;
+    subjectUserId?: string | null;
     subjectCode: string | null;
     subjectDisplayName: string;
     teamIds?: readonly string[];
@@ -141,6 +148,7 @@ export function buildPreviewAuthorizationContext(
     preview: {
       kind: input.kind,
       subjectPersonId: input.subjectPersonId,
+      subjectUserId: input.subjectUserId ?? null,
       subjectCode: input.subjectCode,
       subjectDisplayName: input.subjectDisplayName,
       readOnly: true,
@@ -212,15 +220,32 @@ export function validateRoleScopes(input: {
     if (teamCount > 0 || productCount > 0) throw new Error("organization_scope_is_derived_from_person");
     return;
   }
-  if (input.personId) return;
-  if (input.role === "LEADER" && (teamCount === 0 || productCount > 0)) throw new Error("leader_requires_one_or_more_teams_only");
-  if (input.role === "SUPERVISOR" && (productCount === 0 || teamCount > 0)) throw new Error("supervisor_requires_one_or_more_products_only");
-  if ((input.role === "ADMIN" || input.role === "SALES_OPS") && (teamCount > 0 || productCount > 0)) throw new Error("global_role_cannot_have_scopes");
+  if (input.role === "CLOSER" || input.role === "SDR") {
+    if (!input.personId) throw new Error("manual_self_role_requires_person");
+    if (teamCount > 0 || productCount > 0) throw new Error("manual_self_scope_is_person_only");
+    return;
+  }
+  if (input.role === "LEADER" || input.role === "LEADER_IN_TRAINING") {
+    if (input.personId || teamCount === 0 || productCount > 0) throw new Error("leader_requires_one_or_more_teams_only");
+    return;
+  }
+  if (input.role === "SUPERVISOR") {
+    if (input.personId || productCount !== 1 || teamCount > 0) throw new Error("supervisor_requires_exactly_one_product_only");
+    return;
+  }
+  if (input.role === "ADMIN" || input.role === "SALES_OPS") {
+    if (input.personId || teamCount > 0 || productCount > 0) throw new Error("global_role_cannot_have_scopes");
+    return;
+  }
   if (input.role === "USER" && (teamCount > 0 || productCount > 0)) throw new Error("user_scope_is_derived_from_person");
 }
 
 export function isRole(value: string): value is Role {
   return roles.includes(value as Role);
+}
+
+export function isAccessOrigin(value: string): value is AccessOrigin {
+  return accessOrigins.includes(value as AccessOrigin);
 }
 
 export function isAccessRole(value: string): value is AccessRole {

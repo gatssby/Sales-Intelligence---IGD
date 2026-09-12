@@ -6,21 +6,21 @@ O PostgreSQL calcula o cargo e a abrangência em cada leitura. A interface pode 
 
 | Cargo ou autoridade exibida | Origem | Abrangência | Calls e análises | Usuários e vínculos | Configurações comerciais | Operação técnica / IA paga |
 | --- | --- | --- | ---: | ---: | ---: | ---: |
-| Closer | organização oficial | própria Pessoa | Sim | Não | Não | Não |
-| SDR | organização oficial | própria Pessoa | Sim | Não | Não | Não |
-| Líder | organização oficial | Times liderados | Sim | Não | Não | Não |
-| Líder em treinamento | organização oficial | Time atual e Times liderados | Sim | Não | Não | Não |
-| Supervisor | organização oficial | Produto atual | Sim | Não | Não | Não |
-| Administrador | organização oficial ou conta administrativa preservada | toda a operação comercial | Sim | Sim | Sim | Não |
+| Closer | organização oficial ou Manual | própria Pessoa | Sim | Não | Não | Não |
+| SDR | organização oficial ou Manual | própria Pessoa | Sim | Não | Não | Não |
+| Líder | organização oficial ou Manual | Times derivados ou selecionados | Sim | Não | Não | Não |
+| Líder em treinamento | organização oficial ou Manual | Times derivados ou selecionados | Sim | Não | Não | Não |
+| Supervisor | organização oficial ou Manual | Produto derivado ou selecionado | Sim | Não | Não | Não |
+| Administrador | organização oficial ou Manual | toda a operação comercial | Sim | Sim | Sim | Não |
 | Administrador da Plataforma | concessão interna explícita | operação comercial e Plataforma globais | Sim | Sim | Sim | Sim |
 
-Internamente, contas comerciais novas usam a autoridade `ORGANIZATION`; `app_user_effective_scopes` resolve `CLOSER`, `SDR`, `LEADER`, `LEADER_IN_TRAINING`, `SUPERVISOR` ou `ADMIN` pela Person vinculada. `PLATFORM_ADMIN` é uma autoridade separada, não um Cargo Organizacional.
+Contas comerciais novas escolhem uma origem explícita. `ORGANIZATION` resolve `CLOSER`, `SDR`, `LEADER`, `LEADER_IN_TRAINING`, `SUPERVISOR` ou `ADMIN` pela Person vinculada e pelo grafo temporal. `MANUAL` persiste diretamente o mesmo perfil e somente o tipo de escopo permitido para ele. `PLATFORM_ADMIN` é uma autoridade separada, não um Cargo Organizacional nem um perfil concedido pela área comercial.
 
 ## Gestão de contas
 
-Em **Usuários e acessos**, o Administrador informa nome, e-mail e a Pessoa pelo código V. Não há seletor de perfil, time ou produto: cargo e abrangência acompanham a organização publicada. A tela mostra **Cargo**, **Abrangência** e **Acesso** calculados.
+Em **Usuários e acessos**, o Administrador escolhe primeiro **Organização IGD** ou **Manual**. Organização IGD exige uma Pessoa publicada e não oferece escopo editável. Manual exige um perfil e apenas seu vínculo compatível: Pessoa para Closer/SDR (inclusive criação de identidade analítica sintética), um ou mais Times para Líder/Líder em treinamento, exatamente um Produto para Supervisor e nenhum recorte para Administrador. A tela mostra origem, cargo/perfil, vínculo e abrangência calculada.
 
-Contas históricas `USER`, `LEADER`, `SUPERVISOR` e `SALES_OPS` continuam reconhecidas para rollback. A migração converte automaticamente as que já possuem vínculo para `ORGANIZATION`; as não vinculadas ficam identificadas para revisão. O servidor rejeita a criação de novos perfis manuais e não permite conceder, editar, desativar ou redefinir a senha de um Administrador da Plataforma pela área comercial.
+Contas históricas `USER`, `LEADER`, `SUPERVISOR` e `SALES_OPS` continuam reconhecidas para rollback. A migração converte para `ORGANIZATION` somente as contas já vinculadas a uma Person gerenciada pela organização; Administradores preservados e perfis manuais inequívocos tornam-se `MANUAL`; casos ambíguos ficam em `REVIEW`. Uma conta Manual nunca é convertida pelo sync. Quando surge uma correspondência organizacional única, a interface apenas sugere **Vínculo organizacional disponível** e exige confirmação explícita; a conversão é auditada. A área comercial nunca pode conceder, editar, desativar ou redefinir a senha de um Administrador da Plataforma.
 
 ## Controles de segurança
 
@@ -29,7 +29,8 @@ Contas históricas `USER`, `LEADER`, `SUPERVISOR` e `SALES_OPS` continuam reconh
 - bloqueio temporário após cinco falhas, troca obrigatória da senha temporária e revogação das sessões em reset/desativação;
 - autorização central por capacidade e predicados PostgreSQL em listagens, agregados, detalhes por ID e transcript;
 - tentativa sem `spend:execute` encerrada antes de job ou provider, com auditoria sanitizada;
-- mudança de cargo não altera a conta: o próximo request recebe imediatamente o novo Acesso Efetivo.
+- mudança de cargo organizacional não altera a conta Organização IGD: o próximo request recebe imediatamente o novo Acesso Efetivo;
+- o sync não altera origem, perfil ou escopo de conta Manual; conversão para Organização IGD é explícita e auditada.
 
 ## Administrador inicial e Administração da Plataforma
 
@@ -56,7 +57,7 @@ Os caminhos `calls:import -- --apply --request-analysis`, `analysis:process -- -
 
 ## Visualizar como
 
-Somente o Administrador da Plataforma pode iniciar **Visualizar como** para Administrador, Supervisor, Líder, Líder em treinamento, Closer ou SDR. A escolha contém somente cargo e referência da Person; o servidor recalcula o escopo, mantém o ator técnico real na auditoria e bloqueia mutations e gasto até **Sair da visualização**.
+Somente o Administrador da Plataforma pode iniciar **Visualizar como** para Administrador, Supervisor, Líder, Líder em treinamento, Closer ou SDR. A escolha referencia uma identidade real: Person com cargo vigente para Organização IGD ou conta ativa para Manual. O servidor recalcula o escopo pela mesma view canônica, mantém o ator técnico real na auditoria e bloqueia mutations e gasto até **Sair da visualização**.
 
 ## Desenvolvimento e validação
 

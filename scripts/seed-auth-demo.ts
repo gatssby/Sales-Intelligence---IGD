@@ -28,13 +28,13 @@ try {
     await tx`update person_organization_roles set valid_to=now(),updated_at=now() where person_id=${closerPerson.person_id} and valid_to is null`;
     await tx`insert into person_organization_roles(person_id,role_kind,product_key,valid_from,provenance) values (${closerPerson.person_id},'closer','beta',now(),'synthetic_auth_demo')`;
     const users = await tx<{ id: string; email: string }[]>`
-      insert into app_users (email, display_name, role, person_id, active, must_change_password)
+      insert into app_users (email,display_name,role,access_origin,person_id,active,must_change_password)
       values
-        ('platform@example.invalid', 'Platform Admin Synthetic', 'PLATFORM_ADMIN', null, true, false),
-        ('admin@example.invalid', 'Admin Synthetic', 'ADMIN', null, true, false),
-        ('leader@example.invalid', 'Leader Synthetic', 'ORGANIZATION', ${leaderPerson.person_id}, true, false),
-        ('supervisor@example.invalid', 'Supervisor Synthetic', 'ORGANIZATION', ${supervisorPerson.person_id}, true, false),
-        ('closer@example.invalid', 'Closer Synthetic', 'ORGANIZATION', ${closerPerson.person_id}, true, false)
+        ('platform@example.invalid','Platform Admin Synthetic','PLATFORM_ADMIN','SYSTEM',null,true,false),
+        ('admin@example.invalid','Admin Synthetic','ADMIN','MANUAL',null,true,false),
+        ('leader@example.invalid','Leader Synthetic','ORGANIZATION','ORGANIZATION',${leaderPerson.person_id},true,false),
+        ('supervisor@example.invalid','Supervisor Synthetic','ORGANIZATION','ORGANIZATION',${supervisorPerson.person_id},true,false),
+        ('closer@example.invalid','Closer Synthetic','ORGANIZATION','ORGANIZATION',${closerPerson.person_id},true,false)
       returning id, email
     `;
     for (const user of users) {

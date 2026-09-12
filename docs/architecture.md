@@ -22,7 +22,7 @@ PostgreSQL permanece a fonte de verdade. Discovery, attribution, reconciliação
 
 A organização atual segue um fluxo separado: Google Sheets read-only → snapshot validado → publicação temporal PostgreSQL → Acesso Efetivo/read models. Drive Discovery continua responsável apenas por calls e usa a organização válida na data da Call.
 
-A autorização separa Administrador da Plataforma de Administrador comercial. A conta comercial delega cargo e abrangência à Person vinculada; o Cargo Organizacional vigente produz escopo próprio, por Times, por Produto ou comercial global. Administrador da Plataforma acrescenta observabilidade, gasto e operações técnicas ao acesso comercial global. Preview Mode conserva o ator técnico, troca somente o Acesso Efetivo usado por reads e bloqueia mutations no seam central de autorização.
+A autorização separa Administrador da Plataforma de Administrador comercial. Uma conta comercial declara sua Origem do Acesso: **Organização IGD** delega cargo e abrangência à Person vinculada, enquanto **Manual** conserva um dos mesmos seis perfis canônicos com Person, Times, Produto ou abrangência global administrados explicitamente. Administrador da Plataforma acrescenta observabilidade, gasto e operações técnicas ao acesso comercial global. Preview Mode conserva o ator técnico, troca somente o Acesso Efetivo usado por reads e bloqueia mutations no seam central de autorização.
 
 ---
 
@@ -337,14 +337,14 @@ Regras mínimas:
 
 ### 11.1 Autenticação e autorização da aplicação
 
-A aplicação usa contas individuais mantidas no PostgreSQL. A autorização é composta por três dimensões separadas:
+A aplicação usa contas individuais mantidas no PostgreSQL. A autorização é composta por quatro dimensões separadas:
 
-1. Autoridade da Conta (`ORGANIZATION`, autoridades históricas preservadas ou `PLATFORM_ADMIN`);
+1. Origem/Autoridade da Conta (`ORGANIZATION`, `MANUAL`, autoridades históricas em revisão ou `PLATFORM_ADMIN`);
 2. Cargo Organizacional efetivo (`CLOSER`, `SDR`, `LEADER`, `LEADER_IN_TRAINING`, `SUPERVISOR`, `ADMIN`);
 3. capacidade (`users:manage`, `settings:manage`, `calls:read`, `analytics:read`, `spend:execute`, `platform:observe`, `platform:operate`, `preview:use`);
 4. Acesso Efetivo (`GLOBAL`, `PRODUCTS`, `TEAMS` ou própria Person) e Selected Scope dentro desse limite.
 
-A matriz cargo → capacidades existe em um único módulo. Páginas, APIs e comandos chamam essa camada em vez de confiar em menus. Consultas de calls e métricas recebem o contexto de autorização e aplicam o predicado de escopo no PostgreSQL. Para contas vinculadas a Person, cargo, produto, liderança e time atuais são derivados do grafo temporal; a mesma regra cobre listagens, detalhes por ID e agregações.
+A matriz perfil → capacidades existe em um único módulo. Páginas, APIs e comandos chamam essa camada em vez de confiar em menus. Consultas de calls e métricas recebem o contexto de autorização e aplicam o predicado de escopo no PostgreSQL. Para origem Organização IGD, cargo, produto, liderança e time atuais são derivados do grafo temporal. Para origem Manual, os limites compatíveis com o perfil são persistidos explicitamente e passam pelo mesmo predicado. A mesma regra cobre listagens, detalhes por ID e agregações.
 
 Somente `PLATFORM_ADMIN` recebe `spend:execute` nesta versão. Uma tentativa negada termina antes de criar job ou chamar provider e gera um evento de auditoria sem payload da call. `products.analytics_enabled` mantém Ingressos no grafo organizacional, mas fora das consultas e seletores analíticos atuais.
 

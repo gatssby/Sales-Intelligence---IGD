@@ -110,6 +110,7 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
   const northPersonId = organizationPeople.find((person) => person.team_id === northId)!.id;
   const eastPersonId = organizationPeople.find((person) => person.team_id === eastId)!.id;
   const southPersonId = organizationPeople.find((person) => person.team_id === southId)!.id;
+  await sql`update people set organization_attributes='{"organizationManaged":true}'::jsonb where id in (${northPersonId},${eastPersonId},${southPersonId})`;
   await sql`insert into person_team_memberships(person_id,team_id,valid_from,provenance) values
     (${northPersonId},${northId},now()-interval '1 day','synthetic_test'),
     (${eastPersonId},${eastId},now()-interval '1 day','synthetic_test'),
@@ -170,7 +171,7 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
     assert.equal((await access.getBacklogProgress(admin)).analyzed, 3);
     await assert.rejects(() => auth.createUser(admin, {
       email: "forged.profile@example.invalid",displayName: "Forged Profile",role: "SALES_OPS",
-    }), /organizational_account_required/);
+    }), /legacy_access_requires_review/);
   });
 
   await t.test("Leader reads only assigned teams, including aggregates and direct IDs", async () => {
@@ -285,6 +286,71 @@ integration("PostgreSQL authentication, authorization and scoped reads", async (
         confidencePolicyVersion: "insider-confidence-v2",
       }), /forbidden/);
     }
+    await sql`delete from analysis_jobs where call_id=${pending[0].id}`;
+    await sql`delete from calls where id=${pending[0].id}`;
+  });
+
+  await t.test("Manual accounts share the canonical role-to-scope policy without Sheet presence", async () => {
+    const closerCreated = await auth.createUser(admin, {
+      email: "manual.closer@example.invalid",displayName: "Manual Closer Synthetic",role: "CLOSER",createManualPerson: true,
+    });
+    const sdrCreated = await auth.createUser(admin, {
+      email: "manual.sdr@example.invalid",displayName: "Manual SDR Synthetic",role: "SDR",createManualPerson: true,
+    });
+    await auth.createUser(admin, {
+      email: "manual.leader@example.invalid",displayName: "Manual Leader Synthetic",role: "LEADER",teamIds: [northId],
+    });
+    await auth.createUser(admin, {
+      email: "manual.trainee@example.invalid",displayName: "Manual Trainee Synthetic",role: "LEADER_IN_TRAINING",teamIds: [southId],
+    });
+    await auth.createUser(admin, {
+      email: "manual.supervisor@example.invalid",displayName: "Manual Supervisor Synthetic",role: "SUPERVISOR",productKeys: ["alpha"],
+    });
+    await auth.createUser(admin, {
+      email: "manual.admin@example.invalid",displayName: "Manual Admin Synthetic",role: "ADMIN",
+    });
+    await assert.rejects(() => auth.createUser(admin, {
+      email: "invalid.supervisor@example.invalid",displayName: "Invalid Supervisor",role: "SUPERVISOR",teamIds: [northId],
+    }), /one_product/);
+    await assert.rejects(() => auth.createUser(admin, {
+      email: "invalid.leader@example.invalid",displayName: "Invalid Leader",role: "LEADER",productKeys: ["alpha"],
+    }), /teams_only/);
+
+    const closer = (await auth.getActiveActorByEmail("manual.closer@example.invalid"))!;
+    const sdr = (await auth.getActiveActorByEmail("manual.sdr@example.invalid"))!;
+    const manualLeader = (await auth.getActiveActorByEmail("manual.leader@example.invalid"))!;
+    const manualTrainee = (await auth.getActiveActorByEmail("manual.trainee@example.invalid"))!;
+    const manualSupervisor = (await auth.getActiveActorByEmail("manual.supervisor@example.invalid"))!;
+    const manualAdmin = (await auth.getActiveActorByEmail("manual.admin@example.invalid"))!;
+    assert.equal(closer.role, "CLOSER");
+    assert.equal(sdr.role, "SDR");
+    assert.equal(closer.scope.kind, "ORGANIZATION");
+    assert.equal(sdr.scope.kind, "ORGANIZATION");
+
+    const manualSellers = await sql<{ id: string; person_id: string }[]>`
+      insert into sellers(display_name,external_reference,product,team_name,team_id,person_id)
+      values
+        ('Manual Closer Synthetic','MANUAL-CLOSER','alpha','East',${eastId},${closer.scope.kind === "ORGANIZATION" ? closer.scope.personIds[0] : null}),
+        ('Manual SDR Synthetic','MANUAL-SDR','beta','South',${southId},${sdr.scope.kind === "ORGANIZATION" ? sdr.scope.personIds[0] : null})
+      returning id,person_id
+    `;
+    const manualCalls = await sql<{ id: string; external_key: string }[]>`
+      insert into calls(seller_id,external_key,product_key,status,primary_closer_id,team_id)
+      values
+        (${manualSellers[0].id},'manual-closer-call','alpha','metadata_ready',${manualSellers[0].person_id},${eastId}),
+        (${manualSellers[1].id},'manual-sdr-call','beta','metadata_ready',${manualSellers[1].person_id},${southId})
+      returning id,external_key
+    `;
+    const manualCallId = new Map(manualCalls.map((call) => [call.external_key, call.id]));
+    assert.deepEqual((await access.listCallCatalog(closer, { page: 1, pageSize: 50 })).rows.map((call) => call.id), [manualCallId.get("manual-closer-call")]);
+    assert.deepEqual((await access.listCallCatalog(sdr, { page: 1, pageSize: 50 })).rows.map((call) => call.id), [manualCallId.get("manual-sdr-call")]);
+    assert.equal((await access.listCallCatalog(manualLeader, { page: 1, pageSize: 50 })).total, 2);
+    assert.equal((await access.listCallCatalog(manualTrainee, { page: 1, pageSize: 50 })).total, 2);
+    assert.equal((await access.listCallCatalog(manualSupervisor, { page: 1, pageSize: 50 })).total, 3);
+    assert.equal((await access.listCallCatalog(manualAdmin, { page: 1, pageSize: 50 })).total, 5);
+    const managed = await auth.listUsers(admin);
+    assert.equal(managed.find((user) => user.id === closerCreated.user.id)?.accessOrigin, "MANUAL");
+    assert.equal(managed.find((user) => user.id === sdrCreated.user.id)?.accessOrigin, "MANUAL");
   });
 
   await t.test("Inactive users cannot authenticate and existing sessions are invalidated", async () => {

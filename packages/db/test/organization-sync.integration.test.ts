@@ -169,11 +169,11 @@ integration("organization publish is temporal, idempotent and fail-closed", asyn
       where leadership.person_id=${leaderId} and leadership.valid_to is null
     `;
     assert.deepEqual(currentLeadership.map((item) => item.team_key), ["insider:closers:time-beta"]);
-    await sql`insert into app_users(email,display_name,role,person_id) values
-      ('leader@example.invalid','Leader Synthetic','ORGANIZATION',${leaderId}),
-      ('supervisor@example.invalid','Supervisor Synthetic','ORGANIZATION',${supervisorId}),
-      ('trainee@example.invalid','Trainee Synthetic','ORGANIZATION',${traineeId}),
-      ('self@example.invalid','Self Synthetic','ORGANIZATION',${selfId})`;
+    await sql`insert into app_users(email,display_name,role,access_origin,person_id) values
+      ('leader@example.invalid','Leader Synthetic','ORGANIZATION','ORGANIZATION',${leaderId}),
+      ('supervisor@example.invalid','Supervisor Synthetic','ORGANIZATION','ORGANIZATION',${supervisorId}),
+      ('trainee@example.invalid','Trainee Synthetic','ORGANIZATION','ORGANIZATION',${traineeId}),
+      ('self@example.invalid','Self Synthetic','ORGANIZATION','ORGANIZATION',${selfId})`;
     const leader = (await new PostgresAuthRepository(sql).getActiveActorByEmail("leader@example.invalid"))!;
     const supervisor = (await new PostgresAuthRepository(sql).getActiveActorByEmail("supervisor@example.invalid"))!;
     const trainee = (await new PostgresAuthRepository(sql).getActiveActorByEmail("trainee@example.invalid"))!;
@@ -193,6 +193,10 @@ integration("organization publish is temporal, idempotent and fail-closed", asyn
       ["V9002", "Supervisora Sintética", "INSIDER", "CLOSERS", "Time Beta", "Supervisora", "Sênior", "Fixo", "TRUE", "TRUE", "V9000", "Líder Sintético", "FALSE", "TRUE"],
       ["V9003", "Líder em Treinamento", "INSIDER", "CLOSERS", "Time Beta", "Closer", "Pleno", "Fixo", "TRUE", "TRUE", "V9000", "Líder Sintético", "TRUE", "FALSE"],
     ] });
+    const roleChangePreview = await repository.previewCandidate(roleChanged);
+    assert.equal(roleChangePreview.accountEffectiveAccessChanges, 1);
+    assert.equal(roleChangePreview.accountRoleTransitions["CLOSER->SDR"], 1);
+    assert.equal(roleChangePreview.organizationRoleTransitions["closer:insider->sdr:insider"], 1);
     assert.equal((await repository.publishCandidate({ candidate: roleChanged, source: { ...source, revision: "2-role-change" } })).organizationRolesChanged, 2);
     const selfAfterRoleChange = (await new PostgresAuthRepository(sql).getActiveActorByEmail("self@example.invalid"))!;
     assert.equal(selfAfterRoleChange.accessRole, "SDR", "a linked account must adopt the new cargo without a manual account edit");
@@ -317,6 +321,48 @@ integration("organization publish is temporal, idempotent and fail-closed", asyn
     assert.equal((await repository.listPeople(admin)).some((person) => person.person_code === "V9990"), false, "Ingressos people stay out of analytical listings");
     assert.equal((await new PostgresAuthRepository(sql).listScopeOptions(admin)).products.some((product) => product.id === "ingressos"), false, "Ingressos cannot be selected as an analytical access scope");
     assert.equal((await access.listCallCatalog(admin, { page: 1, pageSize: 50, selected: { productKey: "ingressos" } })).total, 0, "Ingressos calls stay out of analytical read models");
+
+    const adminAccount = await sql<{ id: string }[]>`
+      insert into app_users(email,display_name,role,access_origin)
+      values ('manual.admin@example.invalid','Manual Admin Synthetic','ADMIN','MANUAL') returning id
+    `;
+    const adminActor = buildAuthorizationContext({
+      userId: adminAccount[0].id,email: "manual.admin@example.invalid",displayName: "Manual Admin Synthetic",role: "ADMIN",
+    });
+    const manualPerson = await sql<{ id: string }[]>`
+      insert into people(seller_code,full_name,active,organization_attributes)
+      values ('V9015','Pessoa Manual Sintética',true,'{"organizationManaged":false}') returning id
+    `;
+    const manualAccount = await sql<{ id: string }[]>`
+      insert into app_users(email,display_name,role,access_origin,person_id)
+      values ('manual.person@example.invalid','Pessoa Manual Sintética','CLOSER','MANUAL',${manualPerson[0].id}) returning id
+    `;
+    const matched = parseOrganizationSheet({ observedAt: "2026-08-15T20:00:00.000Z", values: [
+      headers,
+      ["V9000", "Líer Sintético", "INSIDER", "CLOSERS", "Time Beta", "Líder", "Sênior", "Fixo", "TRUE", "TRUE", "V9000", "Líder Sintético", "FALSE", "FALSE"],
+      ["V9001", "Pessoa Sintética Renomeada", "INSIDER", "CLOSERS", "Time Beta", "Closer", "Pleno", "Fixo", "TRUE", "TRUE", "V9000", "Líder Sintético", "FALSE", "FALSE"],
+      ["V9002", "Supervisora Sintética", "INSIDER", "CLOSERS", "Time Beta", "Supervisora", "Sênior", "Fixo", "TRUE", "FALSE", "V9000", "Líder Sintético", "FALSE", "TRUE"],
+      ["V9003", "Líder em Treinamento", "INSIDER", "CLOSERS", "Time Beta", "Closer", "Pleno", "Fixo", "TRUE", "TRUE", "V9000", "Líder Sintético", "TRUE", "FALSE"],
+      ["V9015", "Pessoa Manual Sintética", "INSIDER", "CLOSERS", "Time Beta", "Closer", "Pleno", "Fixo", "TRUE", "TRUE", "V9000", "Líder Sintético", "FALSE", "FALSE"],
+    ] });
+    const matchedPreview = await repository.previewCandidate(matched);
+    assert.equal(matchedPreview.accountEffectiveAccessChanges, 0, "manual accounts are excluded from organization-driven access changes");
+    await repository.publishCandidate({ candidate: matched, source: { ...source, revision: "7" } });
+    const untouched = await sql<{ role: string; access_origin: string; person_id: string }[]>`
+      select role,access_origin,person_id from app_users where id=${manualAccount[0].id}
+    `;
+    assert.equal(untouched[0].role, "CLOSER", "a later Sheet match must not change the manual role");
+    assert.equal(untouched[0].access_origin, "MANUAL", "a later Sheet match must not change the access origin");
+    assert.equal(untouched[0].person_id, manualPerson[0].id);
+    const auth = new PostgresAuthRepository(sql);
+    const listed = (await auth.listUsers(adminActor)).find((user) => user.id === manualAccount[0].id);
+    assert.equal(listed?.organizationMatch?.personId, manualPerson[0].id, "the reviewed organization conversion must be surfaced");
+    await auth.updateUser(adminActor, manualAccount[0].id, {
+      email: "manual.person@example.invalid",displayName: "Pessoa Manual Sintética",role: "ORGANIZATION",personId: manualPerson[0].id,
+    });
+    const converted = (await auth.getActiveActorByEmail("manual.person@example.invalid"))!;
+    assert.equal(converted.role, "ORGANIZATION");
+    assert.equal(converted.accessRole, "CLOSER");
   } finally {
     await sql.end();
     await adminSql.unsafe(`drop schema ${schema} cascade`);

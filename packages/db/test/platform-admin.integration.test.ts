@@ -36,17 +36,30 @@ integration("Platform Admin migration, internal grant and preview access", async
       insert into app_users(email,display_name,role,active,must_change_password)
       values ('existing.admin@example.invalid','Existing Admin','ADMIN',true,false) returning id
     `;
+    await adminSql`
+      insert into app_users(email,display_name,role,active,must_change_password)
+      values ('review.user@example.invalid','Review User','USER',true,false)
+    `;
     for (const file of migrationFiles.filter((name) => name >= migration012)) {
       await adminSql.unsafe(await readFile(path.join(migrationsDir, file), "utf8"));
     }
 
-    const preserved = await adminSql<{ id: string;role: string }[]>`
-      select id,role from app_users where email='existing.admin@example.invalid'
+    const preserved = await adminSql<{ id: string;role: string;access_origin: string }[]>`
+      select id,role,access_origin from app_users where email='existing.admin@example.invalid'
     `;
     assert.equal(preserved.length, 1);
     assert.equal(preserved[0].id, existing[0].id);
     assert.equal(preserved[0].role, "ADMIN");
+    assert.equal(preserved[0].access_origin, "MANUAL");
+    assert.equal((await adminSql<{ access_origin: string }[]>`select access_origin from app_users where email='review.user@example.invalid'`)[0].access_origin, "REVIEW");
     assert.equal((await adminSql<{ count: number }[]>`select count(*)::integer count from app_users where role='PLATFORM_ADMIN'`)[0].count, 0);
+    const rollbackCompatible = await adminSql<{ id: string;access_origin: string }[]>`
+      insert into app_users(email,display_name,role)
+      values ('rollback.organization@example.invalid','Rollback Organization','ORGANIZATION')
+      returning id,access_origin
+    `;
+    assert.equal(rollbackCompatible[0].access_origin, "ORGANIZATION", "the previous release may omit access_origin during rollback");
+    await adminSql`delete from app_users where id=${rollbackCompatible[0].id}`;
 
     const scopedUrl = new URL(databaseUrl!);
     scopedUrl.searchParams.set("options", `-csearch_path=${schema},public`);
@@ -57,8 +70,9 @@ integration("Platform Admin migration, internal grant and preview access", async
       assert.equal(promotedId, existing[0].id);
       const actor = await auth.getActiveActorByEmail("existing.admin@example.invalid");
       assert.equal(actor?.role, "PLATFORM_ADMIN");
+      assert.equal((await sql<{ access_origin: string }[]>`select access_origin from app_users where id=${existing[0].id}`)[0].access_origin, "SYSTEM");
       assert.equal(actor?.scope.kind, "GLOBAL");
-      assert.equal((await sql<{ count: number }[]>`select count(*)::integer count from app_users`)[0].count, 1);
+      assert.equal((await sql<{ count: number }[]>`select count(*)::integer count from app_users`)[0].count, 2);
       assert.equal((await sql<{ count: number }[]>`select count(*)::integer count from admin_audit_events where event_type='platform_admin.granted' and actor_user_id=${existing[0].id}`)[0].count, 1);
       await assert.rejects(() => auth.bootstrapPlatformAdmin("existing.admin@example.invalid"), /already_exists/);
 
@@ -78,10 +92,15 @@ integration("Platform Admin migration, internal grant and preview access", async
         (${personId("V0063")},'leader','alpha',now()-interval '1 day','synthetic_test'),
         (${personId("V0001")},'supervisor','alpha',now()-interval '1 day','synthetic_test')`;
 
+      const manualLeader = await auth.createUser(actor!, {
+        email: "manual.preview@example.invalid",displayName: "Manual Preview Leader",role: "LEADER",teamIds: [team[0].id],
+      });
+
       const subjects = await auth.listPreviewSubjects(actor!);
       assert.equal(subjects.some((subject) => subject.kind === "LEADER" && subject.code === "V0063"), true);
       assert.equal(subjects.some((subject) => subject.kind === "SUPERVISOR" && subject.code === "V0001"), true);
       assert.equal(subjects.some((subject) => subject.kind === "CLOSER" && subject.code === "V1008"), true);
+      assert.equal(subjects.some((subject) => subject.source === "MANUAL" && subject.userId === manualLeader.user.id), true);
 
       const leaderPreview = await auth.resolvePreviewContext(actor!, { kind: "LEADER", subjectPersonId: personId("V0063") });
       assert.equal(leaderPreview.userId, actor!.userId);
@@ -90,6 +109,10 @@ integration("Platform Admin migration, internal grant and preview access", async
       assert.deepEqual(supervisorPreview.scope, { kind: "PRODUCTS", productKeys: ["alpha"] });
       const personPreview = await auth.resolvePreviewContext(actor!, { kind: "CLOSER", subjectPersonId: personId("V1008") });
       assert.deepEqual(personPreview.scope, { kind: "ORGANIZATION", teamIds: [], productKeys: [], personIds: [personId("V1008")] });
+      const manualLeaderPreview = await auth.resolvePreviewContext(actor!, { kind: "LEADER", subjectUserId: manualLeader.user.id });
+      assert.equal(manualLeaderPreview.userId, actor!.userId, "the authenticated Platform actor remains unchanged");
+      assert.equal(manualLeaderPreview.preview?.subjectUserId, manualLeader.user.id);
+      assert.deepEqual(manualLeaderPreview.scope, { kind: "TEAMS", teamIds: [team[0].id] });
 
       const admin = buildAuthorizationContext({
         userId: randomUUID(),email: "commercial.admin@example.invalid",displayName: "Commercial Admin",role: "ADMIN",

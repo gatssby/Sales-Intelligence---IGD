@@ -38,6 +38,9 @@ export type OrganizationPreviewSummary = Omit<OrganizationPublishSummary, "runId
   publishable: boolean;
   currentActivePeople: number;
   candidateActivePeople: number;
+  organizationRoleTransitions: Record<string, number>;
+  accountEffectiveAccessChanges: number;
+  accountRoleTransitions: Record<string, number>;
   warnings: number;
   rejectionReasons: string[];
 };
@@ -227,7 +230,7 @@ export class PostgresOrganizationRepository {
     const codes = candidate.people.map((person) => person.personCode);
     const unsafeRoleCodes = unsafeRolePersonCodes(candidate);
     const unsafeLeadershipCodes = unsafeLeadershipPersonCodes(candidate);
-    const [baseline, existingPeople, existingProducts, existingFronts, existingTeams, currentMemberships, currentRoles] = await Promise.all([
+    const [baseline, existingPeople, existingProducts, existingFronts, existingTeams, currentMemberships, currentRoles, organizationAccounts] = await Promise.all([
       this.sql<{ active_people_count: number }[]>`
         select count(*)::integer active_people_count from people
         where active=true and organization_attributes->>'organizationManaged'='true'
@@ -248,6 +251,19 @@ export class PostgresOrganizationRepository {
         select upper(person.seller_code) person_code,role.role_kind,role.product_key
         from person_organization_roles role join people person on person.id=role.person_id
         where role.valid_to is null and role.provenance='organization_sync' and upper(person.seller_code) in ${this.sql(codes)}
+      ` : Promise.resolve([]),
+      codes.length ? this.sql<{
+        person_code: string;
+        effective_role: string;
+        team_keys: string[];
+        product_keys: string[];
+      }[]>`
+        select upper(person.seller_code) person_code,scope.effective_role,
+          array(select team.team_key from teams team where team.id::text=any(scope.team_ids) order by team.team_key) team_keys,
+          scope.product_keys
+        from app_users account join people person on person.id=account.person_id
+        join app_user_effective_scopes scope on scope.user_id=account.id
+        where account.access_origin='ORGANIZATION' and upper(person.seller_code) in ${this.sql(codes)}
       ` : Promise.resolve([]),
     ]);
     const currentActivePeople = baseline[0]?.active_people_count ?? 0;
@@ -309,10 +325,56 @@ export class PostgresOrganizationRepository {
       .map((item) => `${item.person_code}:${item.role_kind}:${item.product_key}`));
     const symmetricDifference = (left: Set<string>, right: Set<string>) =>
       [...left].filter((item) => !right.has(item)).length + [...right].filter((item) => !left.has(item)).length;
+    const roleLabels: Record<OrganizationalRoleKind, string> = {
+      closer: "CLOSER",
+      sdr: "SDR",
+      leader: "LEADER",
+      leader_in_training: "LEADER_IN_TRAINING",
+      supervisor: "SUPERVISOR",
+      administrator: "ADMIN",
+    };
+    const currentRoleByPerson = new Map(currentRoles.map((item) => [item.person_code, `${item.role_kind}:${item.product_key}`]));
+    const desiredRoleByPerson = new Map(candidate.people
+      .filter((person) => person.active && person.organizationalRole && !unsafeRoleCodes.has(person.personCode))
+      .map((person) => [person.personCode, `${person.organizationalRole}:${person.productKey}`]));
+    const organizationRoleTransitions: Record<string, number> = {};
+    for (const personCode of new Set([...currentRoleByPerson.keys(), ...desiredRoleByPerson.keys()])) {
+      if (unsafeRoleCodes.has(personCode)) continue;
+      const from = currentRoleByPerson.get(personCode) ?? "none";
+      const to = desiredRoleByPerson.get(personCode) ?? "none";
+      if (from !== to) organizationRoleTransitions[`${from}->${to}`] = (organizationRoleTransitions[`${from}->${to}`] ?? 0) + 1;
+    }
+    const candidatePersonByCode = new Map(candidate.people.map((person) => [person.personCode, person]));
+    const accountRoleTransitions: Record<string, number> = {};
+    let accountEffectiveAccessChanges = 0;
+    for (const account of organizationAccounts) {
+      const person = candidatePersonByCode.get(account.person_code);
+      if (!person || unsafeRoleCodes.has(account.person_code)) continue;
+      const desiredRole = person.active && person.organizationalRole ? roleLabels[person.organizationalRole] : "USER";
+      const desiredTeams = desiredRole === "LEADER"
+        ? candidate.leaderships.filter((item) => item.leaderCode === account.person_code).map((item) => item.teamKey).sort()
+        : desiredRole === "LEADER_IN_TRAINING"
+          ? [...new Set([
+            person.teamKey,
+            ...candidate.leaderships.filter((item) => item.leaderCode === account.person_code).map((item) => item.teamKey),
+          ])].sort()
+          : [];
+      const desiredProducts = desiredRole === "SUPERVISOR" ? [person.productKey] : [];
+      const currentSignature = JSON.stringify({ role: account.effective_role, teams: account.team_keys, products: account.product_keys });
+      const desiredSignature = JSON.stringify({ role: desiredRole, teams: desiredTeams, products: desiredProducts });
+      if (currentSignature !== desiredSignature) {
+        accountEffectiveAccessChanges += 1;
+        const transition = `${account.effective_role}->${desiredRole}`;
+        accountRoleTransitions[transition] = (accountRoleTransitions[transition] ?? 0) + 1;
+      }
+    }
     return {
       publishable: rejectionReasons.length === 0,
       currentActivePeople,
       candidateActivePeople: candidate.people.filter((person) => person.active).length,
+      organizationRoleTransitions,
+      accountEffectiveAccessChanges,
+      accountRoleTransitions,
       peopleCreated,
       peopleUpdated,
       peopleInactivated,

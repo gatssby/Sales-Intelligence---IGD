@@ -4,8 +4,11 @@ import test from "node:test";
 import { decodePreviewCookie, encodePreviewCookie } from "../lib/auth/session.js";
 
 test("preview cookie carries only a validated role and subject reference", () => {
-  assert.equal(encodePreviewCookie({ kind: "ADMIN" }), "ADMIN:");
-  assert.deepEqual(decodePreviewCookie("LEADER:person-synthetic"), { kind: "LEADER",subjectPersonId: "person-synthetic" });
+  assert.equal(encodePreviewCookie({ kind: "ADMIN" }), "ADMIN::");
+  assert.equal(encodePreviewCookie({ kind: "LEADER",subjectUserId: "user-synthetic" }), "LEADER:user:user-synthetic");
+  assert.deepEqual(decodePreviewCookie("LEADER:person:person-synthetic"), { kind: "LEADER",subjectPersonId: "person-synthetic",subjectUserId: null });
+  assert.deepEqual(decodePreviewCookie("LEADER:user:user-synthetic"), { kind: "LEADER",subjectPersonId: null,subjectUserId: "user-synthetic" });
+  assert.deepEqual(decodePreviewCookie("LEADER:person-synthetic"), { kind: "LEADER",subjectPersonId: "person-synthetic",subjectUserId: null });
   assert.equal(decodePreviewCookie("PLATFORM_ADMIN:"), null);
   assert.equal(decodePreviewCookie("PERSON:"), null);
   assert.equal(decodePreviewCookie("ADMIN:person-synthetic"), null);

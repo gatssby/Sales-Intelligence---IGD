@@ -25,22 +25,34 @@ export function previewCookieName(): string {
   return process.env.NODE_ENV === "production" ? PROD_PREVIEW_COOKIE : DEV_PREVIEW_COOKIE;
 }
 
-export function encodePreviewCookie(input: { kind: PreviewRole; subjectPersonId?: string | null }): string {
-  return `${input.kind}:${input.subjectPersonId ?? ""}`;
+export type PreviewSelection = { kind: PreviewRole; subjectPersonId: string | null; subjectUserId: string | null };
+
+export function encodePreviewCookie(input: { kind: PreviewRole; subjectPersonId?: string | null; subjectUserId?: string | null }): string {
+  if (input.subjectUserId) return `${input.kind}:user:${input.subjectUserId}`;
+  if (input.subjectPersonId) return `${input.kind}:person:${input.subjectPersonId}`;
+  return `${input.kind}::`;
 }
 
-export function decodePreviewCookie(value: string): { kind: PreviewRole; subjectPersonId: string | null } | null {
-  const separator = value.indexOf(":");
-  if (separator < 0) return null;
-  const kind = value.slice(0, separator);
-  const subjectPersonId = value.slice(separator + 1) || null;
+export function decodePreviewCookie(value: string): PreviewSelection | null {
+  const parts = value.split(":");
+  if (parts.length === 2) {
+    const [legacyKind, legacyPersonId] = parts;
+    if (!isPreviewRole(legacyKind) || legacyKind === "ADMIN" || !legacyPersonId) return null;
+    return { kind: legacyKind, subjectPersonId: legacyPersonId, subjectUserId: null };
+  }
+  if (parts.length !== 3) return null;
+  const [kind, subjectType, subjectId] = parts;
   if (!isPreviewRole(kind)) return null;
-  if (kind === "ADMIN" && subjectPersonId) return null;
-  if (kind !== "ADMIN" && !subjectPersonId) return null;
-  return { kind, subjectPersonId };
+  if (kind === "ADMIN") return !subjectType && !subjectId ? { kind, subjectPersonId: null, subjectUserId: null } : null;
+  if (!subjectId || !["person", "user"].includes(subjectType)) return null;
+  return {
+    kind,
+    subjectPersonId: subjectType === "person" ? subjectId : null,
+    subjectUserId: subjectType === "user" ? subjectId : null,
+  };
 }
 
-export async function setPreviewCookie(input: { kind: PreviewRole; subjectPersonId?: string | null }): Promise<void> {
+export async function setPreviewCookie(input: { kind: PreviewRole; subjectPersonId?: string | null; subjectUserId?: string | null }): Promise<void> {
   const jar = await cookies();
   jar.set(previewCookieName(), encodePreviewCookie(input), {
     httpOnly: true,secure: process.env.NODE_ENV === "production",sameSite: "lax",path: "/",maxAge: 60 * 60 * 8,

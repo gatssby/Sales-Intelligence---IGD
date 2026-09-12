@@ -49,12 +49,32 @@ Estado organizacional atual observado em uma fonte oficial e aceito como confiá
 _Evite_: planilha como histórico, árvore rígida
 
 **Cargo Organizacional**:
-Responsabilidade comercial temporal de uma Person: Closer, SDR, Líder, Líder em treinamento, Supervisor ou Administrador. O Cargo Organizacional vigente, combinado às relações atuais de time/produto, determina o Acesso Efetivo da conta vinculada.
-_Evite_: perfil manual de acesso, conta, privilégio técnico
+Responsabilidade comercial temporal de uma Person publicada pela Organização IGD: Closer, SDR, Líder, Líder em treinamento, Supervisor ou Administrador.
+_Evite_: Perfil de Acesso Manual, conta, privilégio técnico
+
+**Origem do Acesso**:
+Autoridade que mantém o cargo comercial e a abrangência de uma conta: Organização IGD ou Manual. Administração da Plataforma é uma autoridade de sistema separada, não uma origem comercial.
+_Evite_: override, origem da Person, campo técnico exibido ao usuário
+
+**Acesso Organização IGD**:
+Acesso comercial cuja Person vinculada recebe Cargo e abrangência da organização oficial sincronizada.
+_Evite_: perfil duplicado, acesso manual vinculado
+
+**Acesso Manual**:
+Acesso comercial mantido no Sales Intelligence para uma conta que não depende da organização oficial; usa um Perfil de Acesso Manual e somente a abrangência exigida por esse perfil.
+_Evite_: exceção, legado, permissão arbitrária
+
+**Perfil de Acesso Manual**:
+Responsabilidade comercial administrada no Sales Intelligence como Closer, SDR, Líder, Líder em treinamento, Supervisor ou Administrador. Closer e SDR exigem Person; Líderes exigem Times; Supervisor exige um Produto; Administrador é comercial global.
+_Evite_: Cargo Organizacional, RBAC, combinação livre de escopos
+
+**Vínculo Organizacional Disponível**:
+Estado de uma conta Manual cuja Person vinculada passou a existir na Organização IGD. Indica possibilidade de conversão revisada sem alterar automaticamente o acesso.
+_Evite_: conversão automática, correspondência por nome
 
 **Autoridade da Conta**:
-Limite interno da conta do aplicativo. Uma conta comercial delega cargo e abrangência à Person vinculada; uma conta técnica pode receber Administração da Plataforma somente por concessão interna explícita.
-_Evite_: cargo da planilha, escopo selecionado na interface
+Limite interno da conta do aplicativo. Uma conta comercial usa Acesso Organização IGD ou Acesso Manual; uma conta técnica pode receber Administração da Plataforma somente por concessão interna explícita.
+_Evite_: Cargo Organizacional, Selected Scope, papel inferido pelo navegador
 
 **Administrador da Plataforma**:
 Autoridade global reservada ao mantenedor técnico. Inclui observabilidade, integrações, budgets, workers, saúde, diagnósticos e operações técnicas explicitamente autorizadas; nunca é concedida pela organização.
@@ -65,7 +85,7 @@ Cargo Organizacional com visão comercial global e gestão de usuários, víncul
 _Evite_: Administrador da Plataforma, operador de infraestrutura
 
 **Acesso Efetivo**:
-Abrangência vigente calculada no servidor a partir da Autoridade da Conta, do Cargo Organizacional e das relações temporais atuais da Person. Pode ser própria Person, Times, Produto, operação comercial global ou Plataforma global.
+Abrangência vigente calculada no servidor a partir da Autoridade da Conta e da Origem do Acesso. Pode vir da organização temporal ou do Perfil de Acesso Manual e corresponde à própria Person, Times, Produto, operação comercial global ou Plataforma global.
 _Evite_: filtro visual, escolha gravada na conta, escopo enviado pelo cliente
 
 **Selected Scope**:
