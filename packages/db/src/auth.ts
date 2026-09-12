@@ -7,9 +7,11 @@ import {
   buildPreviewAuthorizationContext,
   generateTemporaryPassword,
   hashPassword,
+  isAccessRole,
   isRole,
   validateRoleScopes,
   verifyPassword,
+  type AccessRole,
   type AuthorizationContext,
   type PreviewMode,
   type PreviewRole,
@@ -32,6 +34,7 @@ export type ManagedUser = {
   email: string;
   displayName: string;
   role: Role;
+  accessRole: AccessRole;
   active: boolean;
   mustChangePassword: boolean;
   lastLoginAt: string | null;
@@ -52,7 +55,7 @@ export type UserMutationInput = {
   productKeys?: readonly string[];
 };
 
-export type ScopeOption = { id: string; label: string; productKey?: string; code?: string };
+export type ScopeOption = { id: string; label: string; productKey?: string; code?: string; accessRole?: AccessRole };
 
 export type PreviewSubject = {
   kind: Exclude<PreviewRole, "ADMIN">;
@@ -66,6 +69,7 @@ type AuthRow = {
   email: string;
   display_name: string;
   role: string;
+  effective_role: string;
   active: boolean;
   must_change_password: boolean;
   session_version: number;
@@ -88,12 +92,13 @@ function sha256(value: string): string {
 }
 
 function contextFromRow(row: AuthRow): AuthorizationContext {
-  if (!isRole(row.role)) throw new Error("invalid_role_in_database");
+  if (!isRole(row.role) || !isAccessRole(row.effective_role)) throw new Error("invalid_role_in_database");
   return buildAuthorizationContext({
     userId: row.id,
     email: row.email,
     displayName: row.display_name,
     role: row.role,
+    accessRole: row.effective_role,
     teamIds: row.team_ids ?? [],
     productKeys: row.product_keys ?? [],
     personIds: row.person_ids ?? [],
@@ -102,12 +107,13 @@ function contextFromRow(row: AuthRow): AuthorizationContext {
 }
 
 function managedUserFromRow(row: AuthRow): ManagedUser {
-  if (!isRole(row.role) || !row.created_at || !row.updated_at) throw new Error("invalid_user_row");
+  if (!isRole(row.role) || !isAccessRole(row.effective_role) || !row.created_at || !row.updated_at) throw new Error("invalid_user_row");
   return {
     id: row.id,
     email: row.email,
     displayName: row.display_name,
     role: row.role,
+    accessRole: row.effective_role,
     active: row.active,
     mustChangePassword: row.must_change_password,
     lastLoginAt: row.last_login_at?.toISOString() ?? null,
@@ -150,7 +156,7 @@ export class PostgresAuthRepository {
       select
         u.id, u.email, u.display_name, u.role, u.active, u.must_change_password,u.person_id,
         u.session_version, c.password_hash,
-        scope.team_ids,scope.product_keys,scope.person_ids
+        scope.effective_role,scope.team_ids,scope.product_keys,scope.person_ids
       from app_users u
       join user_credentials c on c.user_id = u.id
       join app_user_effective_scopes scope on scope.user_id=u.id
@@ -207,7 +213,7 @@ export class PostgresAuthRepository {
     const rows = await this.sql<AuthRow[]>`
       select
         u.id, u.email, u.display_name, u.role, u.active, u.must_change_password,u.person_id,u.session_version,
-        scope.team_ids,scope.product_keys,scope.person_ids
+        scope.effective_role,scope.team_ids,scope.product_keys,scope.person_ids
       from auth_sessions s
       join app_users u on u.id = s.user_id
       join app_user_effective_scopes scope on scope.user_id=u.id
@@ -256,7 +262,7 @@ export class PostgresAuthRepository {
       select
         u.id, u.email, u.display_name, u.role, u.active, u.must_change_password,u.person_id,
         u.session_version, u.last_login_at, u.created_at, u.updated_at,
-        scope.team_ids,scope.product_keys,scope.person_ids
+        scope.effective_role,scope.team_ids,scope.product_keys,scope.person_ids
       from app_users u
       join app_user_effective_scopes scope on scope.user_id=u.id
       order by u.display_name, u.email
@@ -268,19 +274,43 @@ export class PostgresAuthRepository {
     assertCapability(actor, "users:manage");
     const [teams, products, people] = await Promise.all([
       this.sql<{ id: string; display_name: string; product_key: string }[]>`
-        select id, display_name, product_key from teams where active = true order by product_key, display_name
+        select team.id,team.display_name,team.product_key from teams team
+        join products product on product.key=team.product_key
+        where team.active=true and product.active=true and product.analytics_enabled=true
+        order by team.product_key,team.display_name
       `,
       this.sql<{ key: string; display_name: string }[]>`
-        select key, display_name from products where active = true order by display_name
+        select key,display_name from products where active=true and analytics_enabled=true order by display_name
       `,
-      this.sql<{ id: string; seller_code: string; full_name: string; active: boolean }[]>`
-        select id,seller_code,full_name,active from people where seller_code is not null order by active desc,full_name
+      this.sql<{ id: string; seller_code: string; full_name: string; active: boolean; effective_role: AccessRole | null }[]>`
+        select person.id,person.seller_code,person.full_name,person.active,
+          case role.role_kind
+            when 'closer' then 'CLOSER'
+            when 'sdr' then 'SDR'
+            when 'leader' then 'LEADER'
+            when 'leader_in_training' then 'LEADER_IN_TRAINING'
+            when 'supervisor' then 'SUPERVISOR'
+            when 'administrator' then 'ADMIN'
+          end effective_role
+        from people person
+        left join lateral (
+          select current_org_role.role_kind from person_organization_roles current_org_role
+          where current_org_role.person_id=person.id and current_org_role.valid_from<=now()
+            and (current_org_role.valid_to is null or now()<current_org_role.valid_to)
+          order by current_org_role.valid_from desc,current_org_role.created_at desc limit 1
+        ) role on true
+        where person.seller_code is not null order by person.active desc,person.full_name
       `,
     ]);
     return {
       teams: teams.map((team) => ({ id: team.id, label: team.display_name, productKey: team.product_key })),
       products: products.map((product) => ({ id: product.key, label: product.display_name })),
-      people: people.map((person) => ({ id: person.id, code: person.seller_code, label: `${person.full_name}${person.active ? "" : " (inativa)"}` })),
+      people: people.map((person) => ({
+        id: person.id,
+        code: person.seller_code,
+        label: `${person.full_name}${person.active ? "" : " (inativa)"}`,
+        accessRole: person.effective_role ?? "USER",
+      })),
     };
   }
 
@@ -288,8 +318,8 @@ export class PostgresAuthRepository {
     assertCapability(actor, "users:manage");
     assertMutationAllowed(actor);
     if (input.role === "PLATFORM_ADMIN") throw new Error("platform_admin_requires_internal_grant");
+    if (input.role !== "ORGANIZATION") throw new Error("organizational_account_required");
     validateRoleScopes(input);
-    if (input.role === "USER" && !input.personId) throw new Error("user_requires_person_link");
     const email = normalizeEmail(input.email);
     const temporaryPassword = generateTemporaryPassword();
     const passwordHash = await hashPassword(temporaryPassword);
@@ -318,7 +348,6 @@ export class PostgresAuthRepository {
     assertMutationAllowed(actor);
     if (input.role === "PLATFORM_ADMIN") throw new Error("platform_admin_requires_internal_grant");
     validateRoleScopes(input);
-    if (input.role === "USER" && !input.personId) throw new Error("user_requires_person_link");
     if (actor.userId === userId && input.role !== actor.role) throw new Error("cannot_change_own_role");
     const email = normalizeEmail(input.email);
     await this.sql.begin(async (tx) => {
@@ -332,6 +361,9 @@ export class PostgresAuthRepository {
       `;
       if (!previous[0]) throw new Error("user_not_found");
       if (previous[0].role === "PLATFORM_ADMIN") throw new Error("platform_admin_requires_internal_grant");
+      if (previous[0].role === "ADMIN" ? input.role !== "ADMIN" : input.role !== "ORGANIZATION") {
+        throw new Error("organizational_account_required");
+      }
       if (previous[0].active && previous[0].role === "ADMIN" && input.role !== "ADMIN") {
         const admins = await tx<{ count: number }[]>`
           select count(*)::integer as count from app_users where role = 'ADMIN' and active = true
@@ -421,7 +453,7 @@ export class PostgresAuthRepository {
     assertCapability(actor, "users:manage");
     assertMutationAllowed(actor);
     const target = await this.sql<{ role: string }[]>`select role from app_users where id=${userId}`;
-    if (target[0]?.role === "PLATFORM_ADMIN" && actor.role !== "PLATFORM_ADMIN") {
+    if (target[0]?.role === "PLATFORM_ADMIN") {
       throw new Error("platform_admin_requires_internal_grant");
     }
     const temporaryPassword = generateTemporaryPassword();
@@ -494,28 +526,33 @@ export class PostgresAuthRepository {
       id: string;
       seller_code: string;
       full_name: string;
-      is_leader: boolean;
-      is_supervisor: boolean;
+      preview_kind: PreviewSubject["kind"];
     }[]>`
       select
         person.id,person.seller_code,person.full_name,
-        exists(select 1 from team_leaderships leadership
-          where leadership.person_id=person.id and leadership.valid_from<=now()
-            and (leadership.valid_to is null or now()<leadership.valid_to)) as is_leader,
-        exists(select 1 from person_organization_roles role
-          where role.person_id=person.id and role.role_kind='supervisor' and role.valid_from<=now()
-            and (role.valid_to is null or now()<role.valid_to)) as is_supervisor
+        case role.role_kind
+          when 'closer' then 'CLOSER'
+          when 'sdr' then 'SDR'
+          when 'leader' then 'LEADER'
+          when 'leader_in_training' then 'LEADER_IN_TRAINING'
+          when 'supervisor' then 'SUPERVISOR'
+        end preview_kind
       from people person
-      where person.active=true and person.seller_code is not null
+      join lateral (
+        select current_org_role.role_kind from person_organization_roles current_org_role
+        where current_org_role.person_id=person.id and current_org_role.valid_from<=now()
+          and (current_org_role.valid_to is null or now()<current_org_role.valid_to)
+        order by current_org_role.valid_from desc,current_org_role.created_at desc limit 1
+      ) role on true
+      where person.active=true and person.seller_code is not null and role.role_kind<>'administrator'
       order by person.full_name,person.seller_code
     `;
-    return rows.flatMap((row) => {
-      const common = { personId: row.id, code: row.seller_code, displayName: row.full_name };
-      const subjects: PreviewSubject[] = [{ kind: "PERSON", ...common }];
-      if (row.is_leader) subjects.push({ kind: "LEADER", ...common });
-      if (row.is_supervisor) subjects.push({ kind: "SUPERVISOR", ...common });
-      return subjects;
-    });
+    return rows.map((row) => ({
+      kind: row.preview_kind,
+      personId: row.id,
+      code: row.seller_code,
+      displayName: row.full_name,
+    }));
   }
 
   async resolvePreviewContext(
@@ -525,7 +562,7 @@ export class PostgresAuthRepository {
     assertCapability(actor, "preview:use");
     if (input.kind === "ADMIN") {
       return buildPreviewAuthorizationContext(actor, {
-        kind: "ADMIN",subjectPersonId: null,subjectCode: null,subjectDisplayName: "Admin comercial",
+        kind: "ADMIN",subjectPersonId: null,subjectCode: null,subjectDisplayName: "Administrador",
       });
     }
     if (!input.subjectPersonId) throw new Error("preview_subject_required");
@@ -535,25 +572,44 @@ export class PostgresAuthRepository {
       full_name: string;
       team_ids: string[];
       product_keys: string[];
-      is_leader: boolean;
-      is_supervisor: boolean;
+      preview_kind: Exclude<PreviewRole, "ADMIN">;
     }[]>`
       select
         person.id,person.seller_code,person.full_name,
-        coalesce((select array_agg(distinct leadership.team_id::text order by leadership.team_id::text)
-          from team_leaderships leadership where leadership.person_id=person.id
-            and leadership.valid_from<=now() and (leadership.valid_to is null or now()<leadership.valid_to)), '{}') team_ids,
-        coalesce((select array_agg(distinct role.product_key order by role.product_key)
-          from person_organization_roles role where role.person_id=person.id and role.role_kind='supervisor'
-            and role.valid_from<=now() and (role.valid_to is null or now()<role.valid_to)), '{}') product_keys,
-        exists(select 1 from team_leaderships leadership where leadership.person_id=person.id
-          and leadership.valid_from<=now() and (leadership.valid_to is null or now()<leadership.valid_to)) is_leader,
-        exists(select 1 from person_organization_roles role where role.person_id=person.id and role.role_kind='supervisor'
-          and role.valid_from<=now() and (role.valid_to is null or now()<role.valid_to)) is_supervisor
-      from people person where person.id=${input.subjectPersonId} and person.active=true limit 1
+        case when role.role_kind='leader_in_training' then
+          coalesce((select array_agg(distinct team_id order by team_id) from (
+            select leadership.team_id::text team_id from team_leaderships leadership
+              where leadership.person_id=person.id and leadership.valid_from<=now()
+                and (leadership.valid_to is null or now()<leadership.valid_to)
+            union
+            select membership.team_id::text from person_team_memberships membership
+              where membership.person_id=person.id and membership.valid_from<=now()
+                and (membership.valid_to is null or now()<membership.valid_to)
+          ) teams), '{}')
+        when role.role_kind='leader' then
+          coalesce((select array_agg(distinct leadership.team_id::text order by leadership.team_id::text)
+            from team_leaderships leadership where leadership.person_id=person.id
+              and leadership.valid_from<=now() and (leadership.valid_to is null or now()<leadership.valid_to)), '{}')
+        else '{}'::text[] end team_ids,
+        case when role.role_kind='supervisor' then array[role.product_key] else '{}'::text[] end product_keys,
+        case role.role_kind
+          when 'closer' then 'CLOSER'
+          when 'sdr' then 'SDR'
+          when 'leader' then 'LEADER'
+          when 'leader_in_training' then 'LEADER_IN_TRAINING'
+          when 'supervisor' then 'SUPERVISOR'
+        end preview_kind
+      from people person
+      join lateral (
+        select current_org_role.role_kind,current_org_role.product_key from person_organization_roles current_org_role
+        where current_org_role.person_id=person.id and current_org_role.valid_from<=now()
+          and (current_org_role.valid_to is null or now()<current_org_role.valid_to)
+        order by current_org_role.valid_from desc,current_org_role.created_at desc limit 1
+      ) role on true
+      where person.id=${input.subjectPersonId} and person.active=true and role.role_kind<>'administrator' limit 1
     `;
     const subject = rows[0];
-    if (!subject || (input.kind === "LEADER" && !subject.is_leader) || (input.kind === "SUPERVISOR" && !subject.is_supervisor)) {
+    if (!subject || subject.preview_kind !== input.kind) {
       throw new Error("preview_subject_not_eligible");
     }
     return buildPreviewAuthorizationContext(actor, {
@@ -583,7 +639,7 @@ export class PostgresAuthRepository {
     const rows = await this.sql<AuthRow[]>`
       select
         u.id, u.email, u.display_name, u.role, u.active, u.must_change_password,u.person_id,u.session_version,
-        scope.team_ids,scope.product_keys,scope.person_ids
+        scope.effective_role,scope.team_ids,scope.product_keys,scope.person_ids
       from app_users u join app_user_effective_scopes scope on scope.user_id=u.id
       where u.email = ${email} and u.active = true limit 1
     `;

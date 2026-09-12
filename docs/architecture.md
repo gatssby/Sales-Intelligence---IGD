@@ -20,9 +20,9 @@ A arquitetura será dividida em cinco camadas:
 
 PostgreSQL permanece a fonte de verdade. Discovery, attribution, reconciliação e fila ficam em código versionado; n8n não participa do fluxo definitivo do Drive.
 
-A organização atual segue um fluxo separado: Google Sheets read-only → candidate validado → publicação temporal PostgreSQL → Effective Access/read models. Drive Discovery continua responsável apenas por calls e usa a organização válida na data da Call.
+A organização atual segue um fluxo separado: Google Sheets read-only → snapshot validado → publicação temporal PostgreSQL → Acesso Efetivo/read models. Drive Discovery continua responsável apenas por calls e usa a organização válida na data da Call.
 
-A autorização separa Platform Admin de Admin comercial. Platform Admin acrescenta observabilidade e operações técnicas ao acesso comercial global; Admin permanece global apenas no produto e na administração operacional. Preview Mode conserva o ator Platform Admin, troca somente o Effective Access usado por reads e bloqueia mutations no seam central de autorização.
+A autorização separa Administrador da Plataforma de Administrador comercial. A conta comercial delega cargo e abrangência à Person vinculada; o Cargo Organizacional vigente produz escopo próprio, por Times, por Produto ou comercial global. Administrador da Plataforma acrescenta observabilidade, gasto e operações técnicas ao acesso comercial global. Preview Mode conserva o ator técnico, troca somente o Acesso Efetivo usado por reads e bloqueia mutations no seam central de autorização.
 
 ---
 
@@ -339,15 +339,16 @@ Regras mínimas:
 
 A aplicação usa contas individuais mantidas no PostgreSQL. A autorização é composta por três dimensões separadas:
 
-1. papel (`ADMIN`, `LEADER`, `SUPERVISOR`, `SALES_OPS`);
-2. capacidade (`users:manage`, `settings:manage`, `calls:read`, `analytics:read`, `spend:execute`);
-3. Effective Access (`GLOBAL` ou união de produtos, times e self) e Selected Scope dentro dessa união.
+1. Autoridade da Conta (`ORGANIZATION`, autoridades históricas preservadas ou `PLATFORM_ADMIN`);
+2. Cargo Organizacional efetivo (`CLOSER`, `SDR`, `LEADER`, `LEADER_IN_TRAINING`, `SUPERVISOR`, `ADMIN`);
+3. capacidade (`users:manage`, `settings:manage`, `calls:read`, `analytics:read`, `spend:execute`, `platform:observe`, `platform:operate`, `preview:use`);
+4. Acesso Efetivo (`GLOBAL`, `PRODUCTS`, `TEAMS` ou própria Person) e Selected Scope dentro desse limite.
 
-A matriz papel → capacidades existe em um único módulo. Páginas, APIs e comandos chamam essa camada em vez de comparar papéis diretamente. Consultas de calls e métricas recebem o contexto de autorização e aplicam o predicado de escopo no PostgreSQL. Para contas vinculadas a Person, supervisões e lideranças atuais são derivadas do grafo temporal; a mesma regra cobre listagens, detalhes por ID e agregações.
+A matriz cargo → capacidades existe em um único módulo. Páginas, APIs e comandos chamam essa camada em vez de confiar em menus. Consultas de calls e métricas recebem o contexto de autorização e aplicam o predicado de escopo no PostgreSQL. Para contas vinculadas a Person, cargo, produto, liderança e time atuais são derivados do grafo temporal; a mesma regra cobre listagens, detalhes por ID e agregações.
 
-Somente `ADMIN` recebe `spend:execute` nesta versão. Uma tentativa negada termina antes de criar job ou chamar provider e gera um evento de auditoria sem payload da call.
+Somente `PLATFORM_ADMIN` recebe `spend:execute` nesta versão. Uma tentativa negada termina antes de criar job ou chamar provider e gera um evento de auditoria sem payload da call. `products.analytics_enabled` mantém Ingressos no grafo organizacional, mas fora das consultas e seletores analíticos atuais.
 
-Consulte [ADR 0004](decisions/0004-application-auth-and-access-control.md) e o [runbook de autenticação](authentication-access-control.md).
+Consulte [ADR 0010](decisions/0010-organizational-cargo-and-derived-access.md) e o [runbook de autenticação](authentication-access-control.md).
 
 ---
 

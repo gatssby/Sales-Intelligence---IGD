@@ -86,14 +86,18 @@ export type ScopedDimensionMetric = {
 };
 
 function scopePredicate(sql: Sql, context: AuthorizationContext): PendingQuery<never[]> {
-  if (context.scope.kind === "GLOBAL") return sql`true`;
+  const analyticalProduct = sql<never[]>`exists (
+    select 1 from products analytical_product
+    where analytical_product.key=lower(c.product_key) and analytical_product.active=true and analytical_product.analytics_enabled=true
+  )`;
+  if (context.scope.kind === "GLOBAL") return analyticalProduct;
   if (context.scope.kind === "TEAMS") {
     if (context.scope.teamIds.length === 0) return sql`false`;
-    return sql`coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id) in ${sql(context.scope.teamIds)}`;
+    return sql`${analyticalProduct} and coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id) in ${sql(context.scope.teamIds)}`;
   }
   if (context.scope.kind === "PRODUCTS") {
     if (context.scope.productKeys.length === 0) return sql`false`;
-    return sql`lower(c.product_key) in ${sql(context.scope.productKeys)}`;
+    return sql`${analyticalProduct} and lower(c.product_key) in ${sql(context.scope.productKeys)}`;
   }
   const products = context.scope.productKeys.length
     ? sql`lower(c.product_key) in ${sql(context.scope.productKeys)}`
@@ -104,7 +108,7 @@ function scopePredicate(sql: Sql, context: AuthorizationContext): PendingQuery<n
   const people = context.scope.personIds.length
     ? sql`coalesce(c.primary_closer_id,s.person_id) in ${sql(context.scope.personIds)}`
     : sql`false`;
-  return sql`(${products} or ${teams} or ${people})`;
+  return sql`${analyticalProduct} and (${products} or ${teams} or ${people})`;
 }
 
 function selectedCallPredicate(sql: Sql, selected: SelectedOrganizationScope): PendingQuery<never[]> {
@@ -414,7 +418,7 @@ export class ScopedSalesRepository {
   async getAiSpendSummary(context: AuthorizationContext, options: {
     accountId: string; strategyVersion: string; confidencePolicyVersion: string;
   }): Promise<AiSpendSummary> {
-    this.require(context, "spend:execute");
+    this.require(context, "platform:observe");
     const [accounts, callRows, backlogs, workers, completions] = await Promise.all([
       this.sql<{
         limit_usd: string | number; external_spend_baseline_usd: string | number;

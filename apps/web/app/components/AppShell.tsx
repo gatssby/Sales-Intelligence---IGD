@@ -17,8 +17,22 @@ const adminItems: NavItem[] = [
   { href: "/admin/users", label: "Usuários e acessos", route: "users", icon: "userPlus" },
   { href: "/admin/organization-sync", label: "Sincronização", route: "sync", icon: "integrations" },
   { href: "/admin/integrity", label: "Integridade", route: "integrity", icon: "analytics" },
+];
+
+const platformItems: NavItem[] = [
+  { href: "/platform", label: "Plataforma", route: "platform", icon: "integrations" },
   { href: "/admin/ai", label: "Operações de IA", route: "ai", icon: "report" },
 ];
+
+const roleLabels: Record<string, string> = {
+  PLATFORM_ADMIN: "Administrador da Plataforma",
+  ADMIN: "Administrador",
+  SUPERVISOR: "Supervisor",
+  LEADER: "Líder",
+  LEADER_IN_TRAINING: "Líder em treinamento",
+  CLOSER: "Closer",
+  SDR: "SDR",
+};
 
 function NavigationItem({ item, activeRoute }: { item: NavItem; activeRoute: string }) {
   const active = activeRoute === item.route || (activeRoute === "settings" && item.route === "users");
@@ -32,14 +46,16 @@ export function AppShell({
   scopeSelector,
   children,
 }: {
-  user: { fullName: string; role?: string };
+  user: { fullName: string; role?: string; accessRole?: string };
   activeRoute: string;
   title: string;
   scopeSelector?: ReactNode;
   children: ReactNode;
 }) {
-  const isAdmin = user.role === "ADMIN" || user.role === "PLATFORM_ADMIN";
-  const currentIcon = [...commercialItems, ...adminItems].find((item) => item.route === activeRoute)?.icon ?? "overview";
+  const accessRole = user.accessRole ?? user.role;
+  const isAdmin = accessRole === "ADMIN" || accessRole === "PLATFORM_ADMIN";
+  const isPlatform = user.role === "PLATFORM_ADMIN" && accessRole === "PLATFORM_ADMIN";
+  const currentIcon = [...commercialItems, ...adminItems, ...platformItems].find((item) => item.route === activeRoute)?.icon ?? "overview";
 
   return (
     <div className="app-shell">
@@ -62,21 +78,22 @@ export function AppShell({
 
           {isAdmin ? (
             <div className="nav-group">
-              <p className="nav-group-label">Plataforma</p>
+              <p className="nav-group-label">Administração</p>
               {adminItems.map((item) => <NavigationItem key={item.route} item={item} activeRoute={activeRoute} />)}
+            </div>
+          ) : null}
+          {isPlatform ? (
+            <div className="nav-group">
+              <p className="nav-group-label">Plataforma</p>
+              {platformItems.map((item) => <NavigationItem key={item.route} item={item} activeRoute={activeRoute} />)}
             </div>
           ) : null}
         </nav>
 
         <div className="sidebar-footer">
-          <div className="sidebar-context-card">
-            <span className="context-card-icon"><Icon name="analytics" /></span>
-            <div><strong>Inteligência comercial</strong><p>Dados reais, leitura por escopo e histórico preservado.</p></div>
-            <a href="/organization">Explorar organização</a>
-          </div>
           <form action={logoutAction} className="account-row">
             <Avatar name={user.fullName} size="sm" />
-            <span><strong>{user.fullName}</strong><small>{user.role === "ADMIN" ? "Administrador" : "Acesso comercial"}</small></span>
+            <span><strong>{user.fullName}</strong><small>{roleLabels[accessRole ?? ""] ?? "Acesso comercial"}</small></span>
             <button type="submit">Sair</button>
           </form>
         </div>

@@ -2,7 +2,7 @@
 
 ## Status
 
-Aceita; transição de produção concluída em 2026-09-09. A atribuição manual de escopos organizacionais foi parcialmente substituída pelo [ADR 0008](0008-organization-sync-and-derived-access.md) para contas vinculadas a Person.
+Aceita; transição de produção concluída em 2026-09-09. A matriz manual foi substituída para contas comerciais pelo [ADR 0010](0010-organizational-cargo-and-derived-access.md); os controles de senha, sessão e auditoria permanecem vigentes.
 
 ## Contexto
 

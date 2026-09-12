@@ -12,9 +12,9 @@
 
 | Superfície ou item | Classe | Destino | Razão |
 | --- | --- | --- | --- |
-| Visão Geral, métricas, rankings e coaching | A | Todos conforme Effective Access | Resultado comercial direto. |
-| Calls, análise, evidências e transcript sob demanda | A | Todos conforme Effective Access | Trabalho comercial e coaching. |
-| Pessoas, Times e Organização | A/B | Todos conforme Effective Access | Estrutura e desempenho no escopo permitido. |
+| Visão Geral, métricas, rankings e coaching | A | Todos conforme Acesso Efetivo | Resultado comercial direto. |
+| Calls, análise, evidências e transcript sob demanda | A | Todos conforme Acesso Efetivo | Trabalho comercial e coaching. |
+| Pessoas, Times e Organização | A/B | Todos conforme Acesso Efetivo | Estrutura e desempenho no escopo permitido. |
 | Usuários e Acessos | B | Admin e Platform Admin | Gestão comercial de contas e vínculo com Person. Platform Admin não pode ser concedido aqui. |
 | Integridade: closer, V-code, produto, frente, time e classificação | C | Admin e Platform Admin | Exceções acionáveis pela operação. |
 | Drive: documentos sem closer/classificação/atribuição | C | Admin e Platform Admin | Contagens que exigem decisão operacional, sem cursor, lease ou erro bruto. |
@@ -28,10 +28,10 @@
 | Provider/model, tentativas, latency, error code, prompt/schema/rubric version | D | Platform Admin | Auditoria técnica; Admin recebe somente o registro operacional da análise. |
 | Health, release SHA, schema version e códigos de erro sanitizados | D | Platform Admin | Observabilidade sem secrets ou erros brutos. |
 
-## Information architecture resultante
+## Arquitetura de informação resultante
 
-A navegação comercial permanece curta: Visão Geral, Pessoas, Times, Calls, Organização e Coaching. O grupo Admin contém Usuários e Acessos, Sincronização operacional e Integridade. O grupo Platform possui uma única entrada, Operação técnica, que agrupa Saúde, Integrações, Discovery, Workers/Jobs, Logs/Erros, IA/Custos, Sincronizações e Diagnósticos.
+A navegação comercial permanece curta: Visão Geral, Organização, Pessoas, Times e Calls. O grupo Administração contém Usuários e acessos, Sincronização e Integridade. O grupo Plataforma aparece exclusivamente para o Administrador da Plataforma: **Plataforma** concentra Saúde, Integrações, Discovery, Workers/Jobs, Logs/Erros, IA/Custos, Sincronizações e Diagnósticos; **Operações de IA** oferece o detalhe do pipeline e do budget sem espalhá-lo pelas telas comerciais.
 
 ## Preview Mode
 
-O controle **Visualizar como** aparece somente para o ator `PLATFORM_ADMIN`. Admin é uma visão comercial global; Supervisor, Líder e Pessoa exigem uma persona e reutilizam as relações temporais de `EffectiveAccess`. O cookie de seleção não contém credencial e não concede acesso: o servidor valida ator e persona a cada request. Alterar a URL continua aplicando a interseção PostgreSQL do scope. O modo ativo mantém indicação persistente e todas as mutations permanecem bloqueadas até **Sair da visualização**.
+O controle **Visualizar como** aparece somente para o ator `PLATFORM_ADMIN`. Administrador é uma visão comercial global; Supervisor, Líder, Líder em treinamento, Closer e SDR exigem uma Person com aquele Cargo Organizacional vigente. O cookie de seleção não contém credencial e não concede acesso: o servidor valida ator, cargo e Person a cada request. Alterar a URL continua aplicando a interseção PostgreSQL do Acesso Efetivo. O modo ativo mantém a indicação **Visualizando como** e todas as mutations e operações pagas permanecem bloqueadas até **Sair da visualização**.

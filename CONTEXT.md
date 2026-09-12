@@ -48,37 +48,37 @@ _Evite_: Leader como entidade de pessoa separada
 Estado organizacional atual observado em uma fonte oficial e aceito como confiável para publicação. Um snapshot rejeitado nunca substitui o último estado válido.
 _Evite_: planilha como histórico, árvore rígida
 
-**Organizational Role**:
-Relação temporal de uma Person com um escopo da organização, como liderança de Team ou supervisão de Product.
-_Evite_: papel de sistema, conta, Leader como pessoa separada
+**Cargo Organizacional**:
+Responsabilidade comercial temporal de uma Person: Closer, SDR, Líder, Líder em treinamento, Supervisor ou Administrador. O Cargo Organizacional vigente, combinado às relações atuais de time/produto, determina o Acesso Efetivo da conta vinculada.
+_Evite_: perfil manual de acesso, conta, privilégio técnico
 
-**System Role**:
-Autoridade interna de uma conta do aplicativo. Platform Admin mantém a plataforma; Admin governa a operação comercial. Nenhum dos dois é concedido pela fonte organizacional.
-_Evite_: cargo, supervisor da planilha
+**Autoridade da Conta**:
+Limite interno da conta do aplicativo. Uma conta comercial delega cargo e abrangência à Person vinculada; uma conta técnica pode receber Administração da Plataforma somente por concessão interna explícita.
+_Evite_: cargo da planilha, escopo selecionado na interface
 
-**Platform Admin**:
-System Role global reservado ao mantenedor técnico. Herda o acesso comercial de Admin e acrescenta observabilidade, diagnósticos e operações técnicas explicitamente autorizadas.
-_Evite_: Admin sênior, supervisor global, papel da planilha
+**Administrador da Plataforma**:
+Autoridade global reservada ao mantenedor técnico. Inclui observabilidade, integrações, budgets, workers, saúde, diagnósticos e operações técnicas explicitamente autorizadas; nunca é concedida pela organização.
+_Evite_: Administrador sênior, Supervisor global, cargo da planilha
 
-**Admin**:
-System Role global responsável pela operação comercial, integridade operacional e gestão de contas e vínculos, sem diagnósticos internos da plataforma.
-_Evite_: Platform Admin, operador de infraestrutura
+**Administrador**:
+Cargo Organizacional com visão comercial global e gestão de usuários, vínculos, integridade e configurações comerciais, sem diagnósticos internos da Plataforma. Contas administrativas anteriores podem preservar a mesma autoridade comercial durante a transição.
+_Evite_: Administrador da Plataforma, operador de infraestrutura
 
-**Effective Access**:
-União dos escopos permitidos pelo System Role e pelos Organizational Roles atuais da Person vinculada à conta.
-_Evite_: filtro visual, escopo enviado pelo cliente
+**Acesso Efetivo**:
+Abrangência vigente calculada no servidor a partir da Autoridade da Conta, do Cargo Organizacional e das relações temporais atuais da Person. Pode ser própria Person, Times, Produto, operação comercial global ou Plataforma global.
+_Evite_: filtro visual, escolha gravada na conta, escopo enviado pelo cliente
 
 **Selected Scope**:
-Recorte navegacional escolhido dentro do Effective Access para parametrizar os mesmos read models de análise.
+Recorte navegacional escolhido dentro do Acesso Efetivo para parametrizar os mesmos read models de análise.
 _Evite_: permissão, dashboard separado por papel
 
 **Preview Mode**:
-Visão somente leitura iniciada por Platform Admin que preserva o ator autenticado e aplica aos read models o Effective Access de uma persona ou do Admin comercial.
+Visão somente leitura iniciada por Administrador da Plataforma que preserva o ator autenticado e aplica aos read models o Acesso Efetivo de um Cargo Organizacional.
 _Evite_: impersonation, troca de sessão, login como outra pessoa
 
 **Preview Subject**:
-Person ou papel comercial cujo Effective Access é aplicado durante Preview Mode. Nunca substitui o ator autenticado na auditoria.
-_Evite_: usuário autenticado, token delegado
+Person e Cargo Organizacional cujo Acesso Efetivo é aplicado durante Preview Mode. Nunca substitui o ator autenticado na auditoria.
+_Evite_: usuário autenticado, impersonation, token delegado
 
 ## Avaliação
 

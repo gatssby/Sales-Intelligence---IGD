@@ -1,9 +1,12 @@
-export const roles = ["PLATFORM_ADMIN", "ADMIN", "USER", "LEADER", "SUPERVISOR", "SALES_OPS"] as const;
+export const roles = ["PLATFORM_ADMIN", "ADMIN", "ORGANIZATION", "USER", "LEADER", "SUPERVISOR", "SALES_OPS"] as const;
 export type Role = (typeof roles)[number];
 
-export const previewRoles = ["ADMIN", "SUPERVISOR", "LEADER", "PERSON"] as const;
+export const organizationalAccessRoles = ["CLOSER", "SDR", "LEADER", "LEADER_IN_TRAINING", "SUPERVISOR", "ADMIN"] as const;
+export type OrganizationalAccessRole = (typeof organizationalAccessRoles)[number];
+export type AccessRole = "PLATFORM_ADMIN" | OrganizationalAccessRole | "USER" | "SALES_OPS";
+
+export const previewRoles = ["ADMIN", "SUPERVISOR", "LEADER", "LEADER_IN_TRAINING", "CLOSER", "SDR"] as const;
 export type PreviewRole = (typeof previewRoles)[number];
-export type AccessRole = Role | "PERSON";
 
 export const capabilities = [
   "users:manage",
@@ -30,6 +33,14 @@ export type SelectedOrganizationScope = {
   personId?: string | null;
 };
 
+export type PreviewMode = {
+  kind: PreviewRole;
+  subjectPersonId: string | null;
+  subjectCode: string | null;
+  subjectDisplayName: string;
+  readOnly: true;
+};
+
 export type AuthorizationContext = {
   userId: string;
   email: string;
@@ -42,41 +53,37 @@ export type AuthorizationContext = {
   preview: PreviewMode | null;
 };
 
-export type PreviewMode = {
-  kind: PreviewRole;
-  subjectPersonId: string | null;
-  subjectCode: string | null;
-  subjectDisplayName: string;
-  readOnly: true;
-};
+const readCapabilities = new Set<Capability>(["calls:read", "analytics:read"]);
+const commercialAdminCapabilities = new Set<Capability>(["users:manage", "settings:manage", "calls:read", "analytics:read"]);
 
-const roleCapabilities: Readonly<Record<Role, ReadonlySet<Capability>>> = {
-  PLATFORM_ADMIN: new Set(capabilities),
-  ADMIN: new Set(["users:manage", "settings:manage", "calls:read", "analytics:read", "spend:execute"]),
-  USER: new Set(["calls:read", "analytics:read"]),
-  LEADER: new Set(["calls:read", "analytics:read"]),
-  SUPERVISOR: new Set(["calls:read", "analytics:read"]),
-  SALES_OPS: new Set(["calls:read", "analytics:read"]),
-};
+function capabilitiesForAccess(role: AccessRole): ReadonlySet<Capability> {
+  if (role === "PLATFORM_ADMIN") return new Set(capabilities);
+  if (role === "ADMIN") return new Set(commercialAdminCapabilities);
+  return new Set(readCapabilities);
+}
 
-const commercialAdminCapabilities = new Set<Capability>([
-  "users:manage",
-  "settings:manage",
-  "calls:read",
-  "analytics:read",
-  "spend:execute",
-]);
+function scopeForAccess(input: {
+  role: AccessRole;
+  teamIds: readonly string[];
+  productKeys: readonly string[];
+  personIds: readonly string[];
+}): DataScope {
+  if (input.role === "PLATFORM_ADMIN" || input.role === "ADMIN" || input.role === "SALES_OPS") return { kind: "GLOBAL" };
+  if (input.role === "LEADER" || input.role === "LEADER_IN_TRAINING") return { kind: "TEAMS", teamIds: input.teamIds };
+  if (input.role === "SUPERVISOR") return { kind: "PRODUCTS", productKeys: input.productKeys };
+  return { kind: "ORGANIZATION", teamIds: [], productKeys: [], personIds: input.personIds };
+}
 
 export class AuthorizationError extends Error {
   readonly status = 403;
-
   constructor(readonly capability?: Capability) {
     super("forbidden");
   }
 }
 
-export function capabilitiesForRole(role: Role): ReadonlySet<Capability> {
-  return new Set(roleCapabilities[role]);
+export function capabilitiesForRole(role: Role, accessRole?: AccessRole): ReadonlySet<Capability> {
+  if (role === "PLATFORM_ADMIN") return new Set(capabilities);
+  return capabilitiesForAccess(accessRole ?? (role === "ORGANIZATION" ? "USER" : role));
 }
 
 export function buildAuthorizationContext(input: {
@@ -84,6 +91,7 @@ export function buildAuthorizationContext(input: {
   email: string;
   displayName: string;
   role: Role;
+  accessRole?: AccessRole;
   teamIds?: readonly string[];
   productKeys?: readonly string[];
   personIds?: readonly string[];
@@ -92,23 +100,18 @@ export function buildAuthorizationContext(input: {
   const teamIds = [...new Set(input.teamIds ?? [])];
   const productKeys = [...new Set((input.productKeys ?? []).map((key) => key.trim().toLowerCase()))];
   const personIds = [...new Set(input.personIds ?? [])];
-  const scope: DataScope =
-    input.role === "PLATFORM_ADMIN" || input.role === "ADMIN" || input.role === "SALES_OPS"
-      ? { kind: "GLOBAL" }
-      : input.role === "LEADER" && personIds.length === 0 && productKeys.length === 0
-      ? { kind: "TEAMS", teamIds }
-      : input.role === "SUPERVISOR" && personIds.length === 0 && teamIds.length === 0
-        ? { kind: "PRODUCTS", productKeys }
-        : { kind: "ORGANIZATION", teamIds, productKeys, personIds };
+  const accessRole = input.role === "PLATFORM_ADMIN"
+    ? "PLATFORM_ADMIN"
+    : input.accessRole ?? (input.role === "ORGANIZATION" ? "USER" : input.role);
 
   return {
     userId: input.userId,
     email: input.email,
     displayName: input.displayName,
     role: input.role,
-    accessRole: input.role === "USER" ? "PERSON" : input.role,
-    capabilities: capabilitiesForRole(input.role),
-    scope,
+    accessRole,
+    capabilities: capabilitiesForRole(input.role, accessRole),
+    scope: scopeForAccess({ role: accessRole, teamIds, productKeys, personIds }),
     mustChangePassword: input.mustChangePassword ?? false,
     preview: null,
   };
@@ -127,19 +130,14 @@ export function buildPreviewAuthorizationContext(
   },
 ): AuthorizationContext {
   if (actor.role !== "PLATFORM_ADMIN") throw new AuthorizationError("preview:use");
-
   const teamIds = [...new Set(input.teamIds ?? [])];
   const productKeys = [...new Set((input.productKeys ?? []).map((key) => key.trim().toLowerCase()))];
   const personIds = [...new Set(input.personIds ?? [])];
-  const isAdminPreview = input.kind === "ADMIN";
-
   return {
     ...actor,
     accessRole: input.kind,
-    capabilities: isAdminPreview
-      ? new Set(commercialAdminCapabilities)
-      : new Set<Capability>(["calls:read", "analytics:read"]),
-    scope: isAdminPreview ? { kind: "GLOBAL" } : { kind: "ORGANIZATION", teamIds, productKeys, personIds },
+    capabilities: capabilitiesForAccess(input.kind),
+    scope: scopeForAccess({ role: input.kind, teamIds, productKeys, personIds }),
     preview: {
       kind: input.kind,
       subjectPersonId: input.subjectPersonId,
@@ -154,19 +152,13 @@ export function buildDevelopmentAuthBypass(input: {
   nodeEnv: string | undefined;
   enabled: string | undefined;
 }): AuthorizationContext | null {
-  if (input.nodeEnv === "production" || input.enabled !== "true") return null;
-
-  const context = buildAuthorizationContext({
+  if (input.nodeEnv !== "development" || input.enabled !== "true") return null;
+  return buildAuthorizationContext({
     userId: "dev-auth-bypass",
     email: "dev-auth-bypass@example.invalid",
-    displayName: "Local Development Admin",
+    displayName: "Administrador local",
     role: "ADMIN",
   });
-
-  return {
-    ...context,
-    capabilities: new Set([...context.capabilities].filter((capability) => capability !== "spend:execute")),
-  };
 }
 
 export function hasCapability(context: AuthorizationContext, capability: Capability): boolean {
@@ -201,13 +193,9 @@ export function canAccessData(
   resource: { teamId?: string | null; productKey: string; personId?: string | null },
 ): boolean {
   if (context.scope.kind === "GLOBAL") return true;
-  if (context.scope.kind === "TEAMS") {
-    return Boolean(resource.teamId && context.scope.teamIds.includes(resource.teamId));
-  }
+  if (context.scope.kind === "TEAMS") return Boolean(resource.teamId && context.scope.teamIds.includes(resource.teamId));
   if (context.scope.kind === "PRODUCTS") return context.scope.productKeys.includes(resource.productKey.trim().toLowerCase());
-  return context.scope.productKeys.includes(resource.productKey.trim().toLowerCase())
-    || Boolean(resource.teamId && context.scope.teamIds.includes(resource.teamId))
-    || Boolean(resource.personId && context.scope.personIds.includes(resource.personId));
+  return Boolean(resource.personId && context.scope.personIds.includes(resource.personId));
 }
 
 export function validateRoleScopes(input: {
@@ -218,19 +206,24 @@ export function validateRoleScopes(input: {
 }): void {
   const teamCount = new Set(input.teamIds ?? []).size;
   const productCount = new Set(input.productKeys ?? []).size;
+  if (input.role === "PLATFORM_ADMIN") throw new Error("platform_admin_requires_internal_grant");
+  if (input.role === "ORGANIZATION") {
+    if (!input.personId) throw new Error("organization_account_requires_person_link");
+    if (teamCount > 0 || productCount > 0) throw new Error("organization_scope_is_derived_from_person");
+    return;
+  }
   if (input.personId) return;
-  if (input.role === "LEADER" && (teamCount === 0 || productCount > 0)) {
-    throw new Error("leader_requires_one_or_more_teams_only");
-  }
-  if (input.role === "SUPERVISOR" && (productCount === 0 || teamCount > 0)) {
-    throw new Error("supervisor_requires_one_or_more_products_only");
-  }
-  if ((input.role === "PLATFORM_ADMIN" || input.role === "ADMIN" || input.role === "SALES_OPS") && (teamCount > 0 || productCount > 0)) {
-    throw new Error("global_role_cannot_have_scopes");
-  }
+  if (input.role === "LEADER" && (teamCount === 0 || productCount > 0)) throw new Error("leader_requires_one_or_more_teams_only");
+  if (input.role === "SUPERVISOR" && (productCount === 0 || teamCount > 0)) throw new Error("supervisor_requires_one_or_more_products_only");
+  if ((input.role === "ADMIN" || input.role === "SALES_OPS") && (teamCount > 0 || productCount > 0)) throw new Error("global_role_cannot_have_scopes");
   if (input.role === "USER" && (teamCount > 0 || productCount > 0)) throw new Error("user_scope_is_derived_from_person");
 }
 
 export function isRole(value: string): value is Role {
   return roles.includes(value as Role);
+}
+
+export function isAccessRole(value: string): value is AccessRole {
+  return value === "PLATFORM_ADMIN" || value === "USER" || value === "SALES_OPS"
+    || organizationalAccessRoles.includes(value as OrganizationalAccessRole);
 }

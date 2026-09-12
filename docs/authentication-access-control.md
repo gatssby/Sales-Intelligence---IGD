@@ -1,35 +1,39 @@
 # Autenticação e controle de acesso
 
-## Matriz de perfis de acesso
+## Matriz canônica
 
-| Perfil exibido | Identificador interno | Abrangência de leitura | `users:manage` | `settings:manage` | `calls:read` | `analytics:read` | `spend:execute` |
-| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| Administrador | `ADMIN` | Global | Sim | Sim | Sim | Sim | Sim |
-| Pessoa | `USER` | Pessoa vinculada e responsabilidades organizacionais atuais | Não | Não | Sim | Sim | Não |
-| Líder | `LEADER` | Pessoa vinculada e responsabilidades organizacionais atuais | Não | Não | Sim | Sim | Não |
-| Supervisor | `SUPERVISOR` | Pessoa vinculada e responsabilidades organizacionais atuais | Não | Não | Sim | Sim | Não |
-| Operações comerciais | `SALES_OPS` | Global | Não | Não | Sim | Sim | Não |
+O PostgreSQL calcula o cargo e a abrangência em cada leitura. A interface pode selecionar apenas um recorte dentro dessa abrangência; parâmetros de URL e campos enviados pelo navegador nunca ampliam acesso.
 
-Pessoa, Líder, Supervisor e Operações comerciais são somente leitura nesta versão. Para contas vinculadas, produtos, frentes, times, liderança, supervisão e dados próprios são derivados da organização publicada; a tela não pede permissões manuais redundantes. Os escopos manuais antigos permanecem apenas como fallback para contas ainda não vinculadas. `spend:execute` continua restrita ao Administrador até outra decisão explícita.
+| Cargo ou autoridade exibida | Origem | Abrangência | Calls e análises | Usuários e vínculos | Configurações comerciais | Operação técnica / IA paga |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| Closer | organização oficial | própria Pessoa | Sim | Não | Não | Não |
+| SDR | organização oficial | própria Pessoa | Sim | Não | Não | Não |
+| Líder | organização oficial | Times liderados | Sim | Não | Não | Não |
+| Líder em treinamento | organização oficial | Time atual e Times liderados | Sim | Não | Não | Não |
+| Supervisor | organização oficial | Produto atual | Sim | Não | Não | Não |
+| Administrador | organização oficial ou conta administrativa preservada | toda a operação comercial | Sim | Sim | Sim | Não |
+| Administrador da Plataforma | concessão interna explícita | operação comercial e Plataforma globais | Sim | Sim | Sim | Sim |
 
-O perfil **Administrador da Plataforma** é técnico e protegido. Sua concessão não faz parte da área comercial de Usuários e acessos, por isso ele não aparece como opção de criação ou edição nessa tela.
+Internamente, contas comerciais novas usam a autoridade `ORGANIZATION`; `app_user_effective_scopes` resolve `CLOSER`, `SDR`, `LEADER`, `LEADER_IN_TRAINING`, `SUPERVISOR` ou `ADMIN` pela Person vinculada. `PLATFORM_ADMIN` é uma autoridade separada, não um Cargo Organizacional.
 
-## Controles implementados
+## Gestão de contas
 
-- login individual com mensagem genérica para conta inexistente, inativa ou senha incorreta;
-- bcrypt com custo 12 e política mínima de senha;
-- sessão opaca de sete dias, armazenada no servidor e revogável;
-- cookies `HttpOnly`, `SameSite=Lax` e `Secure` quando `NODE_ENV=production`;
-- bloqueio de 15 minutos após cinco falhas na mesma janela;
-- troca obrigatória da senha temporária;
-- desativação e reset revogam todas as sessões do usuário;
-- escopo obrigatório nas consultas de calls, detalhes e métricas;
-- `403` antes de qualquer provider/job quando falta `spend:execute`;
-- auditoria de criação, papel, escopo, ativação, desativação, reset e gasto bloqueado.
+Em **Usuários e acessos**, o Administrador informa nome, e-mail e a Pessoa pelo código V. Não há seletor de perfil, time ou produto: cargo e abrangência acompanham a organização publicada. A tela mostra **Cargo**, **Abrangência** e **Acesso** calculados.
 
-## Primeiro administrador
+Contas históricas `USER`, `LEADER`, `SUPERVISOR` e `SALES_OPS` continuam reconhecidas para rollback. A migração converte automaticamente as que já possuem vínculo para `ORGANIZATION`; as não vinculadas ficam identificadas para revisão. O servidor rejeita a criação de novos perfis manuais e não permite conceder, editar, desativar ou redefinir a senha de um Administrador da Plataforma pela área comercial.
 
-Execute as migrações em um ambiente autorizado e forneça a senha somente por variável temporária. O comando recusa criar outro administrador se um Admin já existir.
+## Controles de segurança
+
+- login individual com resposta genérica para conta inexistente, inativa ou senha incorreta;
+- bcrypt com custo 12, sessão opaca de sete dias e cookie `HttpOnly`, `SameSite=Lax` e `Secure` em produção;
+- bloqueio temporário após cinco falhas, troca obrigatória da senha temporária e revogação das sessões em reset/desativação;
+- autorização central por capacidade e predicados PostgreSQL em listagens, agregados, detalhes por ID e transcript;
+- tentativa sem `spend:execute` encerrada antes de job ou provider, com auditoria sanitizada;
+- mudança de cargo não altera a conta: o próximo request recebe imediatamente o novo Acesso Efetivo.
+
+## Administrador inicial e Administração da Plataforma
+
+O bootstrap comercial cria uma única conta administrativa inicial. A senha deve existir apenas em variável temporária:
 
 ```bash
 read -s BOOTSTRAP_PASSWORD
@@ -39,49 +43,30 @@ BOOTSTRAP_ADMIN_PASSWORD="$BOOTSTRAP_PASSWORD" npm run auth:bootstrap-admin
 unset BOOTSTRAP_PASSWORD BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_NAME
 ```
 
-O exemplo usa um domínio reservado e não é uma credencial padrão. Substitua o e-mail no ambiente autorizado; não grave a senha em `.env`, histórico, ticket ou PR. O primeiro login exige uma nova senha.
-
-## Demais acessos
-
-1. Entre como Administrador e abra **Usuários e acessos**.
-2. Informe nome, e-mail e perfil de acesso.
-3. Vincule a conta à Pessoa correta pelo código V quando o perfil usar acesso derivado da organização.
-4. Salve e confira a abrangência recalculada pela organização.
-5. Copie a senha temporária exibida uma única vez e entregue-a por canal seguro.
-
-Administrador e Operações comerciais usam abrangência global e não aceitam permissões específicas. Contas não administrativas nunca recebem `spend:execute` nesta versão.
-
-## Comandos que podem aumentar gastos
-
-Os caminhos existentes são:
-
-- `npm run calls:import -- --apply --request-analysis`, que pode enfileirar análise;
-- `npm run analysis:process -- --apply`, que chama o provider e conclui a análise;
-- `POST /api/spend/analyze`, limite HTTP reservado para futura execução pelo dashboard.
-
-Nos comandos CLI com `--apply`, defina `AUTH_ACTOR_EMAIL` para uma conta Admin ativa. A validação de `spend:execute` ocorre antes de criar job, reivindicar execução ou chamar provider. Dry-runs permanecem sem custo e não exigem ator.
-
-## Basic Auth legado aposentado
-
-Em 2026-09-09, após validação da autenticação individual, das rotas privadas, das APIs, dos papéis, dos escopos e dos bloqueios de gasto, as diretivas de Basic Auth foram removidas do virtual host de `sales-igd.com.br`. A autenticação individual da aplicação passou a ser a única camada de acesso dos usuários.
-
-O arquivo `htpasswd` legado e uma cópia timestampada da configuração nginx anterior permanecem na VPS somente para rollback operacional. Eles não devem ser reutilizados como acesso normal nem ter seu conteúdo copiado para logs, documentação, tickets ou Git.
-
-Rollback: restaure a cópia nginx anterior, valide com `nginx -t` e faça reload gracioso. Não apague nem reverta as tabelas de autenticação da aplicação; elas preservam usuários, sessões, escopos e auditoria.
-
-## Validação local
-
-Para abrir o dashboard local sem criar uma sessão, habilite explicitamente o bypass de desenvolvimento:
+Para a concessão técnica inicial, um operador autorizado promove uma conta Administrador ativa. O comando preserva `user_id`, revoga sessões e audita o evento; ele exige `--apply` e não lê a planilha:
 
 ```bash
-DEV_BYPASS_AUTH=true npm run dev
+DATABASE_URL='postgresql://...' PLATFORM_ADMIN_EMAIL='maintainer@example.invalid' \
+  npm run auth:bootstrap-platform-admin -- --apply
 ```
 
-O bypass só é aceito quando `NODE_ENV !== production` e `DEV_BYPASS_AUTH=true`. Ele cria apenas em memória a identidade sintética `Local Development Admin`, sem cookie ou usuário persistente. O contexto mantém o escopo global e as capacidades administrativas necessárias para revisar as áreas comerciais e administrativas, mas remove explicitamente `spend:execute`; assim, a identidade sintética não pode iniciar fluxos pagos. `NODE_ENV=production` ignora a variável mesmo quando ela vale `true`.
+## Operações que podem aumentar gastos
 
-O dashboard continua dependendo do PostgreSQL. Configure `apps/web/.env.local` com `DATABASE_URL` apontando para o túnel local ou use `npm run demo`, que valida o banco e abre o túnel quando necessário.
+Os caminhos `calls:import -- --apply --request-analysis`, `analysis:process -- --apply` e `POST /api/spend/analyze` exigem `spend:execute`. Nos comandos autorizados, `AUTH_ACTOR_EMAIL` deve apontar para um Administrador da Plataforma ativo. Dry-runs permanecem sem custo e não exigem ator.
 
-Use apenas uma instância PostgreSQL local cujo banco termine em `_test`. Os testes recusam host remoto. Rode:
+## Visualizar como
+
+Somente o Administrador da Plataforma pode iniciar **Visualizar como** para Administrador, Supervisor, Líder, Líder em treinamento, Closer ou SDR. A escolha contém somente cargo e referência da Person; o servidor recalcula o escopo, mantém o ator técnico real na auditoria e bloqueia mutations e gasto até **Sair da visualização**.
+
+## Desenvolvimento e validação
+
+O bypass local exige simultaneamente `NODE_ENV=development` e a variável exata abaixo. Produção e teste ignoram a chave; a identidade sintética não possui `spend:execute`.
+
+```bash
+DEV_AUTH_BYPASS=true npm run dev
+```
+
+O dashboard ainda depende do PostgreSQL. Para testes de integração, use somente host local e um banco cujo nome termine em `_test`:
 
 ```bash
 TEST_DATABASE_URL='postgresql://127.0.0.1:55439/sales_intelligence_auth_test' npm run test --workspace=@igd/db
@@ -90,7 +75,7 @@ npm run typecheck
 npm run build
 ```
 
-Para uma demonstração visual, o comando abaixo cria os quatro papéis sintéticos somente nesse banco local. A senha é recebida por variável temporária, não é exibida e não existe no repositório:
+O seed visual é sintético, exige `--apply`, aceita apenas banco local `_test` e nunca registra a senha:
 
 ```bash
 read -s AUTH_DEMO_PASSWORD
@@ -98,3 +83,5 @@ DATABASE_URL='postgresql://127.0.0.1:55439/sales_intelligence_auth_test' \
   AUTH_DEMO_PASSWORD="$AUTH_DEMO_PASSWORD" npm run auth:demo-seed -- --apply
 unset AUTH_DEMO_PASSWORD
 ```
+
+O Basic Auth legado do nginx permanece aposentado; a autenticação individual da aplicação é a camada de acesso dos usuários.

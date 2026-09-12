@@ -2,7 +2,7 @@
 
 ## Status
 
-Aceita em 2026-09-10.
+Aceita em 2026-09-10; a união genérica de responsabilidades e o tratamento de Líder em treinamento foram substituídos pelo [ADR 0010](0010-organizational-cargo-and-derived-access.md).
 
 ## Contexto
 

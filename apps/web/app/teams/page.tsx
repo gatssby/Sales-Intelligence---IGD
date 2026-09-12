@@ -29,7 +29,7 @@ export default async function TeamsPage({ searchParams }: { searchParams: Promis
   const scopeSelector = <OrganizationScopeSelector pathname="/teams" selected={selected} rows={allRows} preserved={extra} />;
 
   return (
-    <AppShell user={{ fullName: user.displayName, role: user.role }} activeRoute="teams" title="Times" scopeSelector={scopeSelector}>
+    <AppShell user={{ fullName: user.displayName, role: user.role, accessRole: user.accessRole }} activeRoute="teams" title="Times" scopeSelector={scopeSelector}>
       <div className="page-intro">
         <div><p className="page-kicker">Performance coletiva</p><h2>Times comerciais</h2><p>Composição vigente, liderança e resultados atribuídos ao momento correto.</p></div>
         <TemporalScopeControl action="/teams" selected={selected} value={asOf.value} label="Referência temporal" />

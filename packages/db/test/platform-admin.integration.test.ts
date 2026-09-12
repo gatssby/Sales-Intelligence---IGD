@@ -36,7 +36,9 @@ integration("Platform Admin migration, internal grant and preview access", async
       insert into app_users(email,display_name,role,active,must_change_password)
       values ('existing.admin@example.invalid','Existing Admin','ADMIN',true,false) returning id
     `;
-    await adminSql.unsafe(await readFile(path.join(migrationsDir, migration012), "utf8"));
+    for (const file of migrationFiles.filter((name) => name >= migration012)) {
+      await adminSql.unsafe(await readFile(path.join(migrationsDir, file), "utf8"));
+    }
 
     const preserved = await adminSql<{ id: string;role: string }[]>`
       select id,role from app_users where email='existing.admin@example.invalid'
@@ -60,7 +62,7 @@ integration("Platform Admin migration, internal grant and preview access", async
       assert.equal((await sql<{ count: number }[]>`select count(*)::integer count from admin_audit_events where event_type='platform_admin.granted' and actor_user_id=${existing[0].id}`)[0].count, 1);
       await assert.rejects(() => auth.bootstrapPlatformAdmin("existing.admin@example.invalid"), /already_exists/);
 
-      await sql`insert into products(key,display_name) values ('alpha','Alpha')`;
+      await sql`insert into products(key,display_name,analytics_enabled) values ('alpha','Alpha',true)`;
       const team = await sql<{ id: string }[]>`
         insert into teams(team_key,display_name,product_key) values ('alpha:north','North','alpha') returning id
       `;
@@ -71,19 +73,22 @@ integration("Platform Admin migration, internal grant and preview access", async
       `;
       const personId = (code: string) => people.find((person) => person.seller_code === code)!.id;
       await sql`insert into team_leaderships(person_id,team_id,valid_from,provenance) values (${personId("V0063")},${team[0].id},now()-interval '1 day','synthetic_test')`;
-      await sql`insert into person_organization_roles(person_id,role_kind,product_key,valid_from,provenance) values (${personId("V0001")},'supervisor','alpha',now()-interval '1 day','synthetic_test')`;
+      await sql`insert into person_organization_roles(person_id,role_kind,product_key,valid_from,provenance) values
+        (${personId("V1008")},'closer','alpha',now()-interval '1 day','synthetic_test'),
+        (${personId("V0063")},'leader','alpha',now()-interval '1 day','synthetic_test'),
+        (${personId("V0001")},'supervisor','alpha',now()-interval '1 day','synthetic_test')`;
 
       const subjects = await auth.listPreviewSubjects(actor!);
       assert.equal(subjects.some((subject) => subject.kind === "LEADER" && subject.code === "V0063"), true);
       assert.equal(subjects.some((subject) => subject.kind === "SUPERVISOR" && subject.code === "V0001"), true);
-      assert.equal(subjects.some((subject) => subject.kind === "PERSON" && subject.code === "V1008"), true);
+      assert.equal(subjects.some((subject) => subject.kind === "CLOSER" && subject.code === "V1008"), true);
 
       const leaderPreview = await auth.resolvePreviewContext(actor!, { kind: "LEADER", subjectPersonId: personId("V0063") });
       assert.equal(leaderPreview.userId, actor!.userId);
-      assert.deepEqual(leaderPreview.scope, { kind: "ORGANIZATION", teamIds: [team[0].id], productKeys: [], personIds: [personId("V0063")] });
+      assert.deepEqual(leaderPreview.scope, { kind: "TEAMS", teamIds: [team[0].id] });
       const supervisorPreview = await auth.resolvePreviewContext(actor!, { kind: "SUPERVISOR", subjectPersonId: personId("V0001") });
-      assert.deepEqual(supervisorPreview.scope, { kind: "ORGANIZATION", teamIds: [], productKeys: ["alpha"], personIds: [personId("V0001")] });
-      const personPreview = await auth.resolvePreviewContext(actor!, { kind: "PERSON", subjectPersonId: personId("V1008") });
+      assert.deepEqual(supervisorPreview.scope, { kind: "PRODUCTS", productKeys: ["alpha"] });
+      const personPreview = await auth.resolvePreviewContext(actor!, { kind: "CLOSER", subjectPersonId: personId("V1008") });
       assert.deepEqual(personPreview.scope, { kind: "ORGANIZATION", teamIds: [], productKeys: [], personIds: [personId("V1008")] });
 
       const admin = buildAuthorizationContext({
@@ -93,6 +98,7 @@ integration("Platform Admin migration, internal grant and preview access", async
       await assert.rejects(() => auth.createUser(actor!, {
         email: "second.platform@example.invalid",displayName: "Second Platform",role: "PLATFORM_ADMIN",
       }), /internal_grant/);
+      await assert.rejects(() => auth.resetPassword(actor!, actor!.userId), /internal_grant/, "the commercial account manager cannot maintain Platform credentials");
 
       await sql`update app_users set person_id=${personId("V1008")} where id=${actor!.userId}`;
       await sql`update people set full_name='Person Changed By Organization' where id=${personId("V1008")}`;

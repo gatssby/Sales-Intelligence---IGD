@@ -33,6 +33,7 @@ test("organization parser uses V-code identity and never invents a code", () => 
   assert.equal(candidate.people.length, 1);
   assert.equal(candidate.people[0].personCode, "V1008");
   assert.equal(candidate.people[0].fullName, "Pessoa Sintética");
+  assert.equal(candidate.people[0].organizationalRole, "closer");
   assert.equal(candidate.warnings.filter((warning) => warning.code === "missing_person_code").length, 1);
   assert.equal(candidate.memberships[0].validFrom, "2026-09-10T20:00:00.000Z");
 });
@@ -48,6 +49,8 @@ test("organization Sheet cannot grant a system role", () => {
   assert.equal(candidate.accepted, true);
   assert.equal("role" in candidate.people[0], false);
   assert.equal("systemRole" in candidate.people[0], false);
+  assert.equal(candidate.people[0].organizationalRole, "leader");
+  assert.notEqual(candidate.people[0].organizationalRole, "PLATFORM_ADMIN");
 });
 
 test("organization sync errors expose only stable non-sensitive codes", () => {
@@ -102,10 +105,34 @@ test("inactive people cannot become current leaders or supervisors", () => {
       ["V2001", "Pessoa Ativa", "INSIDER", "CLOSERS", "Time Alpha", "Closer", "Pleno", "Fixo", "TRUE", "TRUE", "V2000", "Pessoa Inativa", "FALSE", "FALSE"],
     ],
   });
-  assert.deepEqual(candidate.supervisors, []);
+  assert.equal(candidate.people.find((person) => person.personCode === "V2000")?.organizationalRole, null);
   assert.deepEqual(candidate.leaderships, []);
   assert.equal(candidate.warnings.some((warning) => warning.code === "unknown_leader"), true);
   assert.equal(candidate.warnings.some((warning) => warning.code === "missing_leader_code" && warning.personCode === "V2000"), false);
+});
+
+test("organization parser derives the approved cargo matrix with explicit precedence", () => {
+  const candidate = parseOrganizationSheet({
+    observedAt: "2026-09-10T20:00:00.000Z",
+    values: [
+      headers,
+      ["V3000", "Líder Sintético", "INSIDER", "CLOSERS", "Time Alpha", "Closer", "Sênior", "Fixo", "TRUE", "TRUE", "V3000", "Líder Sintético", "FALSE", "FALSE"],
+      ["V3001", "Closer Sintético", "INSIDER", "CLOSERS", "Time Alpha", "Closer", "Pleno", "Fixo", "TRUE", "TRUE", "V3000", "Líder Sintético", "FALSE", "FALSE"],
+      ["V3002", "SDR Sintético", "INSIDER", "CLOSERS", "Time Alpha", "SDR", "Pleno", "Fixo", "TRUE", "TRUE", "V3000", "Líder Sintético", "FALSE", "FALSE"],
+      ["V3003", "Treinamento Sintético", "INSIDER", "CLOSERS", "Time Alpha", "Closer", "Pleno", "Fixo", "TRUE", "TRUE", "V3000", "Líder Sintético", "TRUE", "FALSE"],
+      ["V3004", "Supervisor Sintético", "INSIDER", "CLOSERS", "Time Alpha", "Closer", "Sênior", "Fixo", "TRUE", "TRUE", "V3000", "Líder Sintético", "FALSE", "TRUE"],
+      ["V3005", "Administrador Sintético", "INSIDER", "CLOSERS", "Time Alpha", "Administrador", "Sênior", "Fixo", "TRUE", "TRUE", "V3000", "Líder Sintético", "FALSE", "FALSE"],
+    ],
+  });
+
+  assert.deepEqual(Object.fromEntries(candidate.people.map((person) => [person.personCode, person.organizationalRole])), {
+    V3000: "leader",
+    V3001: "closer",
+    V3002: "sdr",
+    V3003: "leader_in_training",
+    V3004: "supervisor",
+    V3005: "administrator",
+  });
 });
 
 test("organization candidate fails closed for missing headers, empty reads and mass disappearance", () => {

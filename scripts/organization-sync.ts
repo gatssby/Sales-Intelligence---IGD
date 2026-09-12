@@ -80,8 +80,11 @@ async function cycle(): Promise<void> {
       fronts: candidate.fronts.length,
       teams: candidate.teams.length,
       leaders: new Set(candidate.leaderships.map((item) => item.leaderCode)).size,
-      supervisors: candidate.supervisors.length,
-      leadersInTraining: candidate.people.filter((person) => person.leaderInTraining).length,
+      organizationalRoles: Object.fromEntries(
+        [...new Set(candidate.people.map((person) => person.organizationalRole).filter(Boolean))]
+          .sort()
+          .map((role) => [role, candidate.people.filter((person) => person.organizationalRole === role).length]),
+      ),
       warnings: warningCounts(candidate.warnings),
       writes: false,
       aiRequests: 0,

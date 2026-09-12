@@ -22,7 +22,7 @@ export default async function PlatformPage() {
   return <main className="admin-shell platform-shell">
     <header className="admin-header"><div><p className="eyebrow">Platform</p><h1>Operação técnica</h1><p>Saúde, integrações e diagnósticos sanitizados. Nenhum secret ou token é exibido.</p></div><div className="admin-header-actions"><a href="/admin/organization-sync">Visão operacional</a><a href="/">Visão Geral</a></div></header>
     <section className="metrics-grid">
-      <article className="metric-card"><p>Schema</p><strong className="word-stat">012</strong><span className="metric-note">{overview.schemaVersion}</span></article>
+      <article className="metric-card"><p>Schema</p><strong className="word-stat">013</strong><span className="metric-note">{overview.schemaVersion}</span></article>
       <article className="metric-card"><p>Workers análise</p><strong>{overview.analysisWorkers.length}</strong><span className="metric-note">heartbeats registrados</span></article>
       <article className="metric-card"><p>Jobs pendentes</p><strong>{overview.jobs.filter((job) => job.status !== "completed").reduce((sum, job) => sum + job.count, 0)}</strong><span className="metric-note">todos os estados não concluídos</span></article>
       <article className="metric-card"><p>Erros recentes</p><strong>{overview.recentErrors.reduce((sum, error) => sum + error.count, 0)}</strong><span className="metric-note">somente códigos sanitizados</span></article>

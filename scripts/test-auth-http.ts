@@ -58,10 +58,6 @@ try {
   const leaderPersona = previewPeople.find((person) => person.product_key === "alpha")!;
   const personPersona = previewPeople.find((person) => person.product_key === "beta")!;
   assert.ok(leaderPersona && personPersona, "synthetic preview personas are required");
-  await repository.sql`delete from team_leaderships where provenance='http_preview_test'`;
-  await repository.sql`delete from person_organization_roles where provenance='http_preview_test'`;
-  await repository.sql`insert into team_leaderships(person_id,team_id,valid_from,provenance) values (${leaderPersona.person_id},${leaderPersona.team_id},now()-interval '1 day','http_preview_test')`;
-  await repository.sql`insert into person_organization_roles(person_id,role_kind,product_key,valid_from,provenance) values (${leaderPersona.person_id},'supervisor','alpha',now()-interval '1 day','http_preview_test')`;
   const before = await repository.sql<{ total: number; queued: number }[]>`
     select count(*)::integer as total, count(*) filter (where status = 'queued')::integer as queued from analysis_runs
   `;
@@ -76,7 +72,7 @@ try {
     { role: "ADMIN", email: "admin@example.invalid" },
     { role: "LEADER", email: "leader@example.invalid" },
     { role: "SUPERVISOR", email: "supervisor@example.invalid" },
-    { role: "SALES_OPS", email: "sales.ops@example.invalid" },
+    { role: "CLOSER", email: "closer@example.invalid" },
   ] as const;
   const sessions = new Map<string, string>();
   for (const account of accounts) {
@@ -105,7 +101,7 @@ try {
   assert.equal((await request("/api/admin/ai-spend", sessions.get("ADMIN")!)).status, 403);
   const adminDriveIntegrity = await request("/api/admin/drive-discovery", sessions.get("ADMIN")!);
   assert.equal(adminDriveIntegrity.status, 200);
-  assert.equal("changesPageToken" in await adminDriveIntegrity.json() as object, false);
+  assert.equal("changesPageToken" in (await adminDriveIntegrity.json() as object), false);
   assert.equal((await request("/api/platform/overview", sessions.get("ADMIN")!)).status, 403);
   assert.equal((await request("/platform", sessions.get("ADMIN")!)).status, 307);
   const adminCallDetail = await (await request(`/api/calls/${betaCallId}`, sessions.get("ADMIN")!)).json() as { call: { finalModel: string | null;costUsd: number | null;attempts: unknown[] } };
@@ -116,7 +112,7 @@ try {
   const platformHome = await request("/", sessions.get("PLATFORM_ADMIN")!);
   const platformHtml = pageText(await platformHome.text());
   assert.equal(platformHome.status, 200);
-  assert.match(platformHtml, /Operação técnica/);
+  assert.match(platformHtml, /Plataforma/);
   assert.match(platformHtml, /Visualizar como/);
   assert.equal((await request("/api/platform/overview", sessions.get("PLATFORM_ADMIN")!)).status, 200);
   assert.equal((await request("/api/admin/ai-spend", sessions.get("PLATFORM_ADMIN")!)).status, 200);
@@ -140,17 +136,17 @@ try {
   assert.doesNotMatch(supervisorHtml, /Customer Beta Synthetic/);
   assert.equal((await request(`/api/calls/${betaCallId}`, sessions.get("SUPERVISOR")!)).status, 404);
 
-  const salesOpsHome = await request("/", sessions.get("SALES_OPS")!);
-  const salesOpsHtml = pageText(await salesOpsHome.text());
-  assert.match(salesOpsHtml, /3 calls reais/);
-  assert.match(salesOpsHtml, /Customer Beta Synthetic/);
-  assert.doesNotMatch(salesOpsHtml, /Usuários e acessos/);
+  const closerHome = await request("/", sessions.get("CLOSER")!);
+  const closerHtml = pageText(await closerHome.text());
+  assert.match(closerHtml, /1 calls reais/);
+  assert.match(closerHtml, /Customer Beta Synthetic/);
+  assert.doesNotMatch(closerHtml, /Usuários e acessos/);
 
-  for (const role of ["LEADER", "SUPERVISOR", "SALES_OPS"] as const) {
+  for (const role of ["LEADER", "SUPERVISOR", "CLOSER"] as const) {
     assert.equal((await request("/api/spend/analyze", sessions.get(role)!, { method: "POST" })).status, 403);
     assert.equal((await request("/api/admin/ai-spend", sessions.get(role)!)).status, 403);
   }
-  assert.equal((await request("/api/spend/analyze", sessions.get("ADMIN")!, { method: "POST" })).status, 501);
+  assert.equal((await request("/api/spend/analyze", sessions.get("ADMIN")!, { method: "POST" })).status, 403);
 
   const adminPreviewAttempt = await request("/api/platform/preview", sessions.get("ADMIN")!, {
     method: "POST",headers: { "content-type": "application/json" },body: JSON.stringify({ kind: "ADMIN" }),
@@ -158,7 +154,7 @@ try {
   assert.equal(adminPreviewAttempt.status, 403);
 
   const startPersonPreview = await request("/api/platform/preview", sessions.get("PLATFORM_ADMIN")!, {
-    method: "POST",headers: { "content-type": "application/json" },body: JSON.stringify({ kind: "PERSON",subjectPersonId: personPersona.person_id }),
+    method: "POST",headers: { "content-type": "application/json" },body: JSON.stringify({ kind: "CLOSER",subjectPersonId: personPersona.person_id }),
   });
   assert.equal(startPersonPreview.status, 200);
   const previewCookie = startPersonPreview.headers.getSetCookie().map((value) => value.split(";", 1)[0]).find((value) => value.startsWith("__Host-igd_preview="));
@@ -166,7 +162,7 @@ try {
   const previewHome = await request("/", sessions.get("PLATFORM_ADMIN")!, {}, [previewCookie]);
   const previewHtml = pageText(await previewHome.text());
   assert.equal(previewHome.status, 200);
-  assert.match(previewHtml, new RegExp(`Preview Pessoa · ${personPersona.person_code}`));
+  assert.match(previewHtml, new RegExp(`Visualizando como Closer · ${personPersona.person_code}`));
   assert.doesNotMatch(previewHtml, /Operação técnica/);
   assert.equal((await request(`/api/calls/${calls.find((call) => call.product_key === "alpha")!.id}`, sessions.get("PLATFORM_ADMIN")!, {}, [previewCookie])).status, 404, "changing the URL cannot escape Person preview scope");
   assert.equal((await request("/api/platform/overview", sessions.get("PLATFORM_ADMIN")!, {}, [previewCookie])).status, 403);
@@ -181,7 +177,7 @@ try {
     select count(*)::integer as total, count(*) filter (where status = 'queued')::integer as queued from analysis_runs
   `;
   assert.deepEqual(after[0], before[0], "blocked HTTP attempts must not create or queue analysis runs");
-  console.log("HTTP auth demo passed: Platform=global/technical, Admin=global/commercial, organizational scopes remain constrained, and preview is read-only without identity switching.");
+  console.log("HTTP auth demo passed: Platform=global/technical, Admin=global/commercial, organization-derived scopes remain constrained, and preview is read-only without identity switching.");
 } finally {
   if (server && server.exitCode === null) server.kill("SIGTERM");
   await repository.close();

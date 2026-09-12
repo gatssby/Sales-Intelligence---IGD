@@ -24,7 +24,7 @@ export default async function CallDetailPage({ params, searchParams }: { params:
   const analysisTone = call.analysisStatus === "completed" ? "success" : call.analysisStatus.includes("fail") ? "error" : "warning";
 
   return (
-    <AppShell user={{ fullName: user.displayName, role: user.role }} activeRoute="calls" title="Detalhe da call">
+    <AppShell user={{ fullName: user.displayName, role: user.role, accessRole: user.accessRole }} activeRoute="calls" title="Detalhe da call">
       <div className="detail-toolbar"><a className="btn btn-outline" href={scopeHref("/calls", selected)}><Icon name="chevronDown" size={14} className="icon-left" />Voltar para calls</a><div><StatusBadge tone={transcriptTone}>{call.transcriptStatus === "available" ? "Transcript disponível" : call.transcriptStatus === "access_issue" ? "Problema no transcript" : "Aguardando transcript"}</StatusBadge><StatusBadge tone={analysisTone}>{call.analysisStatus === "completed" ? "Análise concluída" : call.analysisStatus}</StatusBadge></div></div>
 
       <section className="panel call-hero">

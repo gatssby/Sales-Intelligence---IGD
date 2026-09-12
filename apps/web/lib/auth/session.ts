@@ -89,7 +89,7 @@ export async function readSessionToken(): Promise<string> {
 export async function getAuthenticatedActor(): Promise<AuthorizationContext | null> {
   const developmentUser = buildDevelopmentAuthBypass({
     nodeEnv: process.env.NODE_ENV,
-    enabled: process.env.DEV_BYPASS_AUTH,
+    enabled: process.env.DEV_AUTH_BYPASS,
   });
   if (developmentUser) return developmentUser;
   const token = await readSessionToken();

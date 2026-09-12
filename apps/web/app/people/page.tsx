@@ -37,7 +37,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   const scopeSelector = <OrganizationScopeSelector pathname="/people" selected={selected} rows={allRows} preserved={extra} />;
 
   return (
-    <AppShell user={{ fullName: user.displayName, role: user.role }} activeRoute="people" title="Pessoas" scopeSelector={scopeSelector}>
+    <AppShell user={{ fullName: user.displayName, role: user.role, accessRole: user.accessRole }} activeRoute="people" title="Pessoas" scopeSelector={scopeSelector}>
       <div className="page-intro">
         <div><p className="page-kicker">Diretório analítico</p><h2>Pessoas e performance</h2><p>Identidade canônica, organização vigente e resultados preservados ao longo do tempo.</p></div>
         <TemporalScopeControl action="/people" selected={selected} value={asOf.value} label="Data base" />

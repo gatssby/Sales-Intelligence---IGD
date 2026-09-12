@@ -6,7 +6,12 @@ import type { PreviewMode, PreviewRole } from "@igd/auth";
 import type { PreviewSubject } from "@igd/db";
 
 const labels: Record<PreviewRole, string> = {
-  ADMIN: "Admin",SUPERVISOR: "Supervisor",LEADER: "Líder",PERSON: "Pessoa",
+  ADMIN: "Administrador",
+  SUPERVISOR: "Supervisor",
+  LEADER: "Líder",
+  LEADER_IN_TRAINING: "Líder em treinamento",
+  CLOSER: "Closer",
+  SDR: "SDR",
 };
 
 export function PlatformPreviewControl({ preview, subjects }: { preview: PreviewMode | null;subjects: PreviewSubject[] }) {
@@ -36,8 +41,8 @@ export function PlatformPreviewControl({ preview, subjects }: { preview: Preview
   }
 
   if (preview) return (
-    <aside className="preview-active" aria-label="Preview Mode ativo">
-      <span>Preview</span>
+    <aside className="preview-active" aria-label="Visualização ativa">
+      <span>Visualizando como</span>
       <strong>{labels[preview.kind]} · {preview.subjectCode ? `${preview.subjectCode} ` : ""}{preview.subjectDisplayName}</strong>
       <button type="button" onClick={stop} disabled={busy}>Sair da visualização</button>
     </aside>
@@ -47,14 +52,14 @@ export function PlatformPreviewControl({ preview, subjects }: { preview: Preview
     <details className="preview-control">
       <summary>Visualizar como</summary>
       <div>
-        <label>Papel<select value={kind} onChange={(event) => { setKind(event.target.value as PreviewRole);setSubjectId(""); }}>
+        <label>Cargo<select value={kind} onChange={(event) => { setKind(event.target.value as PreviewRole);setSubjectId(""); }}>
           {Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></label>
-        {kind !== "ADMIN" && <label>Persona<select value={subjectId} onChange={(event) => setSubjectId(event.target.value)}>
+        {kind !== "ADMIN" && <label>Pessoa<select value={subjectId} onChange={(event) => setSubjectId(event.target.value)}>
           <option value="">Selecione</option>
           {eligible.map((subject) => <option key={`${subject.kind}:${subject.personId}`} value={subject.personId}>{subject.code} · {subject.displayName}</option>)}
         </select></label>}
-        <button type="button" disabled={busy || (kind !== "ADMIN" && !subjectId)} onClick={start}>Iniciar preview</button>
+        <button type="button" disabled={busy || (kind !== "ADMIN" && !subjectId)} onClick={start}>Visualizar</button>
       </div>
     </details>
   );
