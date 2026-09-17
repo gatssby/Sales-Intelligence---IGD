@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sales Intelligence IGD - Gemini Web Worker POC
 // @namespace    https://sales-igd.com.br/
-// @version      0.1.0
+// @version      0.1.1
 // @description  Worker Tampermonkey para o POC de análise de calls via Gemini Web.
 // @author       Sales Intelligence IGD
 // @match        https://gemini.google.com/*
@@ -19,7 +19,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "0.1.0";
+  const VERSION = "0.1.1";
   const API_PREFIX = "/api/poc/gemini";
   const CLAIM_POLL_MS = 8_000;
   const HEARTBEAT_MS = 10_000;
@@ -309,8 +309,12 @@ ${transcript}`;
       'a[aria-label*="New chat" i]',
       'button[aria-label*="Novo chat" i]',
       'a[aria-label*="Novo chat" i]',
+      'button[aria-label*="new conversation" i]',
+      'a[aria-label*="new conversation" i]',
       'button[data-test-id*="new-chat" i]',
+      'a[data-test-id*="new-chat" i]',
       'a[href="/app"]',
+      'a[href="https://gemini.google.com/app"]',
     ];
 
     for (const selector of selectors) {
@@ -319,6 +323,14 @@ ${transcript}`;
       }
     }
     return null;
+  }
+
+  function conversationHasMessages() {
+    return Boolean(document.querySelector(
+      'user-query, .query-text, .user-query, [data-message-author="user"], ' +
+      'model-response, message-content, .model-response, .model-response-text, ' +
+      '.model-response-contents, .response-content, [data-message-author-role="model"]'
+    ));
   }
 
   function findComposer() {
@@ -362,7 +374,12 @@ ${transcript}`;
   }
 
   async function startFreshChat() {
-    const control = await waitFor(findNewChatControl, DOM_WAIT_MS, "new_chat_control_not_found");
+    // Gemini's blank /app route often has no visible "New chat" control.
+    // A visible composer with no conversation turns is already a fresh chat.
+    const currentComposer = findComposer();
+    if (currentComposer && !conversationHasMessages()) return currentComposer;
+
+    const control = await waitFor(findNewChatControl, 5_000, "new_chat_control_not_found");
     control.click();
     await sleep(900);
 
@@ -401,13 +418,15 @@ ${transcript}`;
 
   async function submitPrompt(prompt) {
     const composer = await startFreshChat();
+    const assistantBaseline = assistantResponseCandidates().length;
+
     writeComposer(composer, prompt);
     await sleep(500);
 
     const button = findSendButton();
     if (button) {
       button.click();
-      return;
+      return assistantBaseline;
     }
 
     composer.dispatchEvent(new KeyboardEvent("keydown", {
@@ -422,15 +441,20 @@ ${transcript}`;
       bubbles: true,
       cancelable: true,
     }));
+    return assistantBaseline;
   }
 
   function assistantResponseCandidates() {
     const selectors = [
       "model-response",
-      '[data-message-author-role="model"]',
-      '[data-test-id*="model-response" i]',
-      ".model-response-text",
       "message-content",
+      ".model-response",
+      ".model-response-text",
+      ".model-response-contents",
+      ".response-content",
+      '[data-message-author-role="model"]',
+      '[data-message-author="assistant"]',
+      '[data-test-id*="model-response" i]',
     ];
 
     const unique = new Set();
@@ -448,16 +472,16 @@ ${transcript}`;
     return candidates;
   }
 
-  function findDelimitedAssistantText() {
+  function findDelimitedAssistantText(minIndex = 0) {
     const candidates = assistantResponseCandidates();
-    for (let i = candidates.length - 1; i >= 0; i -= 1) {
+    for (let i = candidates.length - 1; i >= minIndex; i -= 1) {
       const text = candidates[i].innerText || candidates[i].textContent || "";
       if (text.includes(START_MARKER) && text.includes(END_MARKER)) return text;
     }
     return "";
   }
 
-  async function waitForModelResponse(timeoutMs = MODEL_TIMEOUT_MS) {
+  async function waitForModelResponse(assistantBaseline = 0, timeoutMs = MODEL_TIMEOUT_MS) {
     const started = Date.now();
 
     return new Promise((resolve, reject) => {
@@ -472,7 +496,7 @@ ${transcript}`;
       };
 
       const inspect = () => {
-        const text = findDelimitedAssistantText();
+        const text = findDelimitedAssistantText(assistantBaseline);
         if (text) {
           finish(resolve, text);
           return;
@@ -640,10 +664,10 @@ ${transcript}`;
 
     let completed = false;
     try {
-      await submitPrompt(prompt);
+      const assistantBaseline = await submitPrompt(prompt);
       setState(`aguardando Gemini ${jobId.slice(0, 8)}…`);
 
-      const modelText = await waitForModelResponse();
+      const modelText = await waitForModelResponse(assistantBaseline);
       const result = validateAnalysis(extractJson(modelText));
       const latencyMs = Math.round(performance.now() - startedAt);
 
