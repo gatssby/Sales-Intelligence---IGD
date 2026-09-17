@@ -110,6 +110,36 @@ services:
     cap_drop:
       - ALL
 
+  organization-sync:
+    build:
+      context: ${SALES_APP_SOURCE:-./current}
+      dockerfile: Dockerfile
+      target: worker
+    image: sales-intelligence-worker:current
+    container_name: sales-intelligence-organization-sync
+    restart: unless-stopped
+    init: true
+    command: ["node", "--import", "tsx", "scripts/organization-sync.ts", "--apply", "--daemon"]
+    env_file:
+      - ./app.env
+    environment:
+      NODE_ENV: production
+      RELEASE_SHA: ${SALES_RELEASE_SHA:-unknown}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "--import", "tsx", "scripts/check-organization-sync-health.ts"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
 volumes:
   sales_intelligence_pgdata:
     name: sales_intelligence_pgdata

@@ -2,7 +2,7 @@
 
 ## Status
 
-Aceita; transição de produção concluída em 2026-09-09.
+Aceita; transição de produção concluída em 2026-09-09. A matriz manual foi substituída para contas comerciais pelo [ADR 0010](0010-organizational-cargo-and-derived-access.md); os controles de senha, sessão e auditoria permanecem vigentes.
 
 ## Contexto
 

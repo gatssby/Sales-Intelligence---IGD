@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { PostgresAuthRepository } from "@igd/db";
+import { assertMutationAllowed } from "@igd/auth";
 import { getSql } from "@/lib/database";
 import { clearSessionCookie, requireUser } from "@/lib/auth/session";
 
@@ -12,6 +13,7 @@ export async function changePasswordAction(
   formData: FormData,
 ): Promise<ChangePasswordState> {
   const user = await requireUser({ allowPasswordChange: true });
+  assertMutationAllowed(user);
   const currentPassword = String(formData.get("currentPassword") ?? "");
   const nextPassword = String(formData.get("nextPassword") ?? "");
   const confirmation = String(formData.get("confirmation") ?? "");
