@@ -163,6 +163,9 @@ for i in $(seq 1 "$WORKERS"); do
   sleep 0.35
 done
 
+echo "→ abrindo painel de monitoramento..."
+open -a "Brave Browser" "http://127.0.0.1:$WEB_PORT/admin/gemini-workers"
+
 echo
 echo "PRONTO"
 echo "Backend: http://127.0.0.1:$WEB_PORT"
@@ -174,6 +177,7 @@ echo "  • 1 sessão visível do Terminal para o túnel SSH"
 echo "  • 1 sessão visível do Terminal para o Next.js"
 echo "  • $WORKERS aba(s) do Gemini no Brave"
 echo "  • autostart do userscript em cada aba"
+echo "  • painel /admin/gemini-workers no Brave"
 echo
 echo "Para encerrar os processos iniciados pelo POC:"
 echo "  zsh scripts/gemini-poc-stop.command"
