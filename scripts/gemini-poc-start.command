@@ -23,9 +23,9 @@ done
 
 [[ -d "$REPO_DIR" ]] || die "worktree não encontrado: $REPO_DIR"
 
-if [[ "$WORKERS" != <-> ]]; then
-  die "quantidade de workers inválida: $WORKERS"
-fi
+case "$WORKERS" in
+  ''|*[!0-9]*) die "quantidade de workers inválida: $WORKERS" ;;
+esac
 (( WORKERS >= 1 && WORKERS <= 16 )) || die "workers deve estar entre 1 e 16"
 
 TEST_PASS="$(security find-generic-password \
