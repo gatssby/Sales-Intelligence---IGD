@@ -865,6 +865,14 @@ ${transcript}`;
     ].join("\n"));
   });
 
+  const launchUrl = new URL(location.href);
+  if (launchUrl.searchParams.get("igd_poc_autostart") === "1") {
+    setEnabled(true);
+    launchUrl.searchParams.delete("igd_poc_autostart");
+    history.replaceState(history.state, "", launchUrl.toString());
+    setState("ativado pelo launcher");
+  }
+
   renderPanel();
   scheduleLoop(1_500);
 
