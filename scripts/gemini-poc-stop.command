@@ -2,33 +2,32 @@
 set -u
 
 WEB_PID="/tmp/sales-igd-gemini-poc-next.pid"
-WEB_LOG="/tmp/sales-igd-gemini-poc-next.log"
-SSH_SOCKET="/tmp/sales-igd-gemini-poc-ssh.sock"
-SSH_OWNED="/tmp/sales-igd-gemini-poc-ssh.owned"
+TUNNEL_PID="/tmp/sales-igd-gemini-poc-tunnel.pid"
 
-echo "=== Encerrando Sales Intelligence IGD · Gemini POC ==="
+stop_pid_file() {
+  local label="$1"
+  local file="$2"
 
-if [[ -f "$WEB_PID" ]]; then
-  pid="$(cat "$WEB_PID" 2>/dev/null || true)"
+  [[ -f "$file" ]] || return 0
+  local pid
+  pid="$(cat "$file" 2>/dev/null || true)"
+
   if [[ -n "${pid:-}" ]] && kill -0 "$pid" >/dev/null 2>&1; then
-    echo "→ encerrando backend (PID $pid)..."
+    echo "→ encerrando $label (PID $pid)..."
     pkill -TERM -P "$pid" >/dev/null 2>&1 || true
     kill -TERM "$pid" >/dev/null 2>&1 || true
     sleep 1
     pkill -KILL -P "$pid" >/dev/null 2>&1 || true
     kill -KILL "$pid" >/dev/null 2>&1 || true
   fi
-  rm -f "$WEB_PID"
-fi
 
-if [[ -f "$SSH_OWNED" && -S "$SSH_SOCKET" ]]; then
-  echo "→ encerrando túnel SSH criado pelo launcher..."
-  ssh -S "$SSH_SOCKET" -O exit oracle-vps >/dev/null 2>&1 || true
-  rm -f "$SSH_SOCKET" "$SSH_OWNED"
-elif [[ -f "$SSH_OWNED" ]]; then
-  rm -f "$SSH_OWNED"
-fi
+  rm -f "$file"
+}
 
-echo "✓ encerramento concluído"
-echo "Log preservado em: $WEB_LOG"
-echo "A aba do Gemini não é fechada automaticamente."
+echo "=== Encerrando Sales Intelligence IGD · Gemini POC ==="
+
+stop_pid_file "backend Next" "$WEB_PID"
+stop_pid_file "túnel SSH" "$TUNNEL_PID"
+
+echo "✓ processos do POC encerrados"
+echo "As abas do Gemini permanecem abertas; feche-as ou desative o userscript nelas."
