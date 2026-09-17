@@ -111,7 +111,7 @@ if [[ "${1:-}" == "--backend" ]]; then
   exit 0
 fi
 
-WORKERS="${1:-${GEMINI_POC_WORKERS:-4}}"
+WORKERS="${1:-${GEMINI_POC_WORKERS:-2}}"
 
 for cmd in security ssh nc curl lsof npm open seq osascript; do
   command -v "$cmd" >/dev/null 2>&1 || die "comando ausente: $cmd"
