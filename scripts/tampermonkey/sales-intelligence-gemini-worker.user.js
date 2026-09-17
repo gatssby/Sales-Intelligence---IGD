@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sales Intelligence IGD - Gemini Web Worker POC
 // @namespace    https://sales-igd.com.br/
-// @version      0.1.2
+// @version      0.1.3
 // @description  Worker Tampermonkey para o POC de análise de calls via Gemini Web.
 // @author       Sales Intelligence IGD
 // @match        https://gemini.google.com/*
@@ -19,7 +19,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "0.1.2";
+  const VERSION = "0.1.3";
   const API_PREFIX = "/api/poc/gemini";
   const CLAIM_POLL_MS = 8_000;
   const HEARTBEAT_MS = 10_000;
@@ -851,6 +851,12 @@ ${transcript}`;
   });
   GM_registerMenuCommand("IGD: buscar job agora", () => void claimOnce());
   GM_registerMenuCommand("IGD: renovar workerId", resetWorkerId);
+  GM_registerMenuCommand("IGD: zerar contadores", () => {
+    GM_setValue(STORAGE.completedCount, 0);
+    GM_setValue(STORAGE.failedCount, 0);
+    setState("contadores zerados");
+    renderPanel();
+  });
   GM_registerMenuCommand("IGD: mostrar configuração", () => {
     const backend = String(GM_getValue(STORAGE.backendUrl, "") || "não configurado");
     alert([
