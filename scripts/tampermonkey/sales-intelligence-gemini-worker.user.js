@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sales Intelligence IGD - Gemini Web Worker POC
 // @namespace    https://sales-igd.com.br/
-// @version      0.1.3
+// @version      0.1.4
 // @description  Worker Tampermonkey para o POC de análise de calls via Gemini Web.
 // @author       Sales Intelligence IGD
 // @match        https://gemini.google.com/*
@@ -19,7 +19,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "0.1.3";
+  const VERSION = "0.1.4";
   const API_PREFIX = "/api/poc/gemini";
   const CLAIM_POLL_MS = 8_000;
   const HEARTBEAT_MS = 10_000;
@@ -67,12 +67,15 @@
     return workerId;
   }
 
+  const TAB_ENABLED_KEY = "igd_gemini_tab_enabled";
+
   function isEnabled() {
-    return GM_getValue(STORAGE.enabled, false) === true;
+    return sessionStorage.getItem(TAB_ENABLED_KEY) === "1";
   }
 
   function setEnabled(value) {
-    GM_setValue(STORAGE.enabled, Boolean(value));
+    if (value) sessionStorage.setItem(TAB_ENABLED_KEY, "1");
+    else sessionStorage.removeItem(TAB_ENABLED_KEY);
     renderPanel();
   }
 
@@ -377,17 +380,13 @@ ${transcript}`;
   }
 
   async function startFreshChat() {
-    // Gemini's blank /app route often has no visible "New chat" control.
-    // A visible composer with no conversation turns is already a fresh chat.
-    const currentComposer = findComposer();
-    if (currentComposer && !conversationHasMessages()) return currentComposer;
+    // Claims are only allowed on Gemini's blank /app route. Do not depend on
+    // the sidebar "New chat" control, whose DOM changes frequently.
+    if (location.pathname !== "/app") {
+      throw new Error("worker_not_on_fresh_chat");
+    }
 
-    const control = await waitFor(findNewChatControl, 5_000, "new_chat_control_not_found");
-    control.click();
-    await sleep(900);
-
-    const composer = await waitFor(findComposer, DOM_WAIT_MS, "composer_not_found_after_new_chat");
-    return composer;
+    return waitFor(findComposer, DOM_WAIT_MS, "composer_not_found_on_fresh_chat");
   }
 
   function writeComposer(element, text) {
@@ -689,7 +688,8 @@ ${transcript}`;
       setState(`concluído ${jobId.slice(0, 8)} · total ${completedCount}`);
       notify(`Job ${jobId.slice(0, 8)} concluído.`);
       log("job concluído", { jobId, latencyMs });
-      await sleep(5_000);
+      await sleep(2_000);
+      location.replace("https://gemini.google.com/app");
     } catch (error) {
       const code = error instanceof ApiError
         ? `api_${error.status}`
@@ -698,8 +698,7 @@ ${transcript}`;
       // If complete rejected because ownership/lease was lost, do not mutate the job again.
       const lostLease = error instanceof ApiError && error.status === 403;
       const terminalWorkerDomError = [
-        "new_chat_control_not_found",
-        "composer_not_found_after_new_chat",
+        "composer_not_found_on_fresh_chat",
         "model_json_parse_failed",
         "json_markers_missing",
       ].includes(code);
@@ -720,6 +719,15 @@ ${transcript}`;
     if (busy) return;
     if (!isEnabled()) {
       setState("desativado");
+      return;
+    }
+
+    // Never claim a job from an existing conversation. Returning to /app
+    // reloads Gemini first, and the job is claimed only after the fresh page
+    // is ready. This avoids cross-call context leakage.
+    if (location.pathname !== "/app") {
+      setState("abrindo chat novo…");
+      location.replace("https://gemini.google.com/app");
       return;
     }
 
