@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sales Intelligence IGD - Gemini Web Worker POC
 // @namespace    https://sales-igd.com.br/
-// @version      0.1.1
+// @version      0.1.2
 // @description  Worker Tampermonkey para o POC de análise de calls via Gemini Web.
 // @author       Sales Intelligence IGD
 // @match        https://gemini.google.com/*
@@ -19,7 +19,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "0.1.1";
+  const VERSION = "0.1.2";
   const API_PREFIX = "/api/poc/gemini";
   const CLAIM_POLL_MS = 8_000;
   const HEARTBEAT_MS = 10_000;
@@ -34,6 +34,8 @@
     enabled: "igd_gemini_worker_enabled",
     workerId: "igd_gemini_worker_id",
     lastJobId: "igd_gemini_last_job_id",
+    completedCount: "igd_gemini_completed_count",
+    failedCount: "igd_gemini_failed_count",
   };
 
   let busy = false;
@@ -56,10 +58,11 @@
   }
 
   function getWorkerId() {
-    let workerId = GM_getValue(STORAGE.workerId, "");
+    const sessionKey = "igd_gemini_tab_worker_id";
+    let workerId = sessionStorage.getItem(sessionKey);
     if (!workerId) {
       workerId = makeWorkerId();
-      GM_setValue(STORAGE.workerId, workerId);
+      sessionStorage.setItem(sessionKey, workerId);
     }
     return workerId;
   }
@@ -681,10 +684,12 @@ ${transcript}`;
       });
 
       completed = true;
-      setState(`concluído ${jobId.slice(0, 8)}`);
+      const completedCount = Number(GM_getValue(STORAGE.completedCount, 0) || 0) + 1;
+      GM_setValue(STORAGE.completedCount, completedCount);
+      setState(`concluído ${jobId.slice(0, 8)} · total ${completedCount}`);
       notify(`Job ${jobId.slice(0, 8)} concluído.`);
       log("job concluído", { jobId, latencyMs });
-      await sleep(1_000);
+      await sleep(5_000);
     } catch (error) {
       const code = error instanceof ApiError
         ? `api_${error.status}`
@@ -692,9 +697,17 @@ ${transcript}`;
 
       // If complete rejected because ownership/lease was lost, do not mutate the job again.
       const lostLease = error instanceof ApiError && error.status === 403;
-      if (!completed && !lostLease) await failJob(jobId, code, true);
+      const terminalWorkerDomError = [
+        "new_chat_control_not_found",
+        "composer_not_found_after_new_chat",
+        "model_json_parse_failed",
+        "json_markers_missing",
+      ].includes(code);
+      if (!completed && !lostLease) await failJob(jobId, code, !terminalWorkerDomError);
 
-      setState(`erro: ${code}`);
+      const failedCount = Number(GM_getValue(STORAGE.failedCount, 0) || 0) + 1;
+      GM_setValue(STORAGE.failedCount, failedCount);
+      setState(`erro: ${code} · falhas ${failedCount}`);
       notify(`Erro no job ${jobId.slice(0, 8)}: ${code}`);
       throw error;
     } finally {
@@ -791,7 +804,7 @@ ${transcript}`;
   function resetWorkerId() {
     if (!confirm("Gerar um novo workerId para esta aba/perfil?")) return;
     const next = makeWorkerId();
-    GM_setValue(STORAGE.workerId, next);
+    sessionStorage.setItem("igd_gemini_tab_worker_id", next);
     setState("workerId renovado");
     renderPanel();
   }
@@ -824,6 +837,7 @@ ${transcript}`;
       `${isEnabled() ? "ON" : "OFF"} · ${stateText}`,
       `worker: ${worker.slice(0, 22)}…`,
       currentJobId ? `job: ${currentJobId.slice(0, 12)}…` : "job: —",
+      `ok: ${Number(GM_getValue(STORAGE.completedCount, 0) || 0)} · falhas: ${Number(GM_getValue(STORAGE.failedCount, 0) || 0)}`,
     ].join("\n");
     panel.style.whiteSpace = "pre-line";
   }
@@ -846,6 +860,8 @@ ${transcript}`;
       `Ativo: ${isEnabled() ? "sim" : "não"}`,
       `Último job: ${String(GM_getValue(STORAGE.lastJobId, "") || "—")}`,
       `Token configurado: ${getToken() ? "sim" : "não"}`,
+      `Concluídos: ${Number(GM_getValue(STORAGE.completedCount, 0) || 0)}`,
+      `Falhas: ${Number(GM_getValue(STORAGE.failedCount, 0) || 0)}`,
     ].join("\n"));
   });
 
