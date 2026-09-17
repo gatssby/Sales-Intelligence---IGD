@@ -4,17 +4,30 @@ Arquivos auxiliares do POC local do Sales Intelligence IGD.
 
 ## Iniciar
 
+Por padrão, abre 4 abas/workers:
+
 ```bash
 zsh scripts/gemini-poc-start.command
 ```
+
+Para escolher a quantidade:
+
+```bash
+zsh scripts/gemini-poc-start.command 1
+zsh scripts/gemini-poc-start.command 2
+zsh scripts/gemini-poc-start.command 4
+zsh scripts/gemini-poc-start.command 8
+```
+
+Aceita de 1 a 16 workers. Cada aba recebe identidade própria via `sessionStorage`.
 
 O launcher:
 
 1. verifica as credenciais no macOS Keychain;
 2. abre o túnel SSH local `55432 -> oracle-vps:5432` se necessário;
 3. sobe o Next.js local na porta `3000` usando **somente** `sales_igd_test`;
-4. abre o Gemini no Brave;
-5. passa `igd_poc_autostart=1`, fazendo o userscript ligar o worker automaticamente.
+4. abre N abas do Gemini no Brave (padrão: 4);
+5. passa `igd_poc_autostart=1` e um slot distinto para cada aba, fazendo o userscript ligar cada worker automaticamente.
 
 O token e a senha não são gravados em arquivos pelo launcher.
 
