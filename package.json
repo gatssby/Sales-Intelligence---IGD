@@ -1,0 +1,33 @@
+{
+  "name": "sales-intelligence-igd",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "demo": "tsx scripts/demo.ts",
+    "demo:check": "tsx scripts/demo.ts --check",
+    "deploy:production": "bash scripts/deploy-production.sh origin/main",
+    "dev": "npm run dev --workspace=@igd/web",
+    "build": "npm run build --workspace=@igd/web",
+    "typecheck": "tsc --noEmit -p tsconfig.json && npm run typecheck --workspaces --if-present",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "demo:seed": "tsx scripts/seed-demo.ts"
+  },
+  "dependencies": {
+    "openai": "7.12.1",
+    "postgres": "3.4.9",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
