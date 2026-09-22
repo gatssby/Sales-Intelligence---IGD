@@ -165,7 +165,11 @@ async function runCycle(): Promise<ScanTotals | null> {
       totals.needsReview += Number(resolved.status === "needs_review");
     });
     mergeTotals(totals, summary);
-    if (summary.errors > 0) throw new Error("drive_catalog_persistence_incomplete");
+    if (summary.errors > 0) {
+      console.warn(JSON.stringify({ event: "Catalog completed_with_errors", errors: summary.errors }));
+      // Erros isolados não devem crashar o daemon de discovery.
+      // O pipeline continuará processando os documentos bem-sucedidos.
+    }
   };
 
   const scanSource = async (source: DriveSource, fullScan: boolean): Promise<boolean> => {

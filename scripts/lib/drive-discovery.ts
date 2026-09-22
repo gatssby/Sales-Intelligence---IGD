@@ -304,7 +304,9 @@ export async function catalogDriveTree(
         await store.markDocumentInaccessible(issue.fileId, issue.errorCode);
       }
       summary.inaccessible += 1;
-    } catch {
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      console.error(JSON.stringify({ event: "Catalog issue persistence error", fileId: issue.fileId, errorCode: issue.errorCode, errorMsg }));
       summary.errors += 1;
     }
   }
@@ -359,7 +361,9 @@ export async function catalogDriveTree(
             && ["application/vnd.google-apps.document", "text/plain", "text/vtt"].includes(entry.file.mimeType ?? ""),
         });
       }
-    } catch {
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      console.error(JSON.stringify({ event: "Catalog entry persistence error", fileId: entry.file.id, fileName: entry.file.name, errorMsg }));
       summary.errors += 1;
     }
   }
