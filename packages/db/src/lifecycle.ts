@@ -107,7 +107,20 @@ export class PostgresOfficialAnalysisLifecycle {
         where j.status='awaiting_transcript' and j.stage='transcript'
           and (j.retry_at is null or j.retry_at <= now())
           and c.transcript_file_id is not null
-        order by coalesce(c.started_at, c.created_at) desc,
+        order by 
+          CASE
+            WHEN c.started_at IS NOT NULL THEN 0
+            WHEN c.metadata->>'recency_method' = 'source_row_desc_verified' THEN 1
+            ELSE 2
+          END ASC,
+          c.started_at DESC NULLS LAST,
+          CASE
+            WHEN c.metadata->>'recency_method' = 'source_row_desc_verified'
+              AND COALESCE(c.metadata->>'source_row', '') ~ '^[0-9]+$'
+            THEN (c.metadata->>'source_row')::bigint
+            ELSE NULL
+          END DESC NULLS LAST,
+          c.created_at DESC,
           s.active desc,
           (lower(coalesce(c.product_key,s.product,''))='insider' and lower(coalesce(s.role,'')) like '%closer%') desc,
           (select max(j2.last_transcript_attempt_at) from analysis_jobs j2 join calls c2 on c2.id=j2.call_id where c2.seller_id=s.id) asc nulls first,
@@ -237,7 +250,20 @@ export class PostgresOfficialAnalysisLifecycle {
             select 1 from analysis_runs current
             where current.call_id=c.id and current.status='completed' and current.is_current=true
           )
-        order by coalesce(c.started_at, c.created_at) desc,
+        order by 
+          CASE
+            WHEN c.started_at IS NOT NULL THEN 0
+            WHEN c.metadata->>'recency_method' = 'source_row_desc_verified' THEN 1
+            ELSE 2
+          END ASC,
+          c.started_at DESC NULLS LAST,
+          CASE
+            WHEN c.metadata->>'recency_method' = 'source_row_desc_verified'
+              AND COALESCE(c.metadata->>'source_row', '') ~ '^[0-9]+$'
+            THEN (c.metadata->>'source_row')::bigint
+            ELSE NULL
+          END DESC NULLS LAST,
+          c.created_at DESC,
           s.active desc,
           (lower(coalesce(c.product_key,s.product,''))='insider' and lower(coalesce(s.role,'')) like '%closer%') desc,
           (select max(j2.last_claimed_at) from analysis_jobs j2 join calls c2 on c2.id=j2.call_id where c2.seller_id=s.id) asc nulls first,

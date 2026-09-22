@@ -20,6 +20,7 @@ async function feed() {
     SELECT aj.call_id, aj.id as analysis_job_id,
            (SELECT t.id FROM transcripts t WHERE t.call_id = aj.call_id ORDER BY t.version DESC LIMIT 1) as transcript_id
     FROM analysis_jobs aj
+    JOIN calls c ON c.id = aj.call_id
     WHERE aj.status = 'ready'
       AND NOT EXISTS (
         SELECT 1 FROM gemini_poc_jobs g 
@@ -32,6 +33,20 @@ async function feed() {
           AND ar.is_current = true
           AND ar.status = 'completed'
       )
+    ORDER BY
+      CASE
+        WHEN c.started_at IS NOT NULL THEN 0
+        WHEN c.metadata->>'recency_method' = 'source_row_desc_verified' THEN 1
+        ELSE 2
+      END ASC,
+      c.started_at DESC NULLS LAST,
+      CASE
+        WHEN c.metadata->>'recency_method' = 'source_row_desc_verified' AND COALESCE(c.metadata->>'source_row', '') ~ '^[0-9]+$'
+        THEN (c.metadata->>'source_row')::bigint
+        ELSE NULL
+      END DESC NULLS LAST,
+      c.created_at DESC,
+      aj.id ASC
     LIMIT 50
   `;
 

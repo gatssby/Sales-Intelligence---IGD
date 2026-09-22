@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
-set -e
+set -euo pipefail
 
-MODE=$1
+MODE="${1:-}"
 
 if [[ "$MODE" != "--on-exit" && "$MODE" != "--on-gemini-failure" ]]; then
   echo "Uso: $0 [--on-exit | --on-gemini-failure]"
@@ -36,15 +36,17 @@ trigger_shutdown() {
   exit 0
 }
 
-LOCKFILE="/tmp/gemini-poc-pipeline.lock"
+WEB_PID_FILE="/tmp/sales-igd-gemini-poc-prod-next.pid"
+# Autenticação para bater na API com DEV_AUTH_BYPASS se precisar, mas localhost bypass já deve funcionar.
+WEB_PORT=3000
 
 if [[ "$MODE" == "--on-exit" ]]; then
   echo "Monitorando processo do runner..."
   while true; do
-    if [ ! -f "$LOCKFILE" ]; then
+    if [ ! -f "$WEB_PID_FILE" ]; then
       trigger_shutdown "Runner principal encerrou (lockfile não encontrado)."
     fi
-    pid=$(cat "$LOCKFILE")
+    pid=$(cat "$WEB_PID_FILE")
     if ! kill -0 "$pid" 2>/dev/null; then
       trigger_shutdown "Runner principal encerrou (PID $pid não está rodando)."
     fi
@@ -55,31 +57,37 @@ fi
 if [[ "$MODE" == "--on-gemini-failure" ]]; then
   echo "Monitorando por falhas consecutivas do Gemini..."
   
-  # Tracking de falhas consecutivas baseadas no snapshot
-  # Vamos usar um state em JS para consultar o banco via API (gemini_poc_jobs)
-  # A lógica será: se a quantidade de falhas aumentar em 3 unidades E completados não mudar, é um failure consecutivo.
-  
   LAST_FAIL_COUNT=-1
   LAST_COMPLETED_COUNT=-1
   CONSECUTIVE_NEW_FAILS=0
   
   while true; do
-    if ! kill -0 "$(cat "$LOCKFILE")" 2>/dev/null; then
+    if [ ! -f "$WEB_PID_FILE" ] || ! kill -0 "$(cat "$WEB_PID_FILE")" 2>/dev/null; then
       echo "Runner principal parou. Watcher encerrando sem desligar."
       exit 0
     fi
     
-    STATS=$(curl -s http://localhost:3000/api/admin/gemini-workers 2>/dev/null || echo "{}")
-    FAILS=$(echo "$STATS" | node -e "
-      const data = JSON.parse(require('fs').readFileSync(0, 'utf-8'));
-      console.log(data?.jobs?.failed_terminal || 0);
-    " 2>/dev/null)
-    COMPLETED=$(echo "$STATS" | node -e "
-      const data = JSON.parse(require('fs').readFileSync(0, 'utf-8'));
-      console.log(data?.jobs?.completed || 0);
-    " 2>/dev/null)
+    STATS=$(curl -fsS "http://127.0.0.1:$WEB_PORT/api/admin/gemini-workers" 2>/dev/null || echo "")
     
-    if [[ -z "$FAILS" || -z "$COMPLETED" || "$FAILS" == "undefined" ]]; then
+    if [[ -z "$STATS" ]]; then
+      sleep 15
+      continue
+    fi
+
+    FAILS=$(echo "$STATS" | node -e "
+      try {
+        const data = JSON.parse(require('fs').readFileSync(0, 'utf-8'));
+        console.log(data?.jobs?.failed_terminal || 0);
+      } catch (e) { console.log(''); }
+    ")
+    COMPLETED=$(echo "$STATS" | node -e "
+      try {
+        const data = JSON.parse(require('fs').readFileSync(0, 'utf-8'));
+        console.log(data?.jobs?.completed || 0);
+      } catch (e) { console.log(''); }
+    ")
+    
+    if [[ -z "$FAILS" || -z "$COMPLETED" ]]; then
       sleep 15
       continue
     fi
@@ -87,9 +95,13 @@ if [[ "$MODE" == "--on-gemini-failure" ]]; then
     if [[ "$LAST_FAIL_COUNT" == -1 ]]; then
       LAST_FAIL_COUNT=$FAILS
       LAST_COMPLETED_COUNT=$COMPLETED
+      echo "Baseline estabelecido. Falhas atuais: $FAILS, Completados atuais: $COMPLETED"
     else
       if (( COMPLETED > LAST_COMPLETED_COUNT )); then
-        # Gemini completou sucesso
+        # Reset na sequência de falhas se teve novo sucesso
+        if (( CONSECUTIVE_NEW_FAILS > 0 )); then
+          echo "[INFO] Sucesso registrado. Resetando contagem de falhas consecutivas."
+        fi
         CONSECUTIVE_NEW_FAILS=0
         LAST_COMPLETED_COUNT=$COMPLETED
         LAST_FAIL_COUNT=$FAILS
@@ -100,7 +112,7 @@ if [[ "$MODE" == "--on-gemini-failure" ]]; then
         echo "[Aviso] Houve nova falha no Gemini! Consecutivas: $CONSECUTIVE_NEW_FAILS / 3"
         
         if (( CONSECUTIVE_NEW_FAILS >= 3 )); then
-          trigger_shutdown "3 falhas terminal Gemini consecutivas sem completados."
+          trigger_shutdown "3 falhas terminal Gemini consecutivas sem sucessos intermediários."
         fi
       fi
     fi
