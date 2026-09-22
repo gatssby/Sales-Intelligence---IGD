@@ -1,10 +1,10 @@
-import { randomUUID } from "node:crypto";
 import {
   PostgresIngestionRepository,
   PostgresOfficialAnalysisLifecycle,
 } from "@igd/db";
 import { createGoogleDriveTranscriptFetcherFromEnvironment } from "@igd/google";
 import type { ClaimedTranscriptJob } from "@igd/db";
+import { processTranscriptJob, resolveWorkerInstanceId } from "./lib/transcript-worker.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -14,6 +14,7 @@ const prepareOnly = process.argv.includes("--prepare-only");
 const numberArgument = (name: string, fallback: number) => Number(process.argv.find((argument) => argument.startsWith(`--${name}=`))?.split("=")[1] ?? fallback);
 const limit = numberArgument("limit", 1);
 const concurrency = numberArgument("concurrency", daemon ? 2 : 1);
+const workerInstanceId = resolveWorkerInstanceId(process.argv);
 
 function numericEnvironment(name: string, fallback?: number): number {
   const raw = process.env[name];
@@ -36,30 +37,16 @@ let stopRequested = false;
 process.on("SIGTERM", () => { stopRequested = true; });
 process.on("SIGINT", () => { stopRequested = true; });
 
-async function fetchClaimedTranscript(job: ClaimedTranscriptJob): Promise<"ready" | "retry_wait" | "failed_terminal" | "credential_error"> {
+async function fetchClaimedTranscript(job: ClaimedTranscriptJob): Promise<"ready" | "retry_wait" | "failed_terminal" | "credential_error" | "isolated_error"> {
   if (!transcriptFetcher) throw new Error("transcript_fetcher_unavailable");
-  let text: string;
-  try {
-    text = job.transcriptMimeType
-      ? await transcriptFetcher.fetchByMimeType(job.transcriptFileId, job.transcriptMimeType, job.transcriptResourceKey)
-      : await transcriptFetcher.fetch(job.transcriptFileId, job.transcriptUrl ?? undefined);
-  } catch (error) {
-    const errorCode = error instanceof Error ? error.message : "transcript_fetch_failed";
-    if (errorCode === "google_authentication_required") {
-      await lifecycle.releaseTranscriptForCredential({ jobId: job.jobId, callId: job.callId, retryDelaySeconds: 300 });
-      return "credential_error";
-    }
-    return lifecycle.recordTranscriptFailure({
-      jobId: job.jobId,
-      callId: job.callId,
-      errorCode,
-      maxAttempts: transcriptMaxAttempts,
-      retryDelaySeconds: transcriptRetryDelaySeconds,
-    });
-  }
-  await repository.storeTranscript(job.callId, job.transcriptFileId, text);
-  await lifecycle.completeTranscript({ jobId: job.jobId, callId: job.callId });
-  return "ready";
+  return processTranscriptJob(job, {
+    fetcher: transcriptFetcher,
+    storeTranscript: async (callId, fileId, text) => { await repository.storeTranscript(callId, fileId, text); },
+    lifecycle,
+    log: (event) => console.error(JSON.stringify({ event })),
+    maxAttempts: transcriptMaxAttempts,
+    retryDelaySeconds: transcriptRetryDelaySeconds,
+  }) as Promise<"ready" | "retry_wait" | "failed_terminal" | "credential_error" | "isolated_error">;
 }
 
 async function main(): Promise<void> {
@@ -69,7 +56,7 @@ async function main(): Promise<void> {
   }
 
   const transcriptRecovery = await lifecycle.recoverExpiredTranscriptClaims(new Date());
-  const workerGroupId = `transcript-${process.pid}-${randomUUID().slice(0, 8)}`;
+  const workerGroupId = `transcript-${workerInstanceId}`;
   
   const counters = { transcriptsAttempted: 0, transcriptsReady: 0, transcriptFailures: 0, transcriptCredentialErrors: 0 };
   
@@ -78,15 +65,25 @@ async function main(): Promise<void> {
       if (!daemon && counters.transcriptsAttempted >= limit) return;
       
       counters.transcriptsAttempted += 1;
-      const job = await lifecycle.claimNextTranscript({ workerId: `${workerGroupId}:${slotIndex}`, leaseSeconds });
+      let job: ClaimedTranscriptJob | null;
+      try {
+        job = await lifecycle.claimNextTranscript({ workerId: `${workerGroupId}:${slotIndex}`, leaseSeconds });
+      } catch {
+        console.error(JSON.stringify({ event: "transcript_job_error" }));
+        counters.transcriptsAttempted -= 1;
+        if (!daemon) return;
+        continue;
+      }
       
       if (job) {
-        const transcriptResult = await fetchClaimedTranscript(job);
+        let transcriptResult: "ready" | "retry_wait" | "failed_terminal" | "credential_error" | "isolated_error";
+        try { transcriptResult = await fetchClaimedTranscript(job); }
+        catch { console.error(JSON.stringify({ event: "transcript_job_error" })); transcriptResult = "isolated_error"; }
         if (transcriptResult === "ready") counters.transcriptsReady += 1;
         else if (transcriptResult === "credential_error") {
           counters.transcriptCredentialErrors += 1;
           stopRequested = true;
-        } else counters.transcriptFailures += 1;
+        } else if (transcriptResult !== "isolated_error") counters.transcriptFailures += 1;
       } else {
         counters.transcriptsAttempted -= 1;
         if (!daemon) return;

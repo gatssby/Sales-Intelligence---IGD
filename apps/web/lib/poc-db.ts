@@ -82,6 +82,11 @@ export async function claimPocJob(sql: Sql, workerId: string, leaseSeconds: numb
         WHERE worker_id = ${workerId}
       `;
 
+      await tx`
+        INSERT INTO gemini_poc_job_events (job_id, call_id, worker_id, event_type)
+        VALUES (${job.job_id}, ${job.call_id}, ${workerId}, 'claimed')
+      `;
+
       return job;
     }
 
@@ -123,7 +128,7 @@ export async function completePocJob(sql: Sql, workerId: string, jobId: string, 
   }
   const validatedResult = parseResult.data;
 
-  const success = await sql.begin(async (tx) => {
+  const completion = await sql.begin(async (tx) => {
     // 1. Verify ownership, state and lease validity
     const jobs = await tx`
       SELECT call_id, transcript_id, status, lease_expires_at
@@ -134,7 +139,20 @@ export async function completePocJob(sql: Sql, workerId: string, jobId: string, 
     if (jobs.length === 0) return false;
 
     const job = jobs[0];
-    if (job.status === 'completed') return true; // Idempotent success
+    if (job.status === 'completed') {
+      const existingRuns = await tx<{ is_current: boolean }[]>`
+        SELECT is_current
+        FROM analysis_runs
+        WHERE call_id = ${job.call_id}
+          AND transcript_id = ${job.transcript_id}
+          AND provider = 'gemini-web-poc'
+          AND model = 'gemini-workspace-agent'
+          AND status = 'completed'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+      `;
+      return { becameCurrent: existingRuns[0]?.is_current ?? false };
+    }
 
     if (job.status !== 'claimed' || !job.lease_expires_at || job.lease_expires_at <= new Date()) {
       return false; // Lost lease or already failed or expired
@@ -245,22 +263,28 @@ export async function completePocJob(sql: Sql, workerId: string, jobId: string, 
       )
     `;
 
-    // 4. Mark previous runs as not current, ensuring unique constraint safety
-    // lock the call first to ensure no concurrent promotion
+    // 4. Lock the call and preserve any completed current analysis that won
+    // while this browser job was in flight. The feeder prevents enqueueing
+    // calls that already have a current run, so any current run visible here
+    // is a concurrent winner and must not be overwritten.
     await tx`SELECT id FROM calls WHERE id = ${job.call_id} FOR UPDATE`;
-
-    await tx`
-      UPDATE analysis_runs
-      SET is_current = false
-      WHERE call_id = ${job.call_id} AND id <> ${runId} AND is_current = true
+    const currentRuns = await tx<{ id: string }[]>`
+      SELECT id
+      FROM analysis_runs
+      WHERE call_id = ${job.call_id}
+        AND status = 'completed'
+        AND is_current = true
+        AND id <> ${runId}
+      FOR UPDATE
     `;
-
-    // Promote the new run to current
-    await tx`
-      UPDATE analysis_runs
-      SET is_current = true
-      WHERE id = ${runId}
-    `;
+    const becameCurrent = currentRuns.length === 0;
+    if (becameCurrent) {
+      await tx`
+        UPDATE analysis_runs
+        SET is_current = true
+        WHERE id = ${runId}
+      `;
+    }
 
     // 5. Update call status
     await tx`
@@ -277,6 +301,11 @@ export async function completePocJob(sql: Sql, workerId: string, jobId: string, 
           updated_at = now(),
           raw_response = ${rawResponse ? String(rawResponse) : null}
       WHERE id = ${jobId}
+    `;
+
+    await tx`
+      INSERT INTO gemini_poc_job_events (job_id, call_id, worker_id, event_type)
+      VALUES (${jobId}, ${job.call_id}, ${workerId}, 'completed')
     `;
 
     // 7. Update analysis_jobs
@@ -301,13 +330,13 @@ export async function completePocJob(sql: Sql, workerId: string, jobId: string, 
       WHERE worker_id = ${workerId}
     `;
 
-    return true;
+    return { becameCurrent };
   });
 
-  if (!success) {
+  if (!completion) {
     return { success: false, error: "job_not_owned_or_invalid_state" };
   }
-  return { success: true };
+  return { success: true, becameCurrent: completion.becameCurrent };
 }
 
 export async function failPocJob(sql: Sql, workerId: string, jobId: string, errorCode: string, retryable: boolean) {
@@ -318,7 +347,7 @@ export async function failPocJob(sql: Sql, workerId: string, jobId: string, erro
   return sql.begin(async (tx) => {
     // 1. Verify ownership and state
     const jobs = await tx`
-      SELECT status
+      SELECT status, call_id
       FROM gemini_poc_jobs
       WHERE id = ${jobId} AND worker_id = ${workerId}
       FOR UPDATE
@@ -341,6 +370,14 @@ export async function failPocJob(sql: Sql, workerId: string, jobId: string, erro
           last_error_code = ${safeErrorCode},
           updated_at = now()
       WHERE id = ${jobId}
+    `;
+
+    await tx`
+      INSERT INTO gemini_poc_job_events (job_id, call_id, worker_id, event_type, error_code)
+      VALUES (
+        ${jobId}, ${job.call_id}, ${workerId},
+        ${retryable ? "failed_retryable" : "failed_terminal"}, ${safeErrorCode}
+      )
     `;
 
     // 3. Update Worker Stats

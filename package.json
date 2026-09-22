@@ -35,7 +35,15 @@
     "auth:bootstrap-admin": "tsx scripts/bootstrap-admin.ts",
     "auth:bootstrap-platform-admin": "tsx scripts/bootstrap-platform-admin.ts",
     "auth:demo-seed": "tsx scripts/seed-auth-demo.ts",
-    "test:auth:http": "tsx scripts/test-auth-http.ts"
+    "test:auth:http": "tsx scripts/test-auth-http.ts",
+    "test:gemini:integration": "npm run test:gemini:integration --workspace=@igd/web",
+    "gemini:poc:enqueue": "tsx scripts/gemini-poc-enqueue.ts",
+    "gemini:poc:status": "tsx scripts/gemini-poc-status.ts",
+    "gemini:production:start": "zsh scripts/gemini-production-run.command",
+    "gemini:production:stop": "zsh scripts/gemini-production-stop.command",
+    "gemini:production:status": "zsh scripts/gemini-production-status.command",
+    "gemini:production:watch-exit": "zsh scripts/gemini-shutdown-watcher.command --on-exit",
+    "gemini:production:watch-failures": "zsh scripts/gemini-shutdown-watcher.command --on-gemini-failure"
   },
   "dependencies": {
     "csv-parse": "^7.0.2",

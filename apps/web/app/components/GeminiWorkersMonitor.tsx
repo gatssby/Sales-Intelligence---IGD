@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
+import { normalizeGeminiMonitorPayload, type GeminiMonitorPayload } from "@/lib/gemini-poc-monitor";
 
 export function GeminiWorkersMonitor() {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<GeminiMonitorPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [isClient, setIsClient] = useState(false);
@@ -20,13 +21,13 @@ export function GeminiWorkersMonitor() {
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
-      const json = await res.json();
-      setData(json);
+      const json: unknown = await res.json();
+      setData(normalizeGeminiMonitorPayload(json));
       setLastUpdate(new Date());
       setError(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to fetch monitor data", err);
-      setError(err.message);
+      setError(err instanceof Error ? err.message : "Resposta inválida do monitor");
     }
   }, []);
 
@@ -37,7 +38,7 @@ export function GeminiWorkersMonitor() {
     let intervalId: NodeJS.Timeout;
     
     const scheduleNext = () => {
-      const hasActivity = data?.jobs?.queued > 0 || data?.jobs?.claimed > 0 || data?.jobs?.retry_wait > 0;
+      const hasActivity = (data?.jobs?.queued ?? 0) > 0 || (data?.jobs?.claimed ?? 0) > 0 || (data?.jobs?.retry_wait ?? 0) > 0;
       const delay = hasActivity ? 3000 : 15000;
       
       intervalId = setTimeout(async () => {
@@ -89,14 +90,16 @@ export function GeminiWorkersMonitor() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-8">
         {[
-          { title: "Aguardando transcript", value: data.analysisJobs.awaiting_transcript || 0 },
-          { title: "Transcripts prontos", value: data.analysisJobs.ready || 0 },
-          { title: "Fila Gemini", value: jobs.queued || 0 },
-          { title: "Gemini processando", value: jobs.claimed || 0 },
-          { title: "Gemini concluídas", value: jobs.completed || 0 },
-          { title: "Falhas Gemini", value: jobs.failed_terminal || 0 },
-          { title: "Falhas transcript", value: data.analysisJobs.failed_terminal || 0 },
-          { title: "Quarentena", value: data.analysisJobs.quarantine || 0 },
+          { title: "Aguardando transcript", value: data.pipeline.awaitingTranscript },
+          { title: "Transcript processando", value: data.pipeline.transcriptProcessing },
+          { title: "Prontos para Gemini", value: data.pipeline.readyForGemini },
+          { title: "Fila Gemini", value: data.pipeline.geminiQueued },
+          { title: "Gemini processando", value: data.pipeline.geminiProcessing },
+          { title: "Gemini concluídas", value: data.pipeline.geminiCompleted },
+          { title: "Gemini em retry", value: data.pipeline.geminiRetryWait },
+          { title: "Falhas Gemini", value: data.pipeline.geminiFailedTerminal },
+          { title: "Falhas transcript", value: data.pipeline.transcriptFailures },
+          { title: "Quarentena", value: data.pipeline.quarantine },
         ].map(stat => (
           <div key={stat.title} className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
             <h3 className="text-xs font-medium text-gray-500 whitespace-nowrap overflow-hidden text-ellipsis">{stat.title}</h3>
@@ -140,7 +143,7 @@ export function GeminiWorkersMonitor() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {workerList.map((w: any) => (
+                  {workerList.map((w) => (
                     <tr key={w.workerId}>
                       <td className="px-4 py-3 font-mono text-xs">{w.workerId.slice(0, 16)}{w.workerId.length > 16 ? '...' : ''}</td>
                       <td className="px-4 py-3">
@@ -179,7 +182,7 @@ export function GeminiWorkersMonitor() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {nextJobs.map((j: any) => (
+                  {nextJobs.map((j) => (
                     <tr key={j.id}>
                       <td className="px-4 py-3 font-mono text-xs text-gray-400">#{String(j.position).padStart(2, '0')}</td>
                       <td className="px-4 py-3 font-mono text-xs text-gray-600">
@@ -219,7 +222,7 @@ export function GeminiWorkersMonitor() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {recentJobs.map((j: any) => (
+                {recentJobs.map((j) => (
                   <tr key={j.jobId}>
                     <td className="px-4 py-3 text-gray-500 text-xs">
                       {new Date(j.updatedAt).toLocaleTimeString()}

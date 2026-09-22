@@ -11,6 +11,109 @@ export interface MonitorWorker {
   callStartedAt: string | null;
 }
 
+export type WorkerStatus = "ACTIVE" | "IDLE" | "STALE" | "ERROR" | "OFFLINE";
+
+export interface GeminiPipelineCounts {
+  awaitingTranscript: number;
+  transcriptProcessing: number;
+  readyForGemini: number;
+  geminiQueued: number;
+  geminiProcessing: number;
+  geminiCompleted: number;
+  geminiRetryWait: number;
+  geminiFailedTerminal: number;
+  transcriptFailures: number;
+  quarantine: number;
+}
+
+export interface GeminiMonitorPayload {
+  workers: { total: number; online: number; active: number; idle: number; stale: number; error: number; offline: number };
+  jobs: Record<string, number>;
+  analysisJobs: Record<string, number>;
+  workerList: MonitorWorker[];
+  nextJobs: MonitorJob[];
+  recentJobs: RecentJob[];
+  pipeline: GeminiPipelineCounts;
+}
+
+export function deriveGeminiWorkerStatus(input: {
+  rawStatus: string;
+  currentJobId: string | null;
+  secondsSinceHeartbeat: number;
+  lastErrorCode: string | null;
+}): WorkerStatus {
+  if (input.secondsSinceHeartbeat >= 90) return "OFFLINE";
+  if (input.secondsSinceHeartbeat >= 30) return "STALE";
+  if (input.rawStatus === "error") return "ERROR";
+  return input.currentJobId ? "ACTIVE" : "IDLE";
+}
+
+export function normalizeGeminiMonitorPayload(value: unknown): GeminiMonitorPayload {
+  if (!value || typeof value !== "object") throw new Error("Invalid Gemini monitor payload");
+  const payload = value as Record<string, unknown>;
+  const required = ["workers", "jobs", "analysisJobs", "workerList", "nextJobs", "recentJobs"];
+  if (required.some((key) => !(key in payload))) throw new Error("Invalid Gemini monitor payload");
+  if (![payload.workerList, payload.nextJobs, payload.recentJobs].every(Array.isArray)) throw new Error("Invalid Gemini monitor payload");
+  const workers = payload.workers;
+  if (!workers || typeof workers !== "object") throw new Error("Invalid Gemini monitor payload");
+  const maps = [workers, payload.jobs, payload.analysisJobs];
+  if (maps.some((map) => !map || typeof map !== "object" || Object.values(map).some((item) => typeof item !== "number" || !Number.isInteger(item) || item < 0))) {
+    throw new Error("Invalid Gemini monitor payload");
+  }
+  const jobs = payload.jobs as Record<string, number>;
+  const analysisJobs = payload.analysisJobs as Record<string, number>;
+  const stringsOrNull = (value: unknown) => typeof value === "string" || value === null;
+  const finiteNonNegativeInteger = (value: unknown) => typeof value === "number" && Number.isInteger(value) && value >= 0;
+  const workersValid = (payload.workerList as unknown[]).every((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const worker = entry as Record<string, unknown>;
+    return typeof worker.workerId === "string"
+      && typeof worker.status === "string"
+      && stringsOrNull(worker.currentJobId)
+      && typeof worker.lastSeenAt === "string"
+      && finiteNonNegativeInteger(worker.secondsSinceHeartbeat)
+      && (finiteNonNegativeInteger(worker.attemptCount) || worker.attemptCount === null)
+      && stringsOrNull(worker.leaseExpiresAt)
+      && stringsOrNull(worker.callStartedAt);
+  });
+  const nextJobsValid = (payload.nextJobs as unknown[]).every((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const job = entry as Record<string, unknown>;
+    return typeof job.id === "string"
+      && typeof job.callId === "string"
+      && typeof job.status === "string"
+      && stringsOrNull(job.callStartedAt)
+      && finiteNonNegativeInteger(job.attemptCount)
+      && stringsOrNull(job.retryAt)
+      && finiteNonNegativeInteger(job.position);
+  });
+  const recentJobsValid = (payload.recentJobs as unknown[]).every((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const job = entry as Record<string, unknown>;
+    return typeof job.jobId === "string"
+      && stringsOrNull(job.workerId)
+      && typeof job.status === "string"
+      && stringsOrNull(job.lastErrorCode)
+      && typeof job.updatedAt === "string"
+      && stringsOrNull(job.callStartedAt);
+  });
+  if (!workersValid || !nextJobsValid || !recentJobsValid) throw new Error("Invalid Gemini monitor payload");
+  const result = payload as unknown as GeminiMonitorPayload;
+  result.pipeline = {
+    awaitingTranscript: analysisJobs.awaiting_transcript ?? 0,
+    transcriptProcessing: analysisJobs.claimed_transcript ?? 0,
+    readyForGemini: analysisJobs.ready ?? 0,
+    geminiQueued: jobs.queued ?? 0,
+    geminiProcessing: jobs.claimed ?? 0,
+    geminiCompleted: jobs.completed ?? 0,
+    geminiRetryWait: jobs.retry_wait ?? 0,
+    geminiFailedTerminal: jobs.failed_terminal ?? 0,
+    transcriptFailures: analysisJobs.failed_terminal ?? 0,
+    quarantine: analysisJobs.quarantine ?? 0,
+  };
+  return result;
+}
+
 export interface MonitorJob {
   id: string;
   callId: string;
@@ -28,6 +131,16 @@ export interface RecentJob {
   lastErrorCode: string | null;
   updatedAt: string;
   callStartedAt: string | null;
+}
+
+function monitorTimestamp(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") return value;
+  throw new Error("invalid_monitor_timestamp");
+}
+
+function optionalMonitorTimestamp(value: unknown): string | null {
+  return value === null ? null : monitorTimestamp(value);
 }
 
 export async function getGeminiPocMonitorData(sql: Sql) {
@@ -54,9 +167,9 @@ export async function getGeminiPocMonitorData(sql: Sql) {
       GROUP BY status
     `,
     sql`
-      SELECT status, count(*) as count
+      SELECT status, stage, count(*) as count
       FROM analysis_jobs
-      GROUP BY status
+      GROUP BY status, stage
     `,
     sql`
       SELECT 
@@ -105,30 +218,18 @@ export async function getGeminiPocMonitorData(sql: Sql) {
   ]);
 
   const workerList: MonitorWorker[] = workersRaw.map((w: any) => {
-    let derivedStatus = 'OFFLINE';
-    if (w.secondsSinceHeartbeat < 30) {
-      derivedStatus = w.currentJobId ? 'ACTIVE' : 'IDLE';
-    } else if (w.secondsSinceHeartbeat < 90) {
-      derivedStatus = 'STALE';
-    }
+    const derivedStatus = deriveGeminiWorkerStatus(w);
     
-    if (w.rawStatus === 'error' || w.lastErrorCode) {
-      // Keep it error if it explicitly flagged it, but if it's super old, OFFLINE takes precedence 
-      // Actually let's trust the error state if recent.
-      if (w.secondsSinceHeartbeat < 90) {
-        derivedStatus = 'ERROR';
-      }
-    }
 
     return {
       workerId: w.workerId,
       status: derivedStatus,
       currentJobId: w.currentJobId,
-      lastSeenAt: w.lastSeenAt,
+      lastSeenAt: monitorTimestamp(w.lastSeenAt),
       secondsSinceHeartbeat: Math.floor(w.secondsSinceHeartbeat),
       attemptCount: w.attemptCount || null,
-      leaseExpiresAt: w.leaseExpiresAt,
-      callStartedAt: w.callStartedAt,
+      leaseExpiresAt: optionalMonitorTimestamp(w.leaseExpiresAt),
+      callStartedAt: optionalMonitorTimestamp(w.callStartedAt),
     };
   });
 
@@ -165,7 +266,8 @@ export async function getGeminiPocMonitorData(sql: Sql) {
   };
 
   for (const row of analysisJobsRaw) {
-    analysisJobCounts[row.status] = Number(row.count);
+    const key = row.status === 'claimed' && row.stage === 'transcript' ? 'claimed_transcript' : row.status;
+    analysisJobCounts[key] = (analysisJobCounts[key] ?? 0) + Number(row.count);
     analysisJobCounts.total += Number(row.count);
   }
 
@@ -173,9 +275,9 @@ export async function getGeminiPocMonitorData(sql: Sql) {
     id: j.id,
     callId: j.callId,
     status: j.status,
-    callStartedAt: j.callStartedAt,
+    callStartedAt: optionalMonitorTimestamp(j.callStartedAt),
     attemptCount: j.attemptCount,
-    retryAt: j.retryAt,
+    retryAt: optionalMonitorTimestamp(j.retryAt),
     position: i + 1
   }));
 
@@ -184,16 +286,28 @@ export async function getGeminiPocMonitorData(sql: Sql) {
     workerId: j.workerId,
     status: j.status,
     lastErrorCode: j.lastErrorCode,
-    updatedAt: j.updatedAt,
-    callStartedAt: j.callStartedAt
+    updatedAt: monitorTimestamp(j.updatedAt),
+    callStartedAt: optionalMonitorTimestamp(j.callStartedAt)
   }));
 
-  return {
+  return normalizeGeminiMonitorPayload({
     workers,
     jobs: jobCounts,
     analysisJobs: analysisJobCounts,
     workerList,
     nextJobs,
-    recentJobs
-  };
+    recentJobs,
+    pipeline: {
+      awaitingTranscript: analysisJobCounts.awaiting_transcript,
+      transcriptProcessing: analysisJobCounts.claimed_transcript,
+      readyForGemini: analysisJobCounts.ready,
+      geminiQueued: jobCounts.queued,
+      geminiProcessing: jobCounts.claimed,
+      geminiCompleted: jobCounts.completed,
+      geminiRetryWait: jobCounts.retry_wait,
+      geminiFailedTerminal: jobCounts.failed_terminal,
+      transcriptFailures: analysisJobCounts.failed_terminal,
+      quarantine: analysisJobCounts.quarantine,
+    },
+  });
 }
