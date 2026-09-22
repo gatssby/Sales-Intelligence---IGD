@@ -1,75 +1,124 @@
 ---
 name: to-spec
-description: "Turn the current conversation into a spec and publish it to the project issue tracker: no interview, just synthesis of what you've already discussed."
-disable-model-invocation: true
+description: Turn a sufficiently understood engineering effort into a proportionate implementation specification.
 ---
 
-This skill takes the current conversation context and codebase understanding and produces a spec. Do NOT interview the user; just synthesize what you already know.
+# To Spec
 
-The issue tracker and triage label vocabulary should have been provided to you. If not, tell the user to run `/setup-matt-pocock-skills`.
+Convert the current discussion, research, prototypes, and repository context into a buildable specification.
 
-## Process
+Use this for work that benefits from a durable spec before being split into tickets.
 
-1. Explore the repo to understand the current state of the codebase, if you haven't already. Use the project's domain glossary vocabulary throughout the spec, and respect any ADRs in the area you're touching.
+Do not inflate a small task into a large document.
 
-2. Sketch out the seams at which you're going to test the feature. Existing seams should be preferred to new ones. Use the highest seam possible. If new seams are needed, propose them at the highest point you can. The fewer seams across the codebase, the better - the ideal number is one.
+## Preconditions
 
-Check with the user that these seams match their expectations.
+Before writing the spec:
 
-3. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
+- the core problem should be understood;
+- major product decisions should be settled;
+- important unknowns should either be resolved or explicitly listed;
+- relevant repository constraints should be known.
 
-<spec-template>
+If fundamental decisions are still open, return to `grill-with-docs`, `research`, `prototype`, `spike`, or `wayfinder` as appropriate.
 
-## Problem Statement
+## Proportionality
 
-The problem that the user is facing, from the user's perspective.
+The specification must be proportional to the work.
 
-## Solution
+A small multi-step feature may need a short spec.
 
-The solution to the problem, from the user's perspective.
+A cross-system or multi-session effort may need substantial detail.
 
-## User Stories
+Do not force long lists of user stories merely to make the document look complete.
 
-A LONG, numbered list of user stories. Each user story should be in the format of:
+Use user stories only when they improve clarity for genuinely user-facing behavior.
 
-1. As an <actor>, I want a <feature>, so that <benefit>
+## Required content
 
-<user-story-example>
-1. As a mobile bank customer, I want to see balance on my accounts, so that I can make better informed decisions about my spending
-</user-story-example>
+Include the sections that materially apply:
 
-This list of user stories should be extremely extensive and cover all aspects of the feature.
+### Problem / outcome
 
-## Implementation Decisions
+What problem is being solved and what observable outcome defines success?
 
-A list of implementation decisions that were made. This can include:
+### Context
 
-- The modules that will be built/modified
-- The interfaces of those modules that will be modified
-- Technical clarifications from the developer
-- Architectural decisions
-- Schema changes
-- API contracts
-- Specific interactions
+Relevant existing behavior, repository constraints, domain terminology, ADRs, and dependencies.
 
-Do NOT include specific file paths or code snippets. They may end up being outdated very quickly.
+### Scope
 
-Exception: if a prototype produced a snippet that encodes a decision more precisely than prose can (state machine, reducer, schema, type shape), inline it within the relevant decision and note briefly that it came from a prototype. Trim to the decision-rich parts, not a working demo, just the important bits.
+What is included.
 
-## Testing Decisions
+### Non-goals
 
-A list of testing decisions that were made. Include:
+What is intentionally excluded.
 
-- A description of what makes a good test (only test external behavior, not implementation details)
-- Which modules will be tested
-- Prior art for the tests (i.e. similar types of tests in the codebase)
+### Required behavior
 
-## Out of Scope
+Concrete behaviors and invariants the implementation must preserve or introduce.
 
-A description of the things that are out of scope for this spec.
+For product-facing work, use scenarios or user stories when useful.
 
-## Further Notes
+For backend/data/infrastructure work, precise behavioral requirements are usually clearer than artificial user stories.
 
-Any further notes about the feature.
+### Architecture constraints
 
-</spec-template>
+Important seams, persistence rules, provider boundaries, compatibility requirements, migration constraints, or operational requirements.
+
+Do not invent architecture beyond what the requirement needs.
+
+### Data and security
+
+When relevant:
+
+- schemas;
+- migrations;
+- PII constraints;
+- secrets;
+- retention;
+- idempotency;
+- retries;
+- auditability.
+
+### Failure modes
+
+Important errors, retries, partial failures, concurrency behavior, and recovery expectations.
+
+### Verification
+
+Define how the implementation will be proven correct:
+
+- tests;
+- typecheck/lint/build;
+- fixtures;
+- integration checks;
+- observability;
+- manual validation when unavoidable.
+
+### Acceptance criteria
+
+A concise, testable set of completion conditions.
+
+### Open questions
+
+Only unresolved questions that genuinely remain.
+
+Do not hide unresolved design decisions inside implementation prose.
+
+## Repository alignment
+
+Respect `AGENTS.md`.
+
+For this repository in particular, preserve documented rules around:
+
+- PostgreSQL as operational source of truth;
+- n8n as orchestration;
+- AI provider abstraction;
+- versioned prompts/rubrics/schemas;
+- auditability;
+- synthetic test data instead of production PII.
+
+## Handoff
+
+A completed spec should contain enough information for `to-tickets` to create vertical, independently understandable implementation tickets without reconstructing the original conversation.
