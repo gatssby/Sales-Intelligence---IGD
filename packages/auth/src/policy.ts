@@ -190,7 +190,7 @@ export function buildDevelopmentAuthBypass(input: {
     userId: "dev-auth-bypass",
     email: "dev-auth-bypass@example.invalid",
     displayName: "Administrador local",
-    role: "PLATFORM_ADMIN",
+    role: "ADMIN",
   });
 }
 

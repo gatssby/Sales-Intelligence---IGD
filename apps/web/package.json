@@ -7,7 +7,6 @@
     "build": "next build",
     "start": "next start",
     "test": "node --import tsx --test test/*.test.ts",
-    "test:gemini:integration": "node --import tsx --test --test-concurrency=1 test/integration/gemini-poc.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
