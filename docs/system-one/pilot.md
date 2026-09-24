@@ -10,6 +10,10 @@ Dry run reports only Call ID, existence, duration, transcript presence and estim
 
 Execution requires `--execute`. Persistence additionally requires `--persist`; the prepared migration remains unapplied in this phase. Reprocessing requires a new `--analysis-generation`, preserving prior rows.
 
+Before an execution query reads transcript text, the pilot checks provider health and sends one synthetic request containing the exact `CALL_PILOT_QUESTIONS` schema. It requires every expected decision key and validates the domain value type for noul, choice and score. A failed health check, rejected request or incompatible response aborts before transcript loading. Dry run never invokes this provider preflight.
+
+During execution, HTTP 400, endpoint HTTP 404, HTTP 422 and response-schema mismatch are systemic failures and abort the run immediately. They are not recorded as model decisions and are not retried across the remaining calls. Potentially transient provider unavailability remains a separate failure class without aggressive retries.
+
 ## Decisions and chunking
 
 The schema `sales-decision-calls-v0.1` covers pain, impact, price objection, objection type/handling, social proof, urgency, CTA, next step and buyer intent. Chunks use `pilot-chunking-v0.1`: ordered, deterministic, whitespace boundaries, 8,000-character maximum and zero overlap. Timestamp spans are retained when a future transcript source exposes them; current catalog text has no timestamp span column.

@@ -301,27 +301,34 @@ export class JevDecisionEngine implements DecisionProvider {
       const error = new Error(`provider_http_${response.status}`);
       throw Object.assign(error, { retryable: response.status === 408 || response.status === 429 || response.status >= 500 });
     }
-    const body: unknown = await response.json();
-    const questionKeys = Object.keys(questions).sort();
-    if (this.transport === "vercel-ai-gateway") {
-      const parsed = GatewayResponseSchema.parse(body);
+    try {
+      const body: unknown = await response.json();
+      const questionKeys = Object.keys(questions).sort();
+      if (this.transport === "vercel-ai-gateway") {
+        const parsed = GatewayResponseSchema.parse(body);
+        if (JSON.stringify(Object.keys(parsed.answers).sort()) !== JSON.stringify(questionKeys)) throw new Error("provider_response_question_set_mismatch");
+        return DecisionResponseSchema.parse({
+          model: parsed.model ?? this.model,
+          decisions: questionKeys.map((key) => mapGatewayDecision(key, questions[key]!, parsed.answers[key]!, parsed.providerMetadata?.typesafe?.confidence?.[key])),
+          usage: parsed.usage,
+          metadata: { transport: this.transport, httpStatus: response.status },
+          latencyMs: performance.now() - startedAt,
+        });
+      }
+      const parsed = TypesafeResponseSchema.parse(body);
       if (JSON.stringify(Object.keys(parsed.answers).sort()) !== JSON.stringify(questionKeys)) throw new Error("provider_response_question_set_mismatch");
       return DecisionResponseSchema.parse({
-        model: parsed.model ?? this.model,
-        decisions: questionKeys.map((key) => mapGatewayDecision(key, questions[key]!, parsed.answers[key]!, parsed.providerMetadata?.typesafe?.confidence?.[key])),
-        usage: parsed.usage,
+        model: parsed.model,
+        decisions: questionKeys.map((key) => mapTypesafeDecision(key, questions[key]!, parsed.answers[key]!)),
+        usage: { inputTokens: parsed.usage.input_tokens, outputTokens: parsed.usage.output_tokens },
         metadata: { transport: this.transport, httpStatus: response.status },
         latencyMs: performance.now() - startedAt,
       });
+    } catch (error) {
+      const message = error instanceof Error && error.message.startsWith("provider_response_")
+        ? error.message
+        : "provider_response_schema_mismatch";
+      throw Object.assign(new Error(message), { retryable: false, cause: error });
     }
-    const parsed = TypesafeResponseSchema.parse(body);
-    if (JSON.stringify(Object.keys(parsed.answers).sort()) !== JSON.stringify(questionKeys)) throw new Error("provider_response_question_set_mismatch");
-    return DecisionResponseSchema.parse({
-      model: parsed.model,
-      decisions: questionKeys.map((key) => mapTypesafeDecision(key, questions[key]!, parsed.answers[key]!)),
-      usage: { inputTokens: parsed.usage.input_tokens, outputTokens: parsed.usage.output_tokens },
-      metadata: { transport: this.transport, httpStatus: response.status },
-      latencyMs: performance.now() - startedAt,
-    });
   }
 }

@@ -129,12 +129,21 @@ function unavailableReason(error: unknown): string {
   return error instanceof Error ? error.message : "provider_unavailable";
 }
 
-export async function runPilotProviders(input: { providers: PilotProvider[] }): Promise<{ providers: Record<string, { status: "completed"; decisions: PilotChunkDecision[] } | { status: "provider_unavailable"; reason: string }> }> {
+function isSystemicProviderFailure(error: unknown): boolean {
+  const reason = unavailableReason(error);
+  return reason === "provider_http_400"
+    || reason === "provider_http_404"
+    || reason === "provider_http_422"
+    || reason.startsWith("provider_response_");
+}
+
+export async function runPilotProviders(input: { providers: PilotProvider[]; failFast?: boolean }): Promise<{ providers: Record<string, { status: "completed"; decisions: PilotChunkDecision[] } | { status: "provider_unavailable"; reason: string }> }> {
   const providers: Record<string, { status: "completed"; decisions: PilotChunkDecision[] } | { status: "provider_unavailable"; reason: string }> = {};
   for (const provider of input.providers) {
     try {
       providers[provider.name] = { status: "completed", decisions: await provider.evaluate() };
     } catch (error) {
+      if (input.failFast && isSystemicProviderFailure(error)) throw error;
       providers[provider.name] = { status: "provider_unavailable", reason: unavailableReason(error) };
     }
   }

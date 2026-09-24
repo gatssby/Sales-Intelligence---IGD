@@ -1,3 +1,11 @@
+import {
+  aggregatePilotChunkDecisions,
+  CALL_PILOT_DECISION_KEYS,
+  CALL_PILOT_QUESTIONS,
+  type DecisionProvider,
+  type PilotChunkDecision,
+} from "@igd/decision-engine";
+
 export type PilotCliArgs = {
   manifestPath: string;
   providerName: "laya" | "jev" | "both";
@@ -6,6 +14,79 @@ export type PilotCliArgs = {
   persist: boolean;
   analysisGeneration: number;
 };
+
+export type PilotChunkMetric = {
+  chunkIndex: number;
+  latencyMs: number;
+  model: string | null;
+  modelVersion: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export const PILOT_SYNTHETIC_INPUT = {
+  text: "Synthetic buyer describes a scheduling problem, asks about price, and agrees to a follow-up next Tuesday.",
+} as const;
+
+async function runPilotSyntheticPreflight(provider: DecisionProvider): Promise<void> {
+  const health = await provider.health?.();
+  if (health && !health.available) throw new Error(`pilot_provider_preflight_health_failed:${health.reason}`);
+  const response = await provider.decide({
+    subjectType: "call",
+    subjectId: "system-one-pilot-synthetic-preflight",
+    input: PILOT_SYNTHETIC_INPUT,
+    questions: CALL_PILOT_QUESTIONS,
+    schemaVersion: "sales-decision-calls-v0.1",
+  });
+  const actual = [...new Set(response.decisions.map((decision) => decision.key))].sort();
+  const expected = [...CALL_PILOT_DECISION_KEYS].sort();
+  if (response.decisions.length !== expected.length || actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+    throw new Error("pilot_provider_preflight_decision_keys_mismatch");
+  }
+  for (const decision of response.decisions) {
+    const question = CALL_PILOT_QUESTIONS[decision.key as keyof typeof CALL_PILOT_QUESTIONS];
+    const valid = question.type === "noul"
+      ? typeof decision.value === "boolean"
+      : question.type === "choice"
+        ? typeof decision.value === "string" && Object.hasOwn(question.criteria, decision.value)
+        : typeof decision.value === "number"
+          && Number.isFinite(decision.value)
+          && decision.value >= question.minimum
+          && decision.value <= question.maximum;
+    if (!valid) throw new Error(`pilot_provider_preflight_decision_type_mismatch:${decision.key}`);
+  }
+}
+
+export async function preflightThenLoadPilot<T>(input: {
+  providers: DecisionProvider[];
+  load: () => Promise<T>;
+}): Promise<T> {
+  for (const provider of input.providers) await runPilotSyntheticPreflight(provider);
+  return input.load();
+}
+
+export function buildPilotCompletedOutput(input: {
+  callId: string;
+  provider: string;
+  chunkCount: number;
+  decisions: PilotChunkDecision[];
+  chunkMetrics: PilotChunkMetric[];
+}) {
+  const aggregate = aggregatePilotChunkDecisions(input.decisions);
+  const reviewReasons = aggregate.decisions
+    .filter((decision) => decision.ambiguous)
+    .map((decision) => `${decision.key}:ambiguous`)
+    .sort();
+  return {
+    callId: input.callId,
+    provider: input.provider,
+    status: aggregate.needsReview ? "needs_review" as const : "completed" as const,
+    needsReview: aggregate.needsReview,
+    reviewReasons,
+    chunks: input.chunkCount,
+    chunkMetrics: input.chunkMetrics,
+    decisions: aggregate.decisions,
+  };
+}
 
 export const PILOT_DRY_RUN_SQL = `
   select

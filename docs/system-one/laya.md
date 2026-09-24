@@ -8,7 +8,17 @@ LAYA_MODEL=convaiinnovations/laya-typed-decisions
 LAYA_MODEL_VERSION=local
 ```
 
-The adapter defaults to `http://127.0.0.1:8000` and expects `/health` and `/v1/decisions`. Health exposes availability and device (`mps`, `mlx`, `cpu`, etc.) without exposing model files or PII.
+The adapter defaults to `http://127.0.0.1:8000` and expects `/health` and `/v1/decisions`. The local server contract is read from its own `/openapi.json`; no `model` field is sent in the request because the server fixes the active checkpoint at startup.
+
+The domain question schema remains provider-agnostic. At the Laya transport boundary:
+
+- `choice` is sent with its named `criteria` map;
+- `noul` is sent with `type` and `instructions` (optional false/true criteria are supported by the server);
+- domain `score { minimum, maximum }` is sent as ordered string `levels` covering the inclusive range.
+
+The local `laya-mps` response represents score as a probability-weighted, zero-based position over `levels`. It returns probabilities as an ordered array and a zero-based `legend`. The adapter requires the requested answer keys exactly, validates score probability sums/length, zero-based legend keys and values, then preserves the raw provider score and legend in metadata, adds the domain minimum to produce the domain value, and normalizes by `levels.length - 1`. This differs from the TypeSafe/Jev wire API, which currently uses `criteria` for score and a keyed probability map; the two transports therefore must not share an unqualified wire codec.
+
+Health exposes readiness without exposing model files or PII.
 
 ## Apple Silicon local demonstration
 

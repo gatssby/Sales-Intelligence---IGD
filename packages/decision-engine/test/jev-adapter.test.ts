@@ -218,7 +218,34 @@ test("JevDecisionEngine rejects malformed direct TypeSafe responses and never fa
     transport: "typesafe-direct",
     fetch: async () => new Response(JSON.stringify({ model: "jev-1.13.0", answers: {}, usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200 }),
   });
-  await assert.rejects(() => engine.decide(request));
+  await assert.rejects(() => engine.decide(request), /provider_response_schema_mismatch/);
+});
+
+test("JevDecisionEngine classifies malformed JSON and question-set mismatches as non-retryable systemic response failures", async () => {
+  const malformedJson = new JevDecisionEngine({
+    apiKey: "typesafe-test-secret",
+    transport: "typesafe-direct",
+    fetch: async () => new Response("not-json", { status: 200 }),
+  });
+  await assert.rejects(() => malformedJson.decide(request), /provider_response_schema_mismatch/);
+
+  const wrongQuestions = new JevDecisionEngine({
+    apiKey: "typesafe-test-secret",
+    transport: "typesafe-direct",
+    fetch: async () => new Response(JSON.stringify({
+      model: "jev-1.13.0",
+      answers: {
+        discovery: { type: "choice", choice: "high", confidence: 0.9, probabilities: { low: 0.1, high: 0.9 } },
+      },
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }), { status: 200 }),
+  });
+  await assert.rejects(
+    () => wrongQuestions.decide(request),
+    (error: unknown) => error instanceof Error
+      && error.message === "provider_response_question_set_mismatch"
+      && (error as Error & { retryable?: boolean }).retryable === false,
+  );
 });
 
 test("JevDecisionEngine probes direct TypeSafe model availability only when explicitly requested", async () => {

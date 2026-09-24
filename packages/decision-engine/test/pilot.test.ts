@@ -67,3 +67,40 @@ test("pilot keeps Laya results when Jev is unavailable and never falls back to g
   assert.deepEqual(result.providers.jev, { status: "provider_unavailable", reason: "provider_http_402" });
   assert.equal("generative" in result, false);
 });
+
+test("pilot aborts immediately on a systemic provider contract failure", async () => {
+  let secondProviderCalls = 0;
+  await assert.rejects(() => runPilotProviders({
+    failFast: true,
+    providers: [
+      { name: "laya", evaluate: async () => { throw new Error("provider_http_422"); } },
+      { name: "jev", evaluate: async () => { secondProviderCalls += 1; return []; } },
+    ],
+  }), /provider_http_422/);
+  assert.equal(secondProviderCalls, 0);
+});
+
+test("pilot aborts immediately on any provider response schema failure", async () => {
+  let secondProviderCalls = 0;
+  await assert.rejects(() => runPilotProviders({
+    failFast: true,
+    providers: [
+      { name: "jev", evaluate: async () => { throw new Error("provider_response_question_set_mismatch"); } },
+      { name: "laya", evaluate: async () => { secondProviderCalls += 1; return []; } },
+    ],
+  }), /provider_response_question_set_mismatch/);
+  assert.equal(secondProviderCalls, 0);
+});
+
+test("pilot keeps transient provider failures isolated when fail-fast is enabled", async () => {
+  let secondProviderCalls = 0;
+  const result = await runPilotProviders({
+    failFast: true,
+    providers: [
+      { name: "laya", evaluate: async () => { throw new Error("local_service_unavailable"); } },
+      { name: "jev", evaluate: async () => { secondProviderCalls += 1; return []; } },
+    ],
+  });
+  assert.deepEqual(result.providers.laya, { status: "provider_unavailable", reason: "local_service_unavailable" });
+  assert.equal(secondProviderCalls, 1);
+});

@@ -14,12 +14,12 @@ test("live Laya lab sends typed decision questions without PII", async () => {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({
         model: "sales-decision-v0.1",
-        decisions: [
-          { key: "discovery", value: "high", score: 0.9, confidence: 0.9, probabilities: { high: 0.9, medium: 0.1 }, evidence: [] },
-          { key: "price_objection", value: true, score: 0.9, confidence: 0.9, probabilities: { yes: 0.9, no: 0.1 }, evidence: [] },
-          { key: "next_step", value: true, score: 0.9, confidence: 0.9, probabilities: { yes: 0.9, no: 0.1 }, evidence: [] },
-          { key: "intent", value: 4, score: 0.8, confidence: 0.8, probabilities: { "4": 0.8, "3": 0.2 }, evidence: [] },
-        ],
+        answers: {
+          discovery: { type: "choice", choice: "high", confidence: 0.9, probabilities: { low: 0.05, medium: 0.05, high: 0.9 } },
+          price_objection: { type: "noul", noul: 0.9 },
+          next_step: { type: "noul", noul: 0.9 },
+          intent: { type: "score", score: 2.8, confidence: 0.8, probabilities: [0.02, 0.03, 0.05, 0.8, 0.1], legend: { "0": "1", "1": "2", "2": "3", "3": "4", "4": "5" } },
+        },
       }));
     });
   });
@@ -35,10 +35,10 @@ test("live Laya lab sends typed decision questions without PII", async () => {
     assert.match(output, /Model: sales-decision/);
     assert.match(output, /HTTP status: local/);
     assert.match(output, /Usage \.+ Input tokens: 0  Output tokens: 0/);
-    assert.match(output, /Probabilities: \{"high":0.9,"medium":0.1\}/);
+    assert.match(output, /Probabilities: \{"low":0.05,"medium":0.05,"high":0.9\}/);
     assert.match(body, /"questions"/);
     assert.match(body, /"discovery"/);
-    assert.match(body, /"intent":\{"type":"score","instructions":"Rate the synthetic buyer intent from one to five.","minimum":1,"maximum":5\}/);
+    assert.match(body, /"intent":\{"type":"score","instructions":"Rate the synthetic buyer intent from one to five.","levels":\["1","2","3","4","5"\]\}/);
     assert.match(body, /"low":"No clear business pain was identified/);
     assert.doesNotMatch(body, /weak/);
     assert.doesNotMatch(body, /transcript|email|api[_ -]?key|secret/i);

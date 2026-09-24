@@ -8,20 +8,24 @@ const request: DecisionRequest = {
   input: { fit: "high" },
 };
 
-test("LayaDecisionEngine talks to a local service with the shared schema", async () => {
+test("LayaDecisionEngine accepts the local typed response schema only", async () => {
   let receivedUrl = "";
   const engine = new LayaDecisionEngine({
     baseUrl: "http://127.0.0.1:8787",
     fetch: async (input) => {
       receivedUrl = String(input);
       return new Response(JSON.stringify({
-        model: "sales-decision-v0.1",
-        decisions: [{ key: "priority", value: "immediate", score: 0.7, confidence: 0.84, probabilities: { later: 0.3, immediate: 0.7 }, evidence: [] }],
-        usage: { inputTokens: 4, outputTokens: 2, costUsd: 0 },
+        model: "local-laya",
+        answers: {
+          priority: { type: "choice", choice: "immediate", probabilities: { later: 0.3, immediate: 0.7 }, confidence: 0.84 },
+        },
       }), { status: 200, headers: { "content-type": "application/json" } });
     },
   });
-  const result = await engine.decide(request);
+  const result = await engine.decide({
+    ...request,
+    questions: { priority: { type: "choice", instructions: "Choose priority.", criteria: { later: "Later", immediate: "Immediate" } } },
+  });
   assert.equal(receivedUrl, "http://127.0.0.1:8787/v1/decisions");
   assert.equal(engine.provider, "laya");
   assert.equal(result.decisions[0]?.value, "immediate");
@@ -50,17 +54,210 @@ test("LayaDecisionEngine maps official typed answers into the shared decision sc
       ? new Response(JSON.stringify({ model: "convaiinnovations/laya-typed-decisions", answers: {
         owner: { type: "choice", choice: "engineering", probabilities: { billing: 0.1, engineering: 0.8, unknown: 0.1 }, confidence: 0.8 },
         blocked: { type: "noul", noul: 0.7 },
-        severity: { type: "score", score: 1.6, probabilities: [0.1, 0.2, 0.7], confidence: 0.6 },
+        severity: { type: "score", score: 1.6, probabilities: [0.1, 0.2, 0.7], legend: { "0": "0", "1": "1", "2": "2" }, confidence: 0.6 },
       } }), { status: 200 })
       : new Response(JSON.stringify({ status: "ready", device: "mps" }), { status: 200 }),
   });
-  const result = await engine.decide(request);
+  const result = await engine.decide({
+    ...request,
+    questions: {
+      owner: { type: "choice", instructions: "Choose owner.", criteria: { billing: "Billing", engineering: "Engineering", unknown: "Unknown" } },
+      blocked: { type: "noul", instructions: "Is blocked?" },
+      severity: { type: "score", instructions: "Rate severity.", minimum: 0, maximum: 2 },
+    },
+  });
   assert.equal(result.model, "convaiinnovations/laya-typed-decisions");
   assert.equal(result.decisions.find((item) => item.key === "owner")?.value, "engineering");
+  assert.equal(result.decisions.find((item) => item.key === "blocked")?.value, true);
   assert.equal(result.decisions.find((item) => item.key === "blocked")?.score, 0.7);
+  const blockedProbabilities = result.decisions.find((item) => item.key === "blocked")?.probabilities;
+  assert.ok(Math.abs((blockedProbabilities?.false ?? 0) - 0.3) < 1e-12);
+  assert.equal(blockedProbabilities?.true, 0.7);
   assert.equal(result.decisions.find((item) => item.key === "severity")?.value, 1.6);
   assert.equal(result.decisions.find((item) => item.key === "severity")?.score, 0.8);
   assert.deepEqual(result.decisions.find((item) => item.key === "severity")?.probabilities, { "0": 0.1, "1": 0.2, "2": 0.7 });
+});
+
+test("LayaDecisionEngine maps a zero-based provider score onto the requested domain scale", async () => {
+  let requestBody: unknown;
+  const engine = new LayaDecisionEngine({
+    fetch: async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+      model: "local-laya",
+      answers: {
+        buyer_intent: {
+          type: "score",
+          score: 1.6,
+          probabilities: [0.1, 0.2, 0.6, 0.1, 0],
+          legend: { "0": "1", "1": "2", "2": "3", "3": "4", "4": "5" },
+          confidence: 0.7,
+        },
+      },
+      }), { status: 200 });
+    },
+  });
+  const result = await engine.decide({
+    subjectType: "call",
+    subjectId: "synthetic-call",
+    input: { text: "synthetic" },
+    questions: {
+      buyer_intent: { type: "score", instructions: "Rate intent.", minimum: 1, maximum: 5 },
+    },
+  });
+  const decision = result.decisions[0];
+  assert.deepEqual(requestBody, {
+    state: { text: "synthetic" },
+    questions: {
+      buyer_intent: { type: "score", instructions: "Rate intent.", levels: ["1", "2", "3", "4", "5"] },
+    },
+  });
+  assert.equal(decision?.value, 2.6);
+  assert.equal(decision?.score, 0.4);
+  assert.deepEqual(decision?.probabilities, { "1": 0.1, "2": 0.2, "3": 0.6, "4": 0.1, "5": 0 });
+  assert.deepEqual(decision?.metadata, {
+    scoreScale: { minimum: 1, maximum: 5 },
+    providerScore: 1.6,
+    providerLegend: { "0": "1", "1": "2", "2": "3", "3": "4", "4": "5" },
+  });
+});
+
+test("LayaDecisionEngine serializes choice, noul and score questions for the local wire contract", async () => {
+  let receivedUrl = "";
+  let requestBody: unknown;
+  const engine = new LayaDecisionEngine({
+    baseUrl: "http://127.0.0.1:8787",
+    fetch: async (input, init) => {
+      receivedUrl = String(input);
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        model: "local-laya",
+        answers: {
+          owner: { type: "choice", choice: "sales", probabilities: { sales: 0.9, support: 0.1 }, confidence: 0.8 },
+          blocked: { type: "noul", noul: 0.2 },
+          severity: { type: "score", score: 1.25, probabilities: [0.1, 0.55, 0.35], legend: { "0": "2", "1": "3", "2": "4" }, confidence: 0.3 },
+        },
+      }), { status: 200 });
+    },
+  });
+  await engine.decide({
+    subjectType: "call",
+    subjectId: "synthetic-call",
+    input: { text: "synthetic" },
+    questions: {
+      owner: { type: "choice", instructions: "Choose owner.", criteria: { sales: "Sales", support: "Support" } },
+      blocked: { type: "noul", instructions: "Is blocked?" },
+      severity: { type: "score", instructions: "Rate severity.", minimum: 2, maximum: 4 },
+    },
+  });
+  assert.equal(receivedUrl, "http://127.0.0.1:8787/v1/decisions");
+  assert.deepEqual(requestBody, {
+    state: { text: "synthetic" },
+    questions: {
+      owner: { type: "choice", instructions: "Choose owner.", criteria: { sales: "Sales", support: "Support" } },
+      blocked: { type: "noul", instructions: "Is blocked?" },
+      severity: { type: "score", instructions: "Rate severity.", levels: ["2", "3", "4"] },
+    },
+  });
+});
+
+test("LayaDecisionEngine reports HTTP 422 without fallback", async () => {
+  let requests = 0;
+  const engine = new LayaDecisionEngine({
+    fetch: async () => {
+      requests += 1;
+      return new Response(JSON.stringify({ detail: [{ loc: ["body", "questions"], msg: "invalid", type: "value_error" }] }), { status: 422 });
+    },
+  });
+  await assert.rejects(
+    () => engine.decide({
+      ...request,
+      questions: { priority: { type: "choice", instructions: "Choose priority.", criteria: { later: "Later", immediate: "Immediate" } } },
+    }),
+    (error: unknown) => error instanceof Error
+      && error.message === "provider_http_422"
+      && (error as Error & { retryable?: boolean }).retryable === false,
+  );
+  assert.equal(requests, 1);
+});
+
+test("LayaDecisionEngine classifies malformed local responses as systemic schema mismatch", async () => {
+  const engine = new LayaDecisionEngine({
+    fetch: async () => new Response(JSON.stringify({ model: "local-laya", answers: { broken: { type: "score" } } }), { status: 200 }),
+  });
+  await assert.rejects(() => engine.decide({
+    ...request,
+    questions: { priority: { type: "choice", instructions: "Choose priority.", criteria: { later: "Later", immediate: "Immediate" } } },
+  }), /provider_response_schema_mismatch/);
+});
+
+test("LayaDecisionEngine rejects a local shared-schema response instead of bypassing typed validation", async () => {
+  const engine = new LayaDecisionEngine({
+    fetch: async () => new Response(JSON.stringify({
+      model: "local-laya",
+      decisions: [{ key: "priority", value: "immediate", score: 0.7, confidence: 0.8, probabilities: { later: 0.3, immediate: 0.7 }, evidence: [] }],
+    }), { status: 200 }),
+  });
+  await assert.rejects(() => engine.decide({
+    ...request,
+    questions: { priority: { type: "choice", instructions: "Choose priority.", criteria: { later: "Later", immediate: "Immediate" } } },
+  }), /provider_response_schema_mismatch/);
+});
+
+test("LayaDecisionEngine rejects malformed JSON as a systemic schema mismatch", async () => {
+  const engine = new LayaDecisionEngine({
+    fetch: async () => new Response("not-json", { status: 200 }),
+  });
+  await assert.rejects(
+    () => engine.decide({
+      ...request,
+      questions: { priority: { type: "choice", instructions: "Choose priority.", criteria: { later: "Later", immediate: "Immediate" } } },
+    }),
+    (error: unknown) => error instanceof Error
+      && error.message === "provider_response_schema_mismatch"
+      && (error as Error & { retryable?: boolean }).retryable === false,
+  );
+});
+
+test("LayaDecisionEngine rejects score probabilities and legends outside the requested local levels", async () => {
+  const responseFor = (answer: unknown) => new LayaDecisionEngine({
+    fetch: async () => new Response(JSON.stringify({ model: "local-laya", answers: { buyer_intent: answer } }), { status: 200 }),
+  }).decide({
+    subjectType: "call",
+    subjectId: "synthetic-call",
+    input: { text: "synthetic" },
+    questions: { buyer_intent: { type: "score", instructions: "Rate intent.", minimum: 1, maximum: 5 } },
+  });
+  await assert.rejects(() => responseFor({
+    type: "score", score: 1.5, probabilities: [0.1, 0.1, 0.1, 0.1, 0.1], legend: { "0": "1", "1": "2", "2": "3", "3": "4", "4": "5" }, confidence: 0.4,
+  }), /provider_response_schema_mismatch/);
+  await assert.rejects(() => responseFor({
+    type: "score", score: 1.5, probabilities: [0.1, 0.2, 0.3, 0.2, 0.2], legend: { "0": "0", "1": "2", "2": "3", "3": "4", "4": "5" }, confidence: 0.4,
+  }), /provider_response_schema_mismatch/);
+});
+
+test("LayaDecisionEngine rejects missing and unexpected local answer keys", async () => {
+  const decide = (answers: unknown) => new LayaDecisionEngine({
+    fetch: async () => new Response(JSON.stringify({ model: "local-laya", answers }), { status: 200 }),
+  }).decide({
+    ...request,
+    questions: { priority: { type: "choice", instructions: "Choose priority.", criteria: { later: "Later", immediate: "Immediate" } } },
+  });
+  await assert.rejects(() => decide({}), /provider_response_schema_mismatch/);
+  await assert.rejects(() => decide({ other: { type: "choice", choice: "immediate", probabilities: { later: 0.3, immediate: 0.7 }, confidence: 0.8 } }), /provider_response_schema_mismatch/);
+});
+
+test("LayaDecisionEngine rejects a choice that is inherited rather than a requested criterion", async () => {
+  const engine = new LayaDecisionEngine({
+    fetch: async () => new Response(JSON.stringify({
+      model: "local-laya",
+      answers: { priority: { type: "choice", choice: "toString", probabilities: { later: 0.3, immediate: 0.7 }, confidence: 0.8 } },
+    }), { status: 200 }),
+  });
+  await assert.rejects(() => engine.decide({
+    ...request,
+    questions: { priority: { type: "choice", instructions: "Choose priority.", criteria: { later: "Later", immediate: "Immediate" } } },
+  }), /provider_response_schema_mismatch/);
 });
 
 test("LayaDecisionEngine rejects score answers that cannot be normalized", async () => {
