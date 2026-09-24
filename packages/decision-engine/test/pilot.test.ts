@@ -50,6 +50,12 @@ test("pilot aggregation uses evidence-backed presence, deterministic objection c
   assert.equal(aggregate.needsReview, true);
 });
 
+test("pilot aggregation fails closed when buyer intent is not numeric", () => {
+  assert.throws(() => aggregatePilotChunkDecisions([
+    { chunkIndex: 0, key: "buyer_intent", value: "high", confidence: 0.8, probabilities: { high: 1 } },
+  ]), /pilot_buyer_intent_invalid/);
+});
+
 test("pilot keeps Laya results when Jev is unavailable and never falls back to generative AI", async () => {
   const result = await runPilotProviders({
     providers: [

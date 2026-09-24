@@ -103,8 +103,8 @@ export function evaluateLabeledPredictions(rows: LabeledPrediction[]): { byDecis
     byDecision[decisionKey][provider] = {
       totalLabels: values.length, resolved: resolved.length, abstentions: values.length - resolved.length, coverage: values.length ? resolved.length / values.length : 0,
       accuracy: resolved.length ? correct / resolved.length : null,
-      precision: labels.length === 2 && f1s.length ? f1s.reduce((sum, item) => sum + item.precision, 0) / f1s.length : null,
-      recall: labels.length === 2 && f1s.length ? f1s.reduce((sum, item) => sum + item.recall, 0) / f1s.length : null,
+      precision: f1s.length ? f1s.reduce((sum, item) => sum + item.precision, 0) / f1s.length : null,
+      recall: f1s.length ? f1s.reduce((sum, item) => sum + item.recall, 0) / f1s.length : null,
       f1: f1s.length ? f1s.reduce((sum, item) => sum + item.f1, 0) / f1s.length : null,
       confusionMatrix, brierScore,
       averageConfidence: confidenceRows.length ? confidenceRows.reduce((sum, row) => sum + row.confidence!, 0) / confidenceRows.length : null,

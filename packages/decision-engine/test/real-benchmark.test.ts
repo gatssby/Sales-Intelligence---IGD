@@ -17,3 +17,14 @@ test("real benchmark reports per-decision classification, coverage, calibration,
   assert.equal(report.byDecision.cta_present.jev.abstentions, 1);
   assert.equal(report.winnerDeclared, false);
 });
+
+test("real benchmark calculates macro precision recall and F1 for multiclass decisions", () => {
+  const report = evaluateLabeledPredictions([
+    { callId: "call-1", decisionKey: "objection_type", humanValue: "price", provider: "laya", value: "price", confidence: 0.9, probabilities: { price: 0.9, timing: 0.1 }, latencyMs: 10, costUsd: 0 },
+    { callId: "call-2", decisionKey: "objection_type", humanValue: "timing", provider: "laya", value: "price", confidence: 0.8, probabilities: { price: 0.8, timing: 0.2 }, latencyMs: 10, costUsd: 0 },
+    { callId: "call-3", decisionKey: "objection_type", humanValue: "trust", provider: "laya", value: "trust", confidence: 0.9, probabilities: { trust: 0.9, price: 0.1 }, latencyMs: 10, costUsd: 0 },
+  ]);
+  assert.notEqual(report.byDecision.objection_type.laya.precision, null);
+  assert.notEqual(report.byDecision.objection_type.laya.recall, null);
+  assert.notEqual(report.byDecision.objection_type.laya.f1, null);
+});

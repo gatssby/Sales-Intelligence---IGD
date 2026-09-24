@@ -108,7 +108,8 @@ export function aggregatePilotChunkDecisions(chunks: PilotChunkDecision[]): { de
       continue;
     }
     if (key === "buyer_intent") {
-      const numeric = rows.filter((item) => typeof item.value === "number");
+      const numeric = rows.filter((item) => typeof item.value === "number" && Number.isFinite(item.value));
+      if (numeric.length !== rows.length) throw new Error("pilot_buyer_intent_invalid");
       const values = numeric.map((item) => item.value as number);
       const minimum = Math.min(...values);
       const maximum = Math.max(...values);
