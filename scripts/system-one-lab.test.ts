@@ -7,6 +7,7 @@ test("System One lab runs with synthetic data and does not need production crede
   assert.match(output, /SYSTEM ONE/);
   assert.match(output, /SYNTHETIC LAB/);
   assert.match(output, /Processed: 2 \/ 2/);
+  assert.match(output, /Throughput: [0-9.]+ calls\/min \(simulated\)/);
   assert.doesNotMatch(output, /transcript|email|api[_ -]?key|secret/i);
 });
 

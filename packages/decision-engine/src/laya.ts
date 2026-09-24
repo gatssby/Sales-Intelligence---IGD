@@ -3,16 +3,51 @@ import { DecisionResponseSchema, type Decision, type DecisionProvider, type Deci
 
 type FetchLike = typeof fetch;
 
+const LayaTypedAnswerSchema = z.object({
+  type: z.enum(["choice", "noul", "score"]),
+  choice: z.union([z.string(), z.number(), z.boolean()]).optional(),
+  score: z.number().nonnegative().optional(),
+  noul: z.number().min(0).max(1).optional(),
+  probabilities: z.union([z.record(z.string(), z.number().min(0).max(1)), z.array(z.number().min(0).max(1))]).default({}),
+  confidence: z.number().min(0).max(1).optional(),
+}).superRefine((answer, context) => {
+  const invalid = (message: string) => context.addIssue({ code: "custom", message });
+  if (answer.type === "choice" && (answer.choice === undefined || answer.score !== undefined || answer.noul !== undefined)) {
+    invalid("choice_answer_requires_only_choice");
+  }
+  if (answer.type === "noul" && (answer.noul === undefined || answer.choice !== undefined || answer.score !== undefined)) {
+    invalid("noul_answer_requires_only_noul");
+  }
+  if (answer.type === "score" && (answer.score === undefined || answer.choice !== undefined || answer.noul !== undefined || !Array.isArray(answer.probabilities) || answer.probabilities.length < 2)) {
+    invalid("score_answer_requires_levels");
+  }
+});
+
 const LayaAnswersSchema = z.object({
   model: z.string().optional(),
-  answers: z.record(z.string(), z.object({
-    choice: z.union([z.string(), z.number(), z.boolean()]).optional(),
-    score: z.number().min(0).max(1).optional(),
-    noul: z.number().min(0).max(1).optional(),
-    probabilities: z.union([z.record(z.string(), z.number().min(0).max(1)), z.array(z.number().min(0).max(1))]).default({}),
-    confidence: z.number().min(0).max(1).optional(),
-  })),
+  answers: z.record(z.string(), LayaTypedAnswerSchema).refine((answers) => Object.keys(answers).length > 0, "typed_answers_required"),
 });
+
+function mapTypedAnswer(key: string, answer: z.infer<typeof LayaAnswersSchema>["answers"][string]): Decision {
+  const scoreAnswer = answer.type === "score";
+  const levels = Array.isArray(answer.probabilities) ? answer.probabilities.length : 0;
+  const normalizedScore = scoreAnswer
+    ? answer.score === undefined || levels < 2 ? null : answer.score / (levels - 1)
+    : answer.score ?? answer.noul ?? null;
+  if (scoreAnswer && normalizedScore === null) throw new Error("provider_response_invalid_score");
+  if (normalizedScore !== null && (normalizedScore < 0 || normalizedScore > 1)) throw new Error("provider_response_invalid_score");
+  return {
+    key,
+    value: scoreAnswer ? answer.score! : answer.choice ?? answer.score ?? answer.noul ?? false,
+    score: normalizedScore,
+    confidence: answer.confidence ?? (answer.noul === undefined ? 0 : Math.max(answer.noul, 1 - answer.noul)),
+    probabilities: Array.isArray(answer.probabilities)
+      ? Object.fromEntries(answer.probabilities.map((value, index) => [String(index), value]))
+      : answer.probabilities,
+    evidence: [],
+    metadata: scoreAnswer ? { scoreScale: { minimum: 0, maximum: levels - 1 } } : {},
+  };
+}
 
 export class LayaDecisionEngine implements DecisionProvider {
   readonly provider = "laya";
@@ -59,18 +94,8 @@ export class LayaDecisionEngine implements DecisionProvider {
     const direct = DecisionResponseSchema.safeParse(body);
     const parsed = direct.success ? direct.data : (() => {
       const answers = LayaAnswersSchema.parse(body);
-      const decisions: Decision[] = Object.entries(answers.answers).map(([key, answer]) => ({
-        key,
-        value: answer.choice ?? answer.score ?? answer.noul ?? false,
-        score: answer.score ?? answer.noul ?? null,
-        confidence: answer.confidence ?? (answer.noul === undefined ? 0 : Math.max(answer.noul, 1 - answer.noul)),
-        probabilities: Array.isArray(answer.probabilities)
-          ? Object.fromEntries(answer.probabilities.map((value, index) => [String(index), value]))
-          : answer.probabilities,
-        evidence: [],
-        metadata: {},
-      }));
-      return { model: answers.model, decisions, usage: {}, metadata: {} };
+      const decisions: Decision[] = Object.entries(answers.answers).map(([key, answer]) => mapTypedAnswer(key, answer));
+      return DecisionResponseSchema.parse({ model: answers.model, decisions, usage: {}, metadata: {} });
     })();
     return { ...parsed, latencyMs: performance.now() - startedAt };
   }

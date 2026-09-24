@@ -13,8 +13,9 @@
     "deploy:production": "bash scripts/deploy-production.sh origin/main",
     "dev": "npm run dev --workspace=@igd/web",
     "build": "npm run build --workspace=@igd/web",
-    "test": "npm run test:worker && npm run test --workspaces --if-present",
+    "test": "npm run test:worker && npm run test --workspaces --if-present && npm run test:system-one",
     "test:worker": "node --import tsx --test scripts/lib/*.test.ts",
+    "test:system-one": "node --import tsx --test scripts/system-one-*.test.ts scripts/setup-laya-local.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && npm run typecheck --workspaces --if-present",
     "db:migrate": "tsx scripts/migrate.ts",
     "demo:seed": "tsx scripts/seed-demo.ts",
@@ -37,7 +38,8 @@
     "auth:demo-seed": "tsx scripts/seed-auth-demo.ts",
     "test:auth:http": "tsx scripts/test-auth-http.ts",
     "system-one:lab": "tsx scripts/system-one-lab.ts",
-    "system-one:health": "tsx scripts/system-one-health.ts"
+    "system-one:health": "tsx scripts/system-one-health.ts",
+    "system-one:benchmark": "tsx scripts/system-one-benchmark.ts"
   },
   "dependencies": {
     "csv-parse": "^7.0.2",

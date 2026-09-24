@@ -5,6 +5,37 @@ const providerName = process.argv.find((arg) => arg.startsWith("--provider="))?.
 const calls = Number(process.argv.find((arg) => arg.startsWith("--calls="))?.split("=")[1] ?? "6");
 const live = args.has("--live");
 
+const DEMO_QUESTIONS = {
+  discovery: {
+    type: "choice",
+    instructions: "Classify whether the synthetic buyer discovery is low, medium, or high.",
+    criteria: {
+      low: "No clear business pain was identified.",
+      medium: "A business pain was mentioned but its impact is limited.",
+      high: "A business pain and material impact were both identified.",
+    },
+  },
+  price_objection: {
+    type: "noul",
+    instructions: "Does the synthetic call contain a price objection?",
+  },
+  next_step: {
+    type: "noul",
+    instructions: "Does the synthetic call contain a concrete next step?",
+  },
+  intent: {
+    type: "choice",
+    instructions: "Choose the synthetic buyer intent score from one to five.",
+    criteria: {
+      "1": "No commercial intent.",
+      "2": "Low commercial intent.",
+      "3": "Moderate commercial intent.",
+      "4": "High commercial intent.",
+      "5": "Very high commercial intent.",
+    },
+  },
+} as const;
+
 if (!(["jev", "laya"].includes(providerName))) throw new Error("provider_must_be_jev_or_laya");
 if (!Number.isInteger(calls) || calls < 1 || calls > 250) throw new Error("calls_must_be_between_1_and_250");
 
@@ -32,28 +63,41 @@ const demoProvider: DecisionProvider = {
 
 const provider = live ? selected : demoProvider;
 const startedAt = performance.now();
-const throughput = Math.max(0.1, calls / ((performance.now() - startedAt + calls * 70) / 60_000));
-
-console.log("SYSTEM ONE — SALES INTELLIGENCE");
-console.log(`Provider: ${providerName.toUpperCase()}  Mode: Calls  ${live ? "LIVE ADAPTER" : "SYNTHETIC LAB"}`);
-console.log(`Processed: ${calls} / ${calls}`);
-console.log(`Throughput: ${throughput.toFixed(1)} calls/min`);
-console.log("");
+const renderedCalls: string[] = [];
+let reportedLatencyMs = 0;
 
 for (let index = 1; index <= calls; index += 1) {
-  const result = await provider.decide({ subjectType: "call", subjectId: `synthetic-call-${index}`, input: { synthetic: true, callNumber: index } });
+  const result = await provider.decide({
+    subjectType: "call",
+    subjectId: `synthetic-call-${index}`,
+    input: { synthetic: true, callNumber: index },
+    questions: DEMO_QUESTIONS,
+    schemaVersion: "sales-decision-v0.1",
+  });
   const decisions = new Map(result.decisions.map((item) => [item.key, item]));
   const discovery = decisions.get("discovery");
   const price = decisions.get("price_objection");
   const nextStep = decisions.get("next_step");
   const intent = decisions.get("intent");
-  console.log(`Current: Call #${index}  Seller: synthetic-${String((index % 4) + 1).padStart(2, "0")}  Duration: ${28 + index} min`);
-  console.log(`Decisions: Discovery ........ ${String(discovery?.value ?? "—").toUpperCase()}  ${(discovery?.confidence ?? 0).toFixed(2)}`);
-  console.log(`           Price objection .. ${price?.value ? "YES" : "NO"}   ${(price?.confidence ?? 0).toFixed(2)}`);
-  console.log(`           Next step ........ ${nextStep?.value ? "YES" : "NO"}   ${(nextStep?.confidence ?? 0).toFixed(2)}`);
-  console.log(`           Intent ........... ${intent?.value ?? "—"}/5   ${(intent?.confidence ?? 0).toFixed(2)}`);
-  console.log(`Latency .......... ${Math.round(result.latencyMs ?? 0)} ms`);
+  reportedLatencyMs += result.latencyMs ?? 0;
   const costUsd = "costUsd" in result.usage ? result.usage.costUsd : null;
-  console.log(`Cost ............. $${(costUsd ?? 0).toFixed(4)}`);
-  if (index !== calls) console.log("");
+  renderedCalls.push([
+    `Current: Call #${index}  Seller: synthetic-${String((index % 4) + 1).padStart(2, "0")}  Duration: ${28 + index} min`,
+    `Decisions: Discovery ........ ${String(discovery?.value ?? "—").toUpperCase()}  ${(discovery?.confidence ?? 0).toFixed(2)}`,
+    `           Price objection .. ${price?.value ? "YES" : "NO"}   ${(price?.confidence ?? 0).toFixed(2)}`,
+    `           Next step ........ ${nextStep?.value ? "YES" : "NO"}   ${(nextStep?.confidence ?? 0).toFixed(2)}`,
+    `           Intent ........... ${intent?.value ?? "—"}/5   ${(intent?.confidence ?? 0).toFixed(2)}`,
+    `Latency .......... ${Math.round(result.latencyMs ?? 0)} ms`,
+    `Cost ............. $${(costUsd ?? 0).toFixed(4)}`,
+  ].join("\n"));
 }
+
+const elapsedMs = Math.max(1, performance.now() - startedAt);
+const throughputDurationMs = live ? elapsedMs : Math.max(1, reportedLatencyMs);
+const throughput = calls / (throughputDurationMs / 60_000);
+console.log("SYSTEM ONE — SALES INTELLIGENCE");
+console.log(`Provider: ${providerName.toUpperCase()}  Mode: Calls  ${live ? "LIVE ADAPTER" : "SYNTHETIC LAB"}`);
+console.log(`Processed: ${calls} / ${calls}`);
+console.log(`Throughput: ${throughput.toFixed(1)} calls/min (${live ? "measured" : "simulated"})`);
+console.log("");
+console.log(renderedCalls.join("\n\n"));

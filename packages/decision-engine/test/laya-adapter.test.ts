@@ -50,7 +50,7 @@ test("LayaDecisionEngine maps official typed answers into the shared decision sc
       ? new Response(JSON.stringify({ model: "convaiinnovations/laya-typed-decisions", answers: {
         owner: { type: "choice", choice: "engineering", probabilities: { billing: 0.1, engineering: 0.8, unknown: 0.1 }, confidence: 0.8 },
         blocked: { type: "noul", noul: 0.7 },
-        severity: { type: "score", score: 0.6, probabilities: [0.1, 0.2, 0.7], confidence: 0.6 },
+        severity: { type: "score", score: 1.6, probabilities: [0.1, 0.2, 0.7], confidence: 0.6 },
       } }), { status: 200 })
       : new Response(JSON.stringify({ status: "ready", device: "mps" }), { status: 200 }),
   });
@@ -58,13 +58,31 @@ test("LayaDecisionEngine maps official typed answers into the shared decision sc
   assert.equal(result.model, "convaiinnovations/laya-typed-decisions");
   assert.equal(result.decisions.find((item) => item.key === "owner")?.value, "engineering");
   assert.equal(result.decisions.find((item) => item.key === "blocked")?.score, 0.7);
+  assert.equal(result.decisions.find((item) => item.key === "severity")?.value, 1.6);
+  assert.equal(result.decisions.find((item) => item.key === "severity")?.score, 0.8);
   assert.deepEqual(result.decisions.find((item) => item.key === "severity")?.probabilities, { "0": 0.1, "1": 0.2, "2": 0.7 });
 });
 
-test("LayaDecisionEngine rejects typed scores outside the shared probability scale", async () => {
+test("LayaDecisionEngine rejects score answers that cannot be normalized", async () => {
   const engine = new LayaDecisionEngine({
     fetch: async () => new Response(JSON.stringify({ answers: {
-      severity: { type: "score", score: 1.6, probabilities: [0.1, 0.2, 0.7], confidence: 0.6 },
+      severity: { type: "score", score: 1.6, probabilities: [], confidence: 0.6 },
+    } }), { status: 200 }),
+  });
+  await assert.rejects(() => engine.decide(request));
+});
+
+test("LayaDecisionEngine rejects an empty typed answer set", async () => {
+  const engine = new LayaDecisionEngine({
+    fetch: async () => new Response(JSON.stringify({ answers: {} }), { status: 200 }),
+  });
+  await assert.rejects(() => engine.decide(request));
+});
+
+test("LayaDecisionEngine rejects typed answers with incompatible values", async () => {
+  const engine = new LayaDecisionEngine({
+    fetch: async () => new Response(JSON.stringify({ answers: {
+      invalid: { type: "noul", choice: "yes", confidence: 0.9 },
     } }), { status: 200 }),
   });
   await assert.rejects(() => engine.decide(request));

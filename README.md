@@ -156,9 +156,10 @@ Run the local synthetic lab without production credentials or database writes:
 npm run system-one:lab -- --provider=jev --calls=6
 npm run system-one:lab -- --provider=laya --calls=6
 npm run system-one:health
+npm run system-one:benchmark
 ```
 
-Live Jev and local Laya modes are explicit follow-up gates. `GENERATIVE_AI_ENABLED=false` and `DRIVE_DISCOVERY_AUTO_QUEUE=false` remain the safe defaults.
+Use `--live` only with an explicitly configured provider: `npm run system-one:lab -- --provider=jev --live --calls=2` or `npm run system-one:lab -- --provider=laya --live --calls=2`. Laya's first local server run downloads its model only after explicit approval. `GENERATIVE_AI_ENABLED=false` and `DRIVE_DISCOVERY_AUTO_QUEUE=false` remain the safe defaults.
 
 ## Próximos marcos
 
