@@ -1,19 +1,20 @@
 # Jev champion
 
-Jev is the initial champion/baseline. The client runs locally in this repository and calls a remote Jev API through `JevDecisionEngine`.
+Jev is the initial champion/baseline. The client runs locally in this repository and calls the remote provider through `JevDecisionEngine`. The default transport is Vercel AI Gateway; the domain remains provider and transport agnostic.
 
 Configuration is local only:
 
 ```text
-JEV_API_KEY=
-JEV_BASE_URL=
-JEV_MODEL=jev-latest
+JEV_TRANSPORT=vercel-ai-gateway
+AI_GATEWAY_API_KEY=
+AI_GATEWAY_BASE_URL=https://ai-gateway.vercel.sh/v1
+JEV_MODEL=typesafe-ai/jev
 JEV_MODEL_VERSION=
 ```
 
-When `JEV_API_KEY` is absent, the adapter remains testable through injected fetch/mocks and reports `missing_api_key`; it does not fabricate a result. No live test is run in this phase.
+When `AI_GATEWAY_API_KEY` is absent, the adapter remains testable through injected fetch/mocks and reports `missing_ai_gateway_api_key`; it does not fabricate a result.
 
-The request/response seam follows Jev System One's typed-decision API: `POST https://thejevai.com/v1/systemone` with `model`, `state` and `questions`, returning typed `answers`. See the official Jev API documentation before enabling a live integration.
+The Vercel transport sends `POST https://ai-gateway.vercel.sh/v1/evaluate` with `model: typesafe-ai/jev`, state and typed questions. Internal `noul` questions are translated only at this boundary to Vercel's `boolean` type; choice and score schemas stay typed. Responses must contain exactly the requested decision keys and validated probabilities before entering the domain.
 
 For the local demonstration without a key, use the deterministic mock path:
 
@@ -21,7 +22,7 @@ For the local demonstration without a key, use the deterministic mock path:
 npm run system-one:lab -- --provider=jev --calls=2
 ```
 
-For a live call only after `JEV_API_KEY` is present in the local secret store/environment:
+For a live call only after `AI_GATEWAY_API_KEY` is present in the local secret store/environment:
 
 ```bash
 npm run system-one:health

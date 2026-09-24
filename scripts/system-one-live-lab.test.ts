@@ -32,6 +32,9 @@ test("live Laya lab sends typed decision questions without PII", async () => {
     });
     assert.match(output, /LIVE ADAPTER/);
     assert.match(output, /Throughput: [0-9.]+ calls\/min \(measured\)/);
+    assert.match(output, /Model: sales-decision/);
+    assert.match(output, /HTTP status: local/);
+    assert.match(output, /Probabilities: \{"high":0.9,"medium":0.1\}/);
     assert.match(body, /"questions"/);
     assert.match(body, /"discovery"/);
     assert.match(body, /"low":"No clear business pain was identified/);

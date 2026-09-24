@@ -81,9 +81,12 @@ for (let index = 1; index <= calls; index += 1) {
   const intent = decisions.get("intent");
   reportedLatencyMs += result.latencyMs ?? 0;
   const costUsd = "costUsd" in result.usage ? result.usage.costUsd : null;
+  const httpStatus = typeof result.metadata.httpStatus === "number" ? result.metadata.httpStatus : "local";
   renderedCalls.push([
     `Current: Call #${index}  Seller: synthetic-${String((index % 4) + 1).padStart(2, "0")}  Duration: ${28 + index} min`,
+    `Model: ${provider.model}  HTTP status: ${httpStatus}`,
     `Decisions: Discovery ........ ${String(discovery?.value ?? "—").toUpperCase()}  ${(discovery?.confidence ?? 0).toFixed(2)}`,
+    `           Probabilities: ${JSON.stringify(discovery?.probabilities ?? {})}`,
     `           Price objection .. ${price?.value ? "YES" : "NO"}   ${(price?.confidence ?? 0).toFixed(2)}`,
     `           Next step ........ ${nextStep?.value ? "YES" : "NO"}   ${(nextStep?.confidence ?? 0).toFixed(2)}`,
     `           Intent ........... ${intent?.value ?? "—"}/5   ${(intent?.confidence ?? 0).toFixed(2)}`,
