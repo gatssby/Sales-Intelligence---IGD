@@ -181,6 +181,76 @@ test("LayaDecisionEngine reports HTTP 422 without fallback", async () => {
   assert.equal(requests, 1);
 });
 
+test("LayaDecisionEngine preserves only sanitized HTTP 422 validation details", async () => {
+  const secretTranscript = "SECRET TRANSCRIPT";
+  const engine = new LayaDecisionEngine({
+    fetch: async () => new Response(JSON.stringify({
+      detail: [{
+        loc: ["body", "state", "text"],
+        msg: secretTranscript,
+        type: "string_too_long",
+        input: secretTranscript,
+        ctx: { max_length: 1024, secret: secretTranscript, [secretTranscript]: true },
+      }, {
+        loc: ["body", "state", "text"],
+        msg: secretTranscript,
+        type: secretTranscript,
+        input: secretTranscript,
+      }],
+    }), { status: 422 }),
+  });
+  let captured: unknown;
+  try {
+    await engine.decide({
+      ...request,
+      questions: { priority: { type: "choice", instructions: "Choose priority.", criteria: { later: "Later", immediate: "Immediate" } } },
+    });
+  } catch (error) {
+    captured = error;
+  }
+  assert.ok(captured instanceof Error);
+  const structured = captured as Error & { status?: number; validation?: unknown; metadata?: unknown };
+  assert.equal(structured.message, "provider_http_422");
+  assert.equal(structured.status, 422);
+  assert.deepEqual(structured.validation, [{
+    path: ["body", "state", "text"],
+    type: "string_too_long",
+    message: "String should have at most 1024 characters",
+    context: { max_length: 1024 },
+  }, {
+    path: ["body", "state", "text"],
+    type: "validation_error",
+    message: "Request validation failed",
+  }]);
+  assert.equal(structured.metadata, undefined);
+  assert.doesNotMatch(`${structured.message} ${JSON.stringify(structured)}`, /SECRET TRANSCRIPT/);
+});
+
+test("LayaDecisionEngine structures a local context-overflow HTTP 422 without request data", async () => {
+  const engine = new LayaDecisionEngine({
+    fetch: async () => new Response(JSON.stringify({
+      detail: "Laya context overflow: 2736 formatted tokens exceeds 1024; input was not truncated",
+    }), { status: 422 }),
+  });
+  let captured: unknown;
+  try {
+    await engine.decide({
+      ...request,
+      questions: { priority: { type: "choice", instructions: "Choose priority.", criteria: { later: "Later", immediate: "Immediate" } } },
+    });
+  } catch (error) {
+    captured = error;
+  }
+  assert.ok(captured instanceof Error);
+  const structured = captured as Error & { validation?: unknown };
+  assert.deepEqual(structured.validation, [{
+    path: ["body", "state"],
+    type: "laya_context_overflow",
+    message: "Laya context overflow: 2736 formatted tokens exceeds 1024; input was not truncated",
+    context: { formattedTokens: 2736, maxFormattedTokens: 1024 },
+  }]);
+});
+
 test("LayaDecisionEngine classifies malformed local responses as systemic schema mismatch", async () => {
   const engine = new LayaDecisionEngine({
     fetch: async () => new Response(JSON.stringify({ model: "local-laya", answers: { broken: { type: "score" } } }), { status: 200 }),

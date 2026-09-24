@@ -16,7 +16,7 @@ During execution, HTTP 400, endpoint HTTP 404, HTTP 422 and response-schema mism
 
 ## Decisions and chunking
 
-The schema `sales-decision-calls-v0.1` covers pain, impact, price objection, objection type/handling, social proof, urgency, CTA, next step and buyer intent. Chunks use `pilot-chunking-v0.1`: ordered, deterministic, whitespace boundaries, 8,000-character maximum and zero overlap. Timestamp spans are retained when a future transcript source exposes them; current catalog text has no timestamp span column.
+The schema `sales-decision-calls-v0.1` covers pain, impact, price objection, objection type/handling, social proof, urgency, CTA, next step and buyer intent. Chunks use `pilot-chunking-v0.2`: ordered, deterministic, whitespace boundaries, an 8,000-character ceiling, a 900-byte UTF-8 ceiling and zero overlap. The byte ceiling is the conservative local-Laya boundary beneath its 1,024 formatted-token context; chunking never splits a Unicode code point or silently truncates text. Dry-run estimates use both character and UTF-8 byte counts. Timestamp spans are retained when a future transcript source exposes them; current catalog text has no timestamp span column.
 
 Presence signals aggregate by evidence-backed OR. Objection types are a deterministic set; conflicting non-none values become `ambiguous` and require review. Buyer intent selects the highest observed level; spread greater than one level requires review. No arithmetic average is used.
 

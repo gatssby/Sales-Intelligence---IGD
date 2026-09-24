@@ -3,6 +3,8 @@ import test from "node:test";
 import { CALL_PILOT_DECISION_KEYS, CALL_PILOT_QUESTIONS, type DecisionProvider } from "@igd/decision-engine";
 import {
   buildPilotCompletedOutput,
+  estimatePilotChunkCount,
+  PILOT_CHUNKING_OPTIONS,
   PILOT_DRY_RUN_SQL,
   PILOT_LOAD_SQL,
   PILOT_SYNTHETIC_INPUT,
@@ -32,8 +34,17 @@ test("pilot dry-run query is UUID-safe and never returns transcript text", () =>
   assert.match(PILOT_DRY_RUN_SQL, /any\(\$1::uuid\[\]\)/);
   assert.match(PILOT_LOAD_SQL, /any\(\$1::uuid\[\]\)/);
   assert.match(PILOT_DRY_RUN_SQL, /char_length\(normalized_text\)::integer character_count/);
+  assert.match(PILOT_DRY_RUN_SQL, /octet_length\(normalized_text\)::integer byte_count/);
+  assert.match(PILOT_DRY_RUN_SQL, /t\.byte_count/);
   assert.doesNotMatch(PILOT_DRY_RUN_SQL, /normalized_text\s+transcript/);
   assert.match(PILOT_LOAD_SQL, /normalized_text transcript/);
+});
+
+test("pilot uses the Laya-safe byte-aware chunk boundary in dry-run and execution", () => {
+  assert.deepEqual(PILOT_CHUNKING_OPTIONS, { maxCharacters: 8000, maxUtf8Bytes: 900 });
+  assert.equal(estimatePilotChunkCount(8000, 900), 1);
+  assert.equal(estimatePilotChunkCount(8000, 901), 2);
+  assert.equal(estimatePilotChunkCount(0, 0), 0);
 });
 
 test("pilot execution output records private-safe chunk metrics and explicit review reasons", () => {

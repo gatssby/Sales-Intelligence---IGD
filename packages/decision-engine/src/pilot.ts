@@ -1,5 +1,7 @@
 export const PILOT_MANIFEST_VERSION = "system-one-pilot-manifest-v0.1";
-export const PILOT_CHUNKING_VERSION = "pilot-chunking-v0.1";
+export const PILOT_CHUNKING_VERSION = "pilot-chunking-v0.2";
+export const PILOT_MAX_CHUNK_CHARACTERS = 8000;
+export const PILOT_MAX_CHUNK_UTF8_BYTES = 900;
 export const CALL_PILOT_DECISION_KEYS = [
   "pain_identified",
   "impact_explored",
@@ -59,13 +61,31 @@ export function parsePilotManifest(text: string): PilotManifest {
   return { version: PILOT_MANIFEST_VERSION, callIds };
 }
 
-export function chunkPilotTranscript(text: string, options: { maxCharacters: number }): PilotChunkingResult {
+export function chunkPilotTranscript(text: string, options: { maxCharacters: number; maxUtf8Bytes?: number }): PilotChunkingResult {
   if (!Number.isInteger(options.maxCharacters) || options.maxCharacters < 1) throw new Error("pilot_chunk_size_invalid");
+  if (options.maxUtf8Bytes !== undefined && (!Number.isInteger(options.maxUtf8Bytes) || options.maxUtf8Bytes < 1)) throw new Error("pilot_chunk_byte_size_invalid");
   if (!text.trim()) throw new Error("pilot_transcript_empty");
   const chunks: PilotTranscriptChunk[] = [];
+  const encoder = new TextEncoder();
   let start = 0;
   while (start < text.length) {
     let end = Math.min(start + options.maxCharacters, text.length);
+    if (end < text.length && end > start && /[\uD800-\uDBFF]/.test(text[end - 1]!) && /[\uDC00-\uDFFF]/.test(text[end]!)) end -= 1;
+    if (options.maxUtf8Bytes !== undefined) {
+      let byteEnd = start;
+      let byteCount = 0;
+      while (byteEnd < end) {
+        const codePoint = text.codePointAt(byteEnd);
+        if (codePoint === undefined) break;
+        const character = String.fromCodePoint(codePoint);
+        const characterBytes = encoder.encode(character).length;
+        if (byteCount + characterBytes > options.maxUtf8Bytes) break;
+        byteCount += characterBytes;
+        byteEnd += character.length;
+      }
+      if (byteEnd === start) throw new Error("pilot_chunk_byte_budget_too_small");
+      end = byteEnd;
+    }
     if (end < text.length) {
       const boundary = text.lastIndexOf(" ", end);
       if (boundary > start) end = boundary;

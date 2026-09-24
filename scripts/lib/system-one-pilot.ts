@@ -2,9 +2,24 @@ import {
   aggregatePilotChunkDecisions,
   CALL_PILOT_DECISION_KEYS,
   CALL_PILOT_QUESTIONS,
+  PILOT_MAX_CHUNK_CHARACTERS,
+  PILOT_MAX_CHUNK_UTF8_BYTES,
   type DecisionProvider,
   type PilotChunkDecision,
 } from "@igd/decision-engine";
+
+export const PILOT_CHUNKING_OPTIONS = {
+  maxCharacters: PILOT_MAX_CHUNK_CHARACTERS,
+  maxUtf8Bytes: PILOT_MAX_CHUNK_UTF8_BYTES,
+} as const;
+
+export function estimatePilotChunkCount(characterCount: number | null, utf8ByteCount: number | null): number {
+  if (!characterCount || !utf8ByteCount) return 0;
+  return Math.max(
+    Math.ceil(characterCount / PILOT_CHUNKING_OPTIONS.maxCharacters),
+    Math.ceil(utf8ByteCount / PILOT_CHUNKING_OPTIONS.maxUtf8Bytes),
+  );
+}
 
 export type PilotCliArgs = {
   manifestPath: string;
@@ -93,10 +108,13 @@ export const PILOT_DRY_RUN_SQL = `
     c.id::text call_id,
     c.duration_seconds,
     t.id::text transcript_id,
-    t.character_count
+    t.character_count,
+    t.byte_count
   from public.calls c
   left join lateral (
-    select id, char_length(normalized_text)::integer character_count
+    select id,
+      char_length(normalized_text)::integer character_count,
+      octet_length(normalized_text)::integer byte_count
     from public.transcripts
     where call_id = c.id
     order by version desc, created_at desc, id desc

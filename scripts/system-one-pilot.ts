@@ -11,13 +11,14 @@ import {
   type DecisionProvider,
   type PilotChunkDecision,
 } from "@igd/decision-engine";
-import { buildPilotCompletedOutput, PILOT_DRY_RUN_SQL, PILOT_LOAD_SQL, parsePilotCliArgs, preflightThenLoadPilot, type PilotChunkMetric } from "./lib/system-one-pilot.js";
+import { buildPilotCompletedOutput, estimatePilotChunkCount, PILOT_CHUNKING_OPTIONS, PILOT_DRY_RUN_SQL, PILOT_LOAD_SQL, parsePilotCliArgs, preflightThenLoadPilot, type PilotChunkMetric } from "./lib/system-one-pilot.js";
 
 type PilotDryRunRow = {
   call_id: string;
   duration_seconds: number | null;
   transcript_id: string | null;
   character_count: number | null;
+  byte_count: number | null;
 };
 
 type PilotLoadRow = {
@@ -47,7 +48,7 @@ async function main() {
         found: Boolean(call),
         durationSeconds: call?.duration_seconds ?? null,
         transcriptPresent: Boolean(call?.transcript_id),
-        estimatedChunks: call?.character_count ? Math.ceil(call.character_count / 8000) : 0,
+        estimatedChunks: estimatePilotChunkCount(call?.character_count ?? null, call?.byte_count ?? null),
       };
     });
 
@@ -76,7 +77,7 @@ async function main() {
     const executionStartedAt = performance.now();
 
     for (const call of loaded) {
-      const chunking = chunkPilotTranscript(call.transcript, { maxCharacters: 8000 });
+      const chunking = chunkPilotTranscript(call.transcript, PILOT_CHUNKING_OPTIONS);
       const metricsByProvider = new Map<string, PilotChunkMetric[]>();
       const outcome = await runPilotProviders({
         failFast: true,

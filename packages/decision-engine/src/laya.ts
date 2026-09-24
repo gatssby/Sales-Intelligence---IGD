@@ -62,6 +62,83 @@ function requireProbabilityDistribution(probabilities: number[], error: string):
   if (Math.abs(total - 1) > 0.02) throw new Error(error);
 }
 
+type SafeValidationDetail = {
+  path: Array<string | number>;
+  type: string;
+  message: string;
+  context?: Record<string, number | boolean>;
+};
+
+function sanitizeValidationContext(value: unknown): Record<string, number | boolean> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const allowedKeys = new Set(["max_length", "min_length", "ge", "gt", "le", "lt"]);
+  const entries = Object.entries(value).filter((entry): entry is [string, number | boolean] => {
+    const [key, item] = entry;
+    return allowedKeys.has(key) && (typeof item === "boolean" || (typeof item === "number" && Number.isFinite(item)));
+  });
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+function safeValidationType(type: string): string {
+  return new Set([
+    "string_too_long",
+    "string_too_short",
+    "missing",
+    "extra_forbidden",
+    "string_type",
+    "dict_type",
+    "literal_error",
+  ]).has(type) ? type : "validation_error";
+}
+
+function safeValidationMessage(type: string, context: Record<string, number | boolean> | undefined): string {
+  if (type === "string_too_long" && typeof context?.max_length === "number") return `String should have at most ${context.max_length} characters`;
+  if (type === "string_too_short" && typeof context?.min_length === "number") return `String should have at least ${context.min_length} characters`;
+  if (type === "missing") return "Field required";
+  if (type === "extra_forbidden") return "Extra input is not permitted";
+  if (type === "string_type") return "Input should be a valid string";
+  if (type === "dict_type") return "Input should be a valid object";
+  if (type === "literal_error") return "Input does not match an allowed literal";
+  return "Request validation failed";
+}
+
+function sanitizeLayaValidation(body: unknown): SafeValidationDetail[] | undefined {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return undefined;
+  const detail = (body as { detail?: unknown }).detail;
+  if (Array.isArray(detail)) {
+    const safe = detail.slice(0, 16).flatMap((item): SafeValidationDetail[] => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+      const candidate = item as { loc?: unknown; msg?: unknown; type?: unknown; ctx?: unknown };
+      if (!Array.isArray(candidate.loc) || typeof candidate.msg !== "string" || typeof candidate.type !== "string") return [];
+      const path = candidate.loc.flatMap((part): Array<string | number> => {
+        if (typeof part === "number" && Number.isFinite(part)) return [part];
+        if (typeof part === "string" && /^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/.test(part)) return [part];
+        return ["[redacted]"];
+      });
+      const type = safeValidationType(candidate.type);
+      const context = type === "validation_error" ? undefined : sanitizeValidationContext(candidate.ctx);
+      return [{ path, type, message: safeValidationMessage(type, context), ...(context ? { context } : {}) }];
+    });
+    return safe.length ? safe : undefined;
+  }
+  if (typeof detail !== "string") return undefined;
+  const overflow = /^Laya context overflow: (\d+) formatted tokens exceeds (\d+); input was not truncated$/.exec(detail);
+  if (overflow) {
+    const formattedTokens = Number(overflow[1]);
+    const maxFormattedTokens = Number(overflow[2]);
+    return [{
+      path: ["body", "state"],
+      type: "laya_context_overflow",
+      message: detail,
+      context: { formattedTokens, maxFormattedTokens },
+    }];
+  }
+  if (detail === "Laya would shorten instructions/options or replace a literal mask token; input was not truncated or altered") {
+    return [{ path: ["body", "state"], type: "laya_input_would_be_altered", message: detail }];
+  }
+  return undefined;
+}
+
 function requireChoiceAnswer(answer: z.infer<typeof LayaTypedAnswerSchema>, question: Extract<z.infer<typeof LayaQuestionSchema>, { type: "choice" }>): void {
   if (answer.type !== "choice" || typeof answer.choice !== "string" || Array.isArray(answer.probabilities)) throw new Error("provider_response_choice_schema_invalid");
   requireExactKeys(answer.probabilities, Object.keys(question.criteria), "provider_response_choice_out_of_schema");
@@ -177,7 +254,19 @@ export class LayaDecisionEngine implements DecisionProvider {
     }
     if (!response.ok) {
       const error = new Error(`provider_http_${response.status}`);
-      throw Object.assign(error, { retryable: response.status === 408 || response.status === 429 || response.status >= 500 });
+      let validation: SafeValidationDetail[] | undefined;
+      if (response.status === 422) {
+        try {
+          validation = sanitizeLayaValidation(await response.json());
+        } catch {
+          validation = undefined;
+        }
+      }
+      throw Object.assign(error, {
+        retryable: response.status === 408 || response.status === 429 || response.status >= 500,
+        status: response.status,
+        ...(validation ? { validation } : {}),
+      });
     }
     let parsed: {
       model?: string;

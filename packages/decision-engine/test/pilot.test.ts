@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   aggregatePilotChunkDecisions,
   chunkPilotTranscript,
+  PILOT_MAX_CHUNK_CHARACTERS,
+  PILOT_MAX_CHUNK_UTF8_BYTES,
   parsePilotManifest,
   runPilotProviders,
   type PilotChunkDecision,
@@ -26,11 +28,37 @@ test("pilot chunking is deterministic, ordered, and does not require overlap", (
   const first = chunkPilotTranscript(transcript, { maxCharacters: 18 });
   const second = chunkPilotTranscript(transcript, { maxCharacters: 18 });
   assert.deepEqual(first, second);
-  assert.equal(first.version, "pilot-chunking-v0.1");
+  assert.equal(first.version, "pilot-chunking-v0.2");
   assert.equal(first.chunks[0]?.startOffset, 0);
   assert.equal(first.chunks.at(-1)?.endOffset, transcript.length);
   assert.deepEqual(first.chunks.map((chunk) => chunk.index), [0, 1, 2, 3]);
   assert.ok(first.chunks.every((chunk, index) => index === 0 || chunk.startOffset >= first.chunks[index - 1]!.endOffset));
+});
+
+test("pilot chunking enforces the local Laya UTF-8 byte budget without splitting Unicode", () => {
+  assert.equal(PILOT_MAX_CHUNK_CHARACTERS, 8000);
+  assert.equal(PILOT_MAX_CHUNK_UTF8_BYTES, 900);
+  const exactBoundary = chunkPilotTranscript("A".repeat(900), {
+    maxCharacters: PILOT_MAX_CHUNK_CHARACTERS,
+    maxUtf8Bytes: PILOT_MAX_CHUNK_UTF8_BYTES,
+  });
+  const aboveBoundary = chunkPilotTranscript("A".repeat(901), {
+    maxCharacters: PILOT_MAX_CHUNK_CHARACTERS,
+    maxUtf8Bytes: PILOT_MAX_CHUNK_UTF8_BYTES,
+  });
+  const unicode = chunkPilotTranscript("é".repeat(451), {
+    maxCharacters: PILOT_MAX_CHUNK_CHARACTERS,
+    maxUtf8Bytes: PILOT_MAX_CHUNK_UTF8_BYTES,
+  });
+  assert.equal(exactBoundary.chunks.length, 1);
+  assert.equal(aboveBoundary.chunks.length, 2);
+  assert.ok(unicode.chunks.every((chunk) => Buffer.byteLength(chunk.text, "utf8") <= PILOT_MAX_CHUNK_UTF8_BYTES));
+  assert.equal(unicode.chunks.map((chunk) => chunk.text).join(""), "é".repeat(451));
+  assert.ok(unicode.chunks.every((chunk) => !chunk.text.includes("�")));
+});
+
+test("pilot chunking rejects an invalid UTF-8 byte budget", () => {
+  assert.throws(() => chunkPilotTranscript("synthetic", { maxCharacters: 8000, maxUtf8Bytes: 0 }), /pilot_chunk_byte_size_invalid/);
 });
 
 test("pilot aggregation uses evidence-backed presence, deterministic objection conflicts, and review for intent disagreement", () => {

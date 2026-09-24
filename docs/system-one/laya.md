@@ -20,6 +20,10 @@ The local `laya-mps` response represents score as a probability-weighted, zero-b
 
 Health exposes readiness without exposing model files or PII.
 
+The current local server accepts an unbounded JSON `state` schema at the Pydantic layer, a 1 MiB HTTP body, and at most 1,024 formatted model tokens per question. The model boundary rejects rather than truncates any request that exceeds that token context. Because token density varies by content, pilot chunking does not treat a character count as a model-context guarantee: `pilot-chunking-v0.2` keeps the existing 8,000-character ceiling and adds a conservative 900-byte UTF-8 ceiling. This preserves every Unicode code point while leaving headroom for the fixed question instructions, options, state serialization and special tokens.
+
+HTTP 422 errors remain fail-fast. The adapter may attach only sanitized validation fields (`path`, `type`, `message` and numeric/boolean context). FastAPI/Pydantic `input`, request payloads, transcript text, identifiers, headers and arbitrary unrecognized detail strings are discarded.
+
 ## Apple Silicon local demonstration
 
 The local source checkout is intentionally separate from this repository:
