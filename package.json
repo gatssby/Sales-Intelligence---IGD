@@ -39,7 +39,8 @@
     "test:auth:http": "tsx scripts/test-auth-http.ts",
     "system-one:lab": "tsx scripts/system-one-lab.ts",
     "system-one:health": "tsx scripts/system-one-health.ts",
-    "system-one:benchmark": "tsx scripts/system-one-benchmark.ts"
+    "system-one:benchmark": "tsx scripts/system-one-benchmark.ts",
+    "system-one:pilot": "tsx scripts/system-one-pilot.ts"
   },
   "dependencies": {
     "csv-parse": "^7.0.2",

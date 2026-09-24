@@ -3,6 +3,14 @@ import { DecisionResponseSchema, type Decision, type DecisionProvider, type Deci
 
 type FetchLike = typeof fetch;
 export type JevTransport = "vercel-ai-gateway" | "typesafe-direct";
+export type JevLiveStatus = {
+  configured: boolean;
+  reachable: boolean | null;
+  authorized: boolean | null;
+  billingAvailable: boolean | null;
+  liveAvailable: boolean | null;
+  reason?: string;
+};
 
 const ProbabilityMapSchema = z.record(z.string().min(1), z.number().min(0).max(1));
 const GatewayAnswerSchema = z.object({
@@ -129,6 +137,12 @@ export class JevDecisionEngine implements DecisionProvider {
 
   async health(): Promise<ProviderHealth> {
     return this.apiKey ? { available: true } : { available: false, reason: this.transport === "vercel-ai-gateway" ? "missing_ai_gateway_api_key" : "missing_api_key" };
+  }
+
+  async liveStatus(): Promise<JevLiveStatus> {
+    return this.apiKey
+      ? { configured: true, reachable: null, authorized: null, billingAvailable: null, liveAvailable: null }
+      : { configured: false, reachable: null, authorized: null, billingAvailable: null, liveAvailable: false, reason: this.transport === "vercel-ai-gateway" ? "missing_ai_gateway_api_key" : "missing_api_key" };
   }
 
   async decide(request: DecisionRequest) {
