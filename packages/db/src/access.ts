@@ -3,6 +3,8 @@ import { assertCapability } from "@igd/auth";
 import type { PendingQuery, Sql } from "postgres";
 import { calculateAiSpendSummary, type AiSpendSummary, type OfficialCallCost } from "./ai-spend";
 
+const LEGACY_ENGINE_FAMILY = "generative-ai-v1";
+
 export type ScopedCallRow = {
   id: string;
   customer_name: string | null;
@@ -149,7 +151,7 @@ export class ScopedSalesRepository {
       from analysis_runs ar
       join calls c on c.id = ar.call_id
       join sellers s on s.id = c.seller_id
-      where ar.status = 'completed' and ar.is_current = true and ${predicate} and ${selection}
+      where ar.status = 'completed' and ar.engine_family = ${LEGACY_ENGINE_FAMILY} and ar.is_current = true and ${predicate} and ${selection}
     `;
     return rows[0];
   }
@@ -167,7 +169,7 @@ export class ScopedSalesRepository {
       ), official as (
         select ar.*, scoped_calls.seller_id
         from analysis_runs ar join scoped_calls on scoped_calls.id = ar.call_id
-        where ar.status = 'completed' and ar.is_current = true
+        where ar.status = 'completed' and ar.engine_family = ${LEGACY_ENGINE_FAMILY} and ar.is_current = true
       ), opportunity as (
         select result_json->>'opportunity_quality' quality, count(*) amount
         from official group by 1 order by amount desc, quality limit 1
@@ -192,7 +194,7 @@ export class ScopedSalesRepository {
     return this.sql<ScopedSellerMetric[]>`
       select s.seller_code, s.display_name seller_name, round(avg(ar.score)) score, count(ar.score)::integer calls
       from analysis_runs ar join calls c on c.id=ar.call_id join sellers s on s.id=c.seller_id
-      where ar.status='completed' and ar.is_current=true and ${predicate} and ${selection} and ${dates}
+      where ar.status='completed' and ar.engine_family=${LEGACY_ENGINE_FAMILY} and ar.is_current=true and ${predicate} and ${selection} and ${dates}
       group by s.id,s.seller_code,s.display_name order by avg(ar.score) desc,s.display_name
     `;
   }
@@ -206,7 +208,7 @@ export class ScopedSalesRepository {
       select coalesce(c.primary_closer_id,s.person_id) entity_id,
         round(avg(ar.score)) score,count(ar.score)::integer calls
       from analysis_runs ar join calls c on c.id=ar.call_id join sellers s on s.id=c.seller_id
-      where ar.status='completed' and ar.is_current=true and ar.score is not null
+      where ar.status='completed' and ar.engine_family=${LEGACY_ENGINE_FAMILY} and ar.is_current=true and ar.score is not null
         and coalesce(c.primary_closer_id,s.person_id) is not null and ${predicate} and ${selection} and ${dates}
       group by coalesce(c.primary_closer_id,s.person_id)
     `;
@@ -221,7 +223,7 @@ export class ScopedSalesRepository {
       select coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id) entity_id,
         round(avg(ar.score)) score,count(ar.score)::integer calls
       from analysis_runs ar join calls c on c.id=ar.call_id join sellers s on s.id=c.seller_id
-      where ar.status='completed' and ar.is_current=true and ar.score is not null
+      where ar.status='completed' and ar.engine_family=${LEGACY_ENGINE_FAMILY} and ar.is_current=true and ar.score is not null
         and coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id) is not null and ${predicate} and ${selection} and ${dates}
       group by coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
     `;
@@ -237,7 +239,7 @@ export class ScopedSalesRepository {
         round(avg((dimension->>'score')::numeric)) score, count(*)::integer calls
       from analysis_runs ar join calls c on c.id=ar.call_id join sellers s on s.id=c.seller_id
       cross join lateral jsonb_array_elements(ar.result_json->'dimensions') dimension
-      where ar.status='completed' and ar.is_current=true and ar.score is not null and ${predicate} and ${selection} and ${dates}
+      where ar.status='completed' and ar.engine_family=${LEGACY_ENGINE_FAMILY} and ar.is_current=true and ar.score is not null and ${predicate} and ${selection} and ${dates}
       group by dimension->>'key' order by avg((dimension->>'score')::numeric) desc
     `;
   }
@@ -257,7 +259,7 @@ export class ScopedSalesRepository {
       join calls c on c.id = ar.call_id
       join sellers s on s.id = c.seller_id
       left join teams tteam on tteam.id = coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
-      where ar.status = 'completed' and ar.is_current = true and ar.score is not null and ${predicate} and ${selection} and ${dates}
+      where ar.status = 'completed' and ar.engine_family = ${LEGACY_ENGINE_FAMILY} and ar.is_current = true and ar.score is not null and ${predicate} and ${selection} and ${dates}
       order by c.started_at desc nulls last,c.id desc
       limit ${Math.max(1, Math.min(limit, 100))}
     `;
@@ -278,7 +280,7 @@ export class ScopedSalesRepository {
       join sellers s on s.id = c.seller_id
       left join teams tteam on tteam.id = coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
       where c.id = ${callId}
-        and ar.status = 'completed' and ar.is_current = true and ${predicate} and ${selection}
+        and ar.status = 'completed' and ar.engine_family = ${LEGACY_ENGINE_FAMILY} and ar.is_current = true and ${predicate} and ${selection}
       limit 1
     `;
     return rows[0] ?? null;
@@ -305,7 +307,7 @@ export class ScopedSalesRepository {
         from calls c join sellers s on s.id=c.seller_id
         left join teams t on t.id=coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
         left join analysis_jobs j on j.call_id=c.id
-        left join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ar.is_current=true
+        left join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ar.engine_family=${LEGACY_ENGINE_FAMILY} and ar.is_current=true
         where ${predicate} and ${selection}
         order by coalesce(c.started_at,c.created_at) desc,c.id desc
         limit ${pageSize} offset ${offset}
@@ -334,7 +336,7 @@ export class ScopedSalesRepository {
       from calls c join sellers s on s.id=c.seller_id
       left join teams t on t.id=coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
       left join analysis_jobs j on j.call_id=c.id
-      left join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ar.is_current=true
+      left join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ar.engine_family=${LEGACY_ENGINE_FAMILY} and ar.is_current=true
       where c.id=${callId} and ${predicate} and ${selection} limit 1
     `;
     return rows[0] ?? null;
@@ -363,7 +365,7 @@ export class ScopedSalesRepository {
       ), state as (
         select scoped.id, j.status, j.stage, j.last_error_code, ar.id official_id
         from scoped left join analysis_jobs j on j.call_id=scoped.id
-        left join analysis_runs ar on ar.call_id=scoped.id and ar.status='completed' and ar.is_current=true
+        left join analysis_runs ar on ar.call_id=scoped.id and ar.status='completed' and ar.engine_family=${LEGACY_ENGINE_FAMILY} and ar.is_current=true
       )
       select count(*)::integer total,
         count(*) filter(where official_id is not null)::integer analyzed,
@@ -396,7 +398,7 @@ export class ScopedSalesRepository {
         ar.started_at
       from analysis_jobs j join calls c on c.id=j.call_id join sellers s on s.id=c.seller_id
       join analysis_runs ar on ar.id=j.analysis_run_id
-      where j.status='claimed' and ${predicate} and ${selection}
+      where j.status='claimed' and ar.engine_family=${LEGACY_ENGINE_FAMILY} and ${predicate} and ${selection}
       order by ar.started_at limit 20
     `;
   }
@@ -409,7 +411,7 @@ export class ScopedSalesRepository {
       select aa.role,aa.attempt_number,aa.model,aa.provider,aa.status,aa.gateway_actual_cost_usd,
         aa.latency_ms,aa.requested_at,aa.error_code
       from calls c join sellers s on s.id=c.seller_id
-      join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ar.is_current=true
+      join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ar.engine_family=${LEGACY_ENGINE_FAMILY} and ar.is_current=true
       join analysis_attempts aa on aa.analysis_run_id=ar.id
       where c.id=${callId} and ${predicate} and ${selection} order by aa.attempt_number
     `;
@@ -453,7 +455,7 @@ export class ScopedSalesRepository {
           ar.escalated,ar.human_review_requested,coalesce(ar.finished_at,ar.created_at) completed_at,
           (ar.strategy_version=${options.strategyVersion} and ar.confidence_policy_version=${options.confidencePolicyVersion}) current_strategy
         from analysis_runs ar left join attempt_costs ac on ac.analysis_run_id=ar.id
-        where ar.status='completed' and ar.is_current=true
+        where ar.status='completed' and ar.engine_family=${LEGACY_ENGINE_FAMILY} and ar.is_current=true
         order by coalesce(ar.finished_at,ar.created_at) desc
       `,
       this.sql<{ eligible: number }[]>`
@@ -463,7 +465,7 @@ export class ScopedSalesRepository {
           and not (j.status='awaiting_transcript' and coalesce(j.last_error_code,'') like 'transcript_access%')
           and not exists (
             select 1 from analysis_runs ar
-            where ar.call_id=j.call_id and ar.status='completed' and ar.is_current=true
+            where ar.call_id=j.call_id and ar.status='completed' and ar.engine_family=${LEGACY_ENGINE_FAMILY} and ar.is_current=true
           )
       `,
       this.sql<{ status: string; concurrency: number; last_seen_at: Date }[]>`
@@ -474,7 +476,7 @@ export class ScopedSalesRepository {
       this.sql<{ last_completion_at: Date | null }[]>`
         select max(coalesce(finished_at,created_at)) last_completion_at
         from analysis_runs
-        where status='completed' and strategy_version=${options.strategyVersion}
+        where engine_family=${LEGACY_ENGINE_FAMILY} and status='completed' and strategy_version=${options.strategyVersion}
           and confidence_policy_version=${options.confidencePolicyVersion}
       `,
     ]);

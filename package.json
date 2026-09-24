@@ -35,7 +35,9 @@
     "auth:bootstrap-admin": "tsx scripts/bootstrap-admin.ts",
     "auth:bootstrap-platform-admin": "tsx scripts/bootstrap-platform-admin.ts",
     "auth:demo-seed": "tsx scripts/seed-auth-demo.ts",
-    "test:auth:http": "tsx scripts/test-auth-http.ts"
+    "test:auth:http": "tsx scripts/test-auth-http.ts",
+    "system-one:lab": "tsx scripts/system-one-lab.ts",
+    "system-one:health": "tsx scripts/system-one-health.ts"
   },
   "dependencies": {
     "csv-parse": "^7.0.2",
