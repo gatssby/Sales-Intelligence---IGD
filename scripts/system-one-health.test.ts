@@ -5,9 +5,10 @@ import test from "node:test";
 
 const run = promisify(execFile);
 
-test("System One health reports a missing local Vercel key without failing", async () => {
+test("System One health reports missing TypeSafe configuration without probing live availability", async () => {
   const { stdout } = await run("npm", ["run", "system-one:health"], {
-    env: { ...process.env, AI_GATEWAY_API_KEY: "", JEV_API_KEY: "" },
+    env: { ...process.env, AI_GATEWAY_API_KEY: "", JEV_API_KEY: "", TYPESAFE_API_KEY: "", JEV_TRANSPORT: "typesafe-direct" },
   });
-  assert.match(stdout, /missing_ai_gateway_api_key/);
+  assert.match(stdout, /missing_typesafe_api_key/);
+  assert.doesNotMatch(stdout, /"jevStatus"/);
 });

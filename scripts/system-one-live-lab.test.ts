@@ -34,9 +34,11 @@ test("live Laya lab sends typed decision questions without PII", async () => {
     assert.match(output, /Throughput: [0-9.]+ calls\/min \(measured\)/);
     assert.match(output, /Model: sales-decision/);
     assert.match(output, /HTTP status: local/);
+    assert.match(output, /Usage \.+ Input tokens: 0  Output tokens: 0/);
     assert.match(output, /Probabilities: \{"high":0.9,"medium":0.1\}/);
     assert.match(body, /"questions"/);
     assert.match(body, /"discovery"/);
+    assert.match(body, /"intent":\{"type":"score","instructions":"Rate the synthetic buyer intent from one to five.","minimum":1,"maximum":5\}/);
     assert.match(body, /"low":"No clear business pain was identified/);
     assert.doesNotMatch(body, /weak/);
     assert.doesNotMatch(body, /transcript|email|api[_ -]?key|secret/i);

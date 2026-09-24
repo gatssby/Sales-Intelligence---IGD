@@ -24,15 +24,10 @@ const DEMO_QUESTIONS = {
     instructions: "Does the synthetic call contain a concrete next step?",
   },
   intent: {
-    type: "choice",
-    instructions: "Choose the synthetic buyer intent score from one to five.",
-    criteria: {
-      "1": "No commercial intent.",
-      "2": "Low commercial intent.",
-      "3": "Moderate commercial intent.",
-      "4": "High commercial intent.",
-      "5": "Very high commercial intent.",
-    },
+    type: "score",
+    instructions: "Rate the synthetic buyer intent from one to five.",
+    minimum: 1,
+    maximum: 5,
   },
 } as const;
 
@@ -81,6 +76,8 @@ for (let index = 1; index <= calls; index += 1) {
   const intent = decisions.get("intent");
   reportedLatencyMs += result.latencyMs ?? 0;
   const costUsd = "costUsd" in result.usage ? result.usage.costUsd : null;
+  const inputTokens = result.usage.inputTokens ?? 0;
+  const outputTokens = result.usage.outputTokens ?? 0;
   const httpStatus = typeof result.metadata.httpStatus === "number" ? result.metadata.httpStatus : "local";
   renderedCalls.push([
     `Current: Call #${index}  Seller: synthetic-${String((index % 4) + 1).padStart(2, "0")}  Duration: ${28 + index} min`,
@@ -91,6 +88,7 @@ for (let index = 1; index <= calls; index += 1) {
     `           Next step ........ ${nextStep?.value ? "YES" : "NO"}   ${(nextStep?.confidence ?? 0).toFixed(2)}`,
     `           Intent ........... ${intent?.value ?? "—"}/5   ${(intent?.confidence ?? 0).toFixed(2)}`,
     `Latency .......... ${Math.round(result.latencyMs ?? 0)} ms`,
+    `Usage ............ Input tokens: ${inputTokens}  Output tokens: ${outputTokens}`,
     `Cost ............. $${(costUsd ?? 0).toFixed(4)}`,
   ].join("\n"));
 }
