@@ -20,6 +20,8 @@ The schema `sales-decision-calls-v0.1` covers pain, impact, price objection, obj
 
 Presence signals aggregate by evidence-backed OR. Objection types are a deterministic set; conflicting non-none values become `ambiguous` and require review. Buyer intent selects the highest observed level; spread greater than one level requires review. No arithmetic average is used.
 
-Human labels are reviewed manually from `human-labels.example.csv`. Provider outputs, including Jev teacher signals, never become labels automatically.
+Human labels use the explicit blind contract in [human-ground-truth.md](human-ground-truth.md). The localhost review tool reads one transcript at a time through `system_one_pilot_ro` and writes only private label JSON. Provider outputs, including Laya predictions or future Jev signals, never become labels automatically.
 
 Benchmarks calculate metrics by decision/provider only after human labels: accuracy, macro precision/recall/F1 where applicable, confusion matrix, abstention, coverage, confidence, Brier score when probabilities exist, latency, throughput, cost and provider agreement. They never declare a winner automatically.
+
+Potential v0.2 aggregation, rubric, relevance, active-learning and fine-tuning experiments are benchmark-gated in [v0.2-benchmark-proposal.md](v0.2-benchmark-proposal.md). That proposal does not authorize provider execution, schema migration, training or production routing.
