@@ -2,16 +2,39 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { classifyDriveDocument, resolveCallParticipants, resolveCallTime, resolveOrganizationAt, resolvePrimaryCloser } from "../src/index.js";
 
-test("classifies likely transcripts deterministically and ignores unrelated files", () => {
+test("classifies likely transcripts deterministically, excludes AI notes, and ignores unrelated files", () => {
   assert.deepEqual(classifyDriveDocument({
     mimeType: "application/vnd.google-apps.document",
     name: "Anotações do Gemini - Call 2026-09-10",
+    ancestorNames: ["Calls"],
+  }), {
+    documentType: "document",
+    transcriptStatus: "ignored",
+    confidence: 1,
+    method: "mime_name",
+  });
+
+  assert.deepEqual(classifyDriveDocument({
+    mimeType: "application/vnd.google-apps.document",
+    name: "Transcrição - Call 2026-09-10",
     ancestorNames: ["Calls"],
   }), {
     documentType: "transcript",
     transcriptStatus: "candidate",
     confidence: 0.9,
     method: "mime_name",
+  });
+
+  assert.deepEqual(classifyDriveDocument({
+    mimeType: "application/vnd.google-apps.document",
+    name: "Documento sem provenance",
+    ancestorNames: ["Transcrições", "Calls"],
+    contentSample: "00:01 Pessoa A: olá\n00:02 Pessoa B: tudo bem",
+  }), {
+    documentType: "document",
+    transcriptStatus: "needs_review",
+    confidence: 0.4,
+    method: "mime_type",
   });
 
   assert.deepEqual(classifyDriveDocument({
