@@ -66,13 +66,17 @@ const DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 const ALLOWED_READ_ONLY_DRIVE_SCOPES = new Set([
   DRIVE_READONLY_SCOPE,
   "https://www.googleapis.com/auth/drive.metadata.readonly",
+  "openid",
+  "email",
+  "profile",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
 ]);
 
 export function assertReadOnlyDriveScopes(scopes: string[]): void {
   const normalized = [...new Set(scopes.map((scope) => scope.trim()).filter(Boolean))];
   if (!normalized.includes(DRIVE_READONLY_SCOPE)) throw new Error("google_drive_readonly_scope_required");
-  if (normalized.some((scope) => scope.startsWith("https://www.googleapis.com/auth/drive")
-    && !ALLOWED_READ_ONLY_DRIVE_SCOPES.has(scope))) {
+  if (normalized.some((scope) => !ALLOWED_READ_ONLY_DRIVE_SCOPES.has(scope))) {
     throw new Error("google_drive_scope_not_read_only");
   }
 }
