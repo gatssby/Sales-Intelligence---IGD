@@ -32,7 +32,7 @@ test("an inaccessible file does not abort the rest of a Drive catalog scan", asy
 
   assert.deepEqual(stored, ["transcript-file-1", "unrelated-file-1"]);
   assert.deepEqual(inaccessible, ["inaccessible-file-1"]);
-  assert.deepEqual(summary, { discovered: 2, created: 2, existing: 0, candidates: 1, newCandidates: 1, ignored: 1, inaccessible: 1, errors: 0 });
+  assert.deepEqual(summary, { discovered: 2, created: 2, existing: 0, candidates: 0, newCandidates: 0, ignored: 2, inaccessible: 1, errors: 0 });
 });
 
 test("legacy reconciliation precedes attribution and temporal membership", async () => {
@@ -90,7 +90,7 @@ test("an explicitly authorized queue cycle revisits an unchanged linked document
 
 test("owner and incidental transcript dates do not become primary closer or actual call time", async () => {
   const recorded: Array<{ personId?: string | null; callTimeMethod?: string | null }> = [];
-  const entry = file("candidate-file-1", "Call 2026-09-10", "application/vnd.google-apps.document");
+  const entry = file("candidate-file-1", "Transcrição 2026-09-10", "application/vnd.google-apps.document");
   entry.owners = [{ displayName: "Supervisora Sintética", emailAddress: "supervisor@example.invalid" }];
   await resolveDriveTranscript({
     documentId: "document-1",
@@ -142,7 +142,7 @@ test("a document still needing transcript review cannot be promoted to a call", 
 });
 
 test("Drive owner metadata is not copied into call participants", async () => {
-  const candidate = file("participant-file-1", "Call V9001", "application/vnd.google-apps.document");
+  const candidate = file("participant-file-1", "Transcrição V9001", "application/vnd.google-apps.document");
   candidate.owners = [{ displayName: "Supervisora Sintética", emailAddress: "supervisor@example.invalid" }];
   let participantIds: string[] = [];
   await resolveDriveTranscript({
@@ -169,7 +169,7 @@ test("a transient content read failure cannot promote a candidate", async () => 
   let reconciled = false;
   await assert.rejects(() => resolveDriveTranscript({
     documentId: "transient-document-1",
-    entry: { file: file("transient-file-1", "Call V9001", "application/vnd.google-apps.document"), ancestorIds: [], ancestorNames: ["Calls"], shortcutId: null },
+    entry: { file: file("transient-file-1", "Transcrição V9001", "application/vnd.google-apps.document"), ancestorIds: [], ancestorNames: ["Calls"], shortcutId: null },
     people: [{ personId: "closer", sellerId: "seller-1", sellerCode: "V9001", fullName: "Closer Sintético" }],
     readTranscript: async () => { throw new Error("transcript_rate_limited"); },
     requestAnalysis: false,
@@ -188,7 +188,7 @@ test("a missing front keeps an otherwise resolved transcript in review", async (
   let reconciled = false;
   const result = await resolveDriveTranscript({
     documentId: "front-document-1",
-    entry: { file: file("front-file-1", "Call V9001", "application/vnd.google-apps.document"), ancestorIds: [], ancestorNames: ["Calls"], shortcutId: null },
+    entry: { file: file("front-file-1", "Transcrição V9001", "application/vnd.google-apps.document"), ancestorIds: [], ancestorNames: ["Calls"], shortcutId: null },
     people: [{ personId: "closer", sellerId: "seller-1", sellerCode: "V9001", fullName: "Closer Sintético" }],
     requestAnalysis: false,
   }, {

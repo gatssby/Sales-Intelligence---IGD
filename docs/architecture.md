@@ -100,8 +100,10 @@ Chaves recomendadas:
 Prioridade:
 
 1. usar transcrição já existente;
-2. usar documento/nota exportável para texto;
+2. usar somente documento com provenance explícita de transcript e validação estrutural secundária;
 3. transcrever gravação apenas quando necessário.
+
+Anotações do Gemini, AI meeting notes e resumos automáticos são artefatos auxiliares, não transcripts. Eles nunca substituem fala original em avaliação comportamental, labels humanos, benchmark, seleção de cohort ou training data. Ausência de provenance falha fechado. A arquitetura experimental detalhada está em `docs/system-one/transcript-provenance-v02.md`.
 
 A transcrição normalizada deve permitir, quando disponível:
 
