@@ -8,6 +8,8 @@ function file(id: string, name: string, mimeType: string): GoogleDriveFile {
     id, name, mimeType, parents: ["root-folder"], driveId: null, trashed: false,
     createdTime: "2026-09-10T12:00:00Z", modifiedTime: "2026-09-10T13:00:00Z",
     sharedWithMeTime: null, version: "1", webViewLink: null, resourceKey: null,
+    size: null, fileExtension: null, fullFileExtension: null, originalFilename: null, description: null,
+    properties: {}, appProperties: {}, videoMediaMetadata: null,
     shortcutDetails: null, owners: [], sharingUser: null, lastModifyingUser: null,
     capabilities: { canDownload: true, canListChildren: false },
   };

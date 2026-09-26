@@ -24,6 +24,39 @@ test("lists every Shared with me page with explicit Drive-safe fields", async ()
   assert.equal(urls[0].searchParams.get("includeItemsFromAllDrives"), "true");
   assert.match(urls[0].searchParams.get("fields") ?? "", /nextPageToken/);
   assert.match(urls[0].searchParams.get("fields") ?? "", /shortcutDetails/);
+  assert.match(urls[0].searchParams.get("fields") ?? "", /fullFileExtension/);
+  assert.match(urls[0].searchParams.get("fields") ?? "", /appProperties/);
+});
+
+test("fails closed when the Drive API reports an incomplete search", async () => {
+  const client = new GoogleDriveDiscoveryClient(
+    { async getAccessToken() { return "synthetic-access"; } },
+    async () => new Response(JSON.stringify({ incompleteSearch: true, files: [] }), { status: 200 }),
+  );
+
+  await assert.rejects(() => client.listSharedWithMe(), /drive_search_incomplete/);
+});
+
+test("preserves caption extensions and sanitized metadata keys needed by deterministic provenance", async () => {
+  const client = new GoogleDriveDiscoveryClient({ async getAccessToken() { return "synthetic-access"; } }, async () => new Response(JSON.stringify({
+    id: "caption-file-1",
+    name: "Synthetic meeting.sbv",
+    mimeType: "text/plain",
+    fullFileExtension: "sbv",
+    originalFilename: "Synthetic meeting.sbv",
+    description: "Synthetic metadata",
+    properties: { meeting_id: "synthetic-value" },
+    appProperties: { generated_by: "meet" },
+    videoMediaMetadata: { durationMillis: "1234" },
+  }), { status: 200 }));
+
+  const file = await client.getFile("caption-file-1");
+  assert.equal(file.fullFileExtension, "sbv");
+  assert.equal(file.originalFilename, "Synthetic meeting.sbv");
+  assert.equal(file.description, "Synthetic metadata");
+  assert.deepEqual(Object.keys(file.properties), ["meeting_id"]);
+  assert.deepEqual(Object.keys(file.appProperties), ["generated_by"]);
+  assert.equal(file.videoMediaMetadata?.durationMillis, "1234");
 });
 
 test("walks folders recursively and canonicalizes shortcuts by target file id", async () => {
@@ -31,6 +64,8 @@ test("walks folders recursively and canonicalizes shortcuts by target file id", 
     id, name, mimeType, shortcutDetails, parents: [], driveId: null, trashed: false,
     createdTime: null, modifiedTime: null, sharedWithMeTime: null, version: null,
     webViewLink: null, resourceKey: null, owners: [], sharingUser: null, lastModifyingUser: null,
+    size: null, fileExtension: null, fullFileExtension: null, originalFilename: null, description: null,
+    properties: {}, appProperties: {}, videoMediaMetadata: null,
     capabilities: { canDownload: true, canListChildren: true },
   });
   const rootChildren = [

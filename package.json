@@ -46,7 +46,8 @@
     "system-one:benchmark:human": "tsx scripts/system-one-human-benchmark.ts",
     "system-one:agreement:human": "tsx scripts/system-one-human-agreement.ts",
     "system-one:v02:validate": "tsx scripts/validate-system-one-v02-responses.ts",
-    "system-one:v02:compare": "tsx scripts/compare-system-one-v02-external.ts"
+    "system-one:v02:compare": "tsx scripts/compare-system-one-v02-external.ts",
+    "system-one:drive:inventory": "tsx scripts/system-one-drive-inventory.ts"
   },
   "dependencies": {
     "csv-parse": "^7.0.2",
