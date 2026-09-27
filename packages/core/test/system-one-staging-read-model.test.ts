@@ -812,6 +812,130 @@ test("ambiguous candidates require preserved ambiguity exceptions", () => {
   );
 });
 
+test("ambiguous candidate exceptions link to the exact deterministic candidate id", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const candidate = {
+    ...valid.candidateAssociations[0],
+    candidateState: "ambiguous" as const,
+    evidence: {
+      ...valid.candidateAssociations[0].evidence,
+      ambiguityState: "ambiguous" as const,
+    },
+  };
+  const candidateId = createSystemOneDeterministicId(
+    "candidate-association",
+    SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+    {
+      leftOpaqueAssetId: candidate.leftOpaqueAssetId,
+      rightOpaqueAssetId: candidate.rightOpaqueAssetId,
+      ruleId: candidate.ruleId,
+      ruleVersion: candidate.ruleVersion,
+    },
+  );
+  const input = {
+    ...valid,
+    candidateAssociations: [candidate],
+    scopeExceptions: [
+      ...valid.scopeExceptions,
+      {
+        kind: "scope_exception" as const,
+        exceptionType: "candidate_ambiguity" as const,
+        opaqueReference: candidateId,
+        scopeCategory: "candidate_identity",
+        transcriptPossibility: "not_applicable" as const,
+        resolutionState: "fail_closed" as const,
+        failClosedReason: "synthetic_candidate_ambiguity",
+      },
+    ],
+  };
+
+  assert.doesNotThrow(() => buildSystemOneStagingReadModel(input));
+});
+
+test("ambiguous candidate exception pointing at another id fails closed", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const ambiguousCandidate = {
+    ...valid.candidateAssociations[0],
+    candidateState: "ambiguous" as const,
+    evidence: {
+      ...valid.candidateAssociations[0].evidence,
+      ambiguityState: "ambiguous" as const,
+    },
+  };
+  const otherCandidate = {
+    ...valid.candidateAssociations[0],
+    rightOpaqueAssetId: opaqueAssetId("asset-recording-other"),
+  };
+  const otherCandidateId = createSystemOneDeterministicId(
+    "candidate-association",
+    SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+    {
+      leftOpaqueAssetId: otherCandidate.leftOpaqueAssetId,
+      rightOpaqueAssetId: otherCandidate.rightOpaqueAssetId,
+      ruleId: otherCandidate.ruleId,
+      ruleVersion: otherCandidate.ruleVersion,
+    },
+  );
+  const candidatePairSetHash = computeCandidatePairSetHash([ambiguousCandidate, otherCandidate]);
+  const input = {
+    ...valid,
+    candidateAssociations: [ambiguousCandidate, otherCandidate],
+    metadata: {
+      ...valid.metadata,
+      candidatePairSetHash,
+      status: {
+        ...valid.metadata.status,
+        candidatePairSetHash,
+      },
+    },
+    assertions: {
+      ...valid.assertions,
+      expectedMnnCandidateGroups: 2,
+    },
+    scopeExceptions: [
+      ...valid.scopeExceptions,
+      {
+        kind: "scope_exception" as const,
+        exceptionType: "candidate_ambiguity" as const,
+        opaqueReference: otherCandidateId,
+        scopeCategory: "candidate_identity",
+        transcriptPossibility: "not_applicable" as const,
+        resolutionState: "fail_closed" as const,
+        failClosedReason: "synthetic_candidate_ambiguity",
+      },
+    ],
+  };
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel(input),
+    /candidate_ambiguity_exception_link_invalid/,
+  );
+});
+
+test("orphan candidate ambiguity exception fails closed", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    scopeExceptions: [
+      ...valid.scopeExceptions,
+      {
+        kind: "scope_exception" as const,
+        exceptionType: "candidate_ambiguity" as const,
+        opaqueReference: "candidate-association:missing",
+        scopeCategory: "candidate_identity",
+        transcriptPossibility: "not_applicable" as const,
+        resolutionState: "fail_closed" as const,
+        failClosedReason: "synthetic_candidate_ambiguity",
+      },
+    ],
+  };
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel(input),
+    /candidate_ambiguity_exception_orphan/,
+  );
+});
+
 test("unresolved current rows must retain an existing scope exception", () => {
   const valid = makeValidSyntheticBuilderInput();
   const input = {

@@ -6,8 +6,16 @@ import {
   SYSTEM_ONE_MNN_RULE_VERSION,
   SYSTEM_ONE_STAGING_SCHEMA_VERSION,
   computeCandidatePairSetHash,
+  createSystemOneDeterministicId,
+  type CanonicalSystemOneLogicalCallKey,
+  type OpaqueSystemOneAssetId,
+  type OpaqueSystemOneCurrentRowId,
   type SystemOneStagingBuilderInput,
 } from "@igd/core/system-one-staging-read-model";
+import {
+  evaluateIdentityRuleComparison,
+  type IdentityValidationAsset,
+} from "./system-one-identity-rule-validation.js";
 
 export type SystemOneArtifactContract =
   | {
@@ -64,6 +72,12 @@ type ParsedArtifacts = {
   readonly scopeSummary: JsonObject;
   readonly directCurrentSummary: JsonObject;
 };
+
+type CanonicalAssetInput = SystemOneStagingBuilderInput["canonicalAssets"][number];
+type CanonicalLogicalCallInput = SystemOneStagingBuilderInput["canonicalLogicalCalls"][number];
+type CandidateAssociationInput = SystemOneStagingBuilderInput["candidateAssociations"][number];
+type ScopeExceptionInput = SystemOneStagingBuilderInput["scopeExceptions"][number];
+type CurrentRowResolutionInput = SystemOneStagingBuilderInput["currentRowResolutions"][number];
 
 const IDENTITY_SUMMARY_KEYS = [
   "audit_version",
@@ -636,6 +650,339 @@ function parseAndValidateArtifacts(byName: ReadonlyMap<string, LoadedSystemOneAr
   };
 }
 
+function opaqueAssetId(value: unknown): OpaqueSystemOneAssetId {
+  return stringValue(value) as OpaqueSystemOneAssetId;
+}
+
+function opaqueCurrentRowId(value: unknown): OpaqueSystemOneCurrentRowId {
+  return stringValue(value) as OpaqueSystemOneCurrentRowId;
+}
+
+function canonicalLogicalCallKey(value: unknown): CanonicalSystemOneLogicalCallKey {
+  return stringValue(value) as CanonicalSystemOneLogicalCallKey;
+}
+
+function canonicalAssetRecordId(assetId: OpaqueSystemOneAssetId): string {
+  return createSystemOneDeterministicId(
+    "canonical-asset",
+    SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+    { opaqueAssetId: assetId },
+  );
+}
+
+function candidateAssociationId(candidate: CandidateAssociationInput): string {
+  return createSystemOneDeterministicId(
+    "candidate-association",
+    SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+    {
+      leftOpaqueAssetId: candidate.leftOpaqueAssetId,
+      rightOpaqueAssetId: candidate.rightOpaqueAssetId,
+      ruleId: candidate.ruleId,
+      ruleVersion: candidate.ruleVersion,
+    },
+  );
+}
+
+function scopeExceptionId(exception: ScopeExceptionInput): string {
+  return createSystemOneDeterministicId(
+    "scope-exception",
+    SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+    {
+      exceptionType: exception.exceptionType,
+      opaqueReference: exception.opaqueReference,
+      scopeCategory: exception.scopeCategory,
+    },
+  );
+}
+
+function inventoryMetadata(row: JsonObject): JsonObject {
+  return row.metadata as JsonObject;
+}
+
+function toIdentityValidationAsset(row: JsonObject): IdentityValidationAsset {
+  const metadata = inventoryMetadata(row);
+  return {
+    opaque_asset_id: stringValue(row.opaque_asset_id),
+    opaque_parent_ids: metadata.parent_ids as string[],
+    opaque_ancestor_ids: metadata.ancestor_ids as string[],
+    normalized_basename_hash: metadata.normalized_basename_hash as string | null,
+    opaque_shortcut_target_id: metadata.shortcut_target_id as string | null,
+    created_time_ms: metadata.created_time_ms as number,
+    property_fingerprints: metadata.property_fingerprints as string[],
+    app_property_fingerprints: metadata.app_property_fingerprints as string[],
+    asset_class: row.asset_class as IdentityValidationAsset["asset_class"],
+    eligible_for_analysis: row.eligible_for_analysis as boolean,
+  };
+}
+
+function adaptCanonicalAssets(inventoryRows: readonly JsonObject[]): CanonicalAssetInput[] {
+  return inventoryRows
+    .filter((row) => (
+      row.asset_class === "verified_transcript_candidate"
+      && row.eligible_for_analysis === true
+      && row.structural_check_status === "passed"
+    ))
+    .map((row) => ({
+      kind: "canonical_asset_fact" as const,
+      opaqueAssetId: opaqueAssetId(row.opaque_asset_id),
+      assetClass: "verified_transcript_candidate" as const,
+      provenanceState: "verified" as const,
+      structuralValidationState: "passed" as const,
+      eligibilityState: "eligible" as const,
+      scopeState: "known_canonical" as const,
+      sourceState: "accessible" as const,
+      canonicalLogicalCallKey: canonicalLogicalCallKey(row.opaque_logical_call_id),
+      evidenceOrigin: "verified_asset_inventory" as const,
+    }));
+}
+
+function adaptCanonicalLogicalCalls(
+  canonicalAssets: readonly CanonicalAssetInput[],
+  inventoryRows: readonly JsonObject[],
+): CanonicalLogicalCallInput[] {
+  const sourceByAssetId = new Map(inventoryRows.map((row) => [stringValue(row.opaque_asset_id), row]));
+  const groups = new Map<CanonicalSystemOneLogicalCallKey, CanonicalAssetInput[]>();
+  for (const asset of canonicalAssets) {
+    if (asset.canonicalLogicalCallKey === null) throw new Error("canonical_logical_call_key_missing");
+    const group = groups.get(asset.canonicalLogicalCallKey) ?? [];
+    group.push(asset);
+    groups.set(asset.canonicalLogicalCallKey, group);
+  }
+  return [...groups.entries()].map(([key, assets]) => {
+    const recordIds = assets.map((asset) => canonicalAssetRecordId(asset.opaqueAssetId)).sort();
+    const selected = assets.filter((asset) => sourceByAssetId.get(asset.opaqueAssetId)?.selected_for_analysis === true);
+    if (selected.length > 1) throw new Error("canonical_selected_transcript_ambiguous");
+    return {
+      kind: "canonical_logical_call" as const,
+      canonicalLogicalCallKey: key,
+      canonicalAssetRecordIds: recordIds,
+      selectedVerifiedTranscriptRecordId: selected.length === 1
+        ? canonicalAssetRecordId(selected[0].opaqueAssetId)
+        : null,
+    };
+  });
+}
+
+type EvaluatedRule = ReturnType<typeof evaluateIdentityRuleComparison>["rules"][keyof ReturnType<typeof evaluateIdentityRuleComparison>["rules"]];
+
+function ruleMetrics(value: EvaluatedRule): JsonObject {
+  return {
+    CANDIDATE_GROUPS: value.CANDIDATE_GROUPS,
+    CANDIDATE_PAIRS: value.CANDIDATE_PAIRS,
+    AMBIGUOUS_GROUPS: value.AMBIGUOUS_GROUPS,
+    UNMATCHED_GROUPS: value.UNMATCHED_GROUPS,
+    COMPETITIVE_GROUPS_MERGED: value.COMPETITIVE_GROUPS_MERGED,
+    COMPETITIVE_GROUPS_REJECTED: value.COMPETITIVE_GROUPS_REJECTED,
+    DISTANT_COLLISIONS_MERGED: value.DISTANT_COLLISIONS_MERGED,
+    DISTANT_COLLISIONS_REJECTED: value.DISTANT_COLLISIONS_REJECTED,
+    POTENTIAL_FALSE_MERGES: value.POTENTIAL_FALSE_MERGES,
+  };
+}
+
+function validateIdentityEvaluation(
+  identity: JsonObject,
+  evaluation: ReturnType<typeof evaluateIdentityRuleComparison>,
+): void {
+  assertSame(identity.KNOWN_INDEPENDENT_POSITIVE_CONTROLS, evaluation.KNOWN_INDEPENDENT_POSITIVE_CONTROLS);
+  assertSame(identity.KNOWN_COMPETITIVE_GROUPS, evaluation.KNOWN_COMPETITIVE_GROUPS);
+  assertSame(identity.KNOWN_DISTANT_COLLISION_GROUPS, evaluation.KNOWN_DISTANT_COLLISION_GROUPS);
+  const auditedRules = new Map((identity.IDENTITY_RULE_COMPARISON as JsonObject[]).map((entry) => [entry.rule, entry]));
+  for (const [name, result] of Object.entries(evaluation.rules)) {
+    const audited = auditedRules.get(name);
+    if (!audited) throw new Error("candidate_composition_mismatch");
+    const { rule: _rule, ...auditedMetrics } = audited;
+    try {
+      assertSame(auditedMetrics, ruleMetrics(result));
+    } catch {
+      throw new Error("candidate_composition_mismatch");
+    }
+  }
+  const cRule = evaluation.rules.C_TRUE_MUTUAL_NEAREST_NEIGHBOR;
+  if (
+    identity.C_TRUE_MNN_CANDIDATE_GROUPS !== cRule.CANDIDATE_GROUPS
+    || identity.C_TRUE_MNN_AMBIGUOUS_GROUPS !== cRule.AMBIGUOUS_GROUPS
+    || identity.C_TRUE_MNN_COMPETITIVE_GROUPS_MERGED !== cRule.COMPETITIVE_GROUPS_MERGED
+    || identity.C_TRUE_MNN_POTENTIAL_FALSE_MERGES !== cRule.POTENTIAL_FALSE_MERGES
+  ) throw new Error("candidate_composition_mismatch");
+  if (cRule.AMBIGUOUS_GROUPS !== 0) throw new Error("candidate_ambiguity_projection_requires_new_adapter_version");
+}
+
+function independentMetadataEvidence(left: JsonObject, right: JsonObject): string[] {
+  const leftMetadata = inventoryMetadata(left);
+  const rightMetadata = inventoryMetadata(right);
+  const evidence: string[] = [];
+  const leftProperties = new Set(leftMetadata.property_fingerprints as string[]);
+  const leftAppProperties = new Set(leftMetadata.app_property_fingerprints as string[]);
+  if ((rightMetadata.property_fingerprints as string[]).some((value) => leftProperties.has(value))) {
+    evidence.push("property_fingerprint");
+  }
+  if ((rightMetadata.app_property_fingerprints as string[]).some((value) => leftAppProperties.has(value))) {
+    evidence.push("app_property_fingerprint");
+  }
+  if (
+    leftMetadata.shortcut_target_id === right.opaque_asset_id
+    || rightMetadata.shortcut_target_id === left.opaque_asset_id
+  ) evidence.push("shortcut_relation");
+  return evidence.sort();
+}
+
+function adaptCandidateAssociations(
+  parsed: ParsedArtifacts,
+  sourceInventorySha256: string,
+): CandidateAssociationInput[] {
+  const identityAssets = parsed.inventoryRows.map(toIdentityValidationAsset);
+  const evaluation = evaluateIdentityRuleComparison(identityAssets);
+  validateIdentityEvaluation(parsed.identitySummary, evaluation);
+  const inventoryById = new Map(parsed.inventoryRows.map((row) => [stringValue(row.opaque_asset_id), row]));
+  const groupCounts = new Map<string, { transcripts: number; recordings: number }>();
+  for (const asset of identityAssets) {
+    if (asset.opaque_parent_ids.length !== 1 || asset.normalized_basename_hash === null) continue;
+    const key = `${asset.opaque_parent_ids[0]}:${asset.normalized_basename_hash}`;
+    const counts = groupCounts.get(key) ?? { transcripts: 0, recordings: 0 };
+    if (asset.asset_class === "verified_transcript_candidate" && asset.eligible_for_analysis) counts.transcripts += 1;
+    if (asset.asset_class === "recording") counts.recordings += 1;
+    groupCounts.set(key, counts);
+  }
+  return evaluation.rules.C_TRUE_MUTUAL_NEAREST_NEIGHBOR.candidate_pairs.map((pair) => {
+    const transcript = inventoryById.get(pair.transcript_asset_id);
+    const recording = inventoryById.get(pair.recording_asset_id);
+    if (!transcript || !recording) throw new Error("candidate_composition_mismatch");
+    const transcriptMetadata = inventoryMetadata(transcript);
+    const recordingMetadata = inventoryMetadata(recording);
+    const parentIds = transcriptMetadata.parent_ids as string[];
+    if (
+      parentIds.length !== 1
+      || (recordingMetadata.parent_ids as string[]).length !== 1
+      || parentIds[0] !== (recordingMetadata.parent_ids as string[])[0]
+      || transcriptMetadata.normalized_basename_hash !== recordingMetadata.normalized_basename_hash
+      || transcriptMetadata.normalized_basename_hash === null
+    ) throw new Error("candidate_composition_mismatch");
+    const counts = groupCounts.get(pair.group_key);
+    return {
+      kind: "candidate_association" as const,
+      candidateType: "transcript_recording" as const,
+      ruleId: "C_TRUE_MUTUAL_NEAREST_NEIGHBOR" as const,
+      ruleVersion: SYSTEM_ONE_MNN_RULE_VERSION,
+      evaluatorVersion: SYSTEM_ONE_MNN_EVALUATOR_VERSION,
+      sourceInventorySha256,
+      leftOpaqueAssetId: opaqueAssetId(pair.transcript_asset_id),
+      rightOpaqueAssetId: opaqueAssetId(pair.recording_asset_id),
+      evidence: {
+        sameParentFingerprint: parentIds[0],
+        normalizedBaseFingerprint: transcriptMetadata.normalized_basename_hash as string,
+        temporalDeltaMs: pair.created_time_delta_ms,
+        competitionState: counts && (counts.transcripts > 1 || counts.recordings > 1)
+          ? "competitive" as const
+          : "non_competitive" as const,
+        ambiguityState: "unambiguous" as const,
+        independentMetadataEvidence: independentMetadataEvidence(transcript, recording),
+      },
+      candidateState: "candidate" as const,
+    };
+  });
+}
+
+function adaptScopeExceptions(parsed: ParsedArtifacts): ScopeExceptionInput[] {
+  const observations = parsed.scopeDetail.observations as JsonObject[];
+  const exceptions: ScopeExceptionInput[] = [];
+  const unknownAssetIds = new Set(observations
+    .filter((observation) => observation.transcript_possibility === "unknown" && observation.opaque_asset_id !== null)
+    .map((observation) => stringValue(observation.opaque_asset_id)));
+  for (const assetId of [...unknownAssetIds].sort()) {
+    exceptions.push({
+      kind: "scope_exception",
+      exceptionType: "transcript_scope_unknown",
+      opaqueReference: assetId,
+      scopeCategory: "transcript_scope",
+      transcriptPossibility: "unknown",
+      resolutionState: "unresolved",
+      failClosedReason: "audited_transcript_possibility_unknown",
+    });
+  }
+  const unresolvedAssetIds = new Set(observations
+    .filter((observation) => (
+      observation.source === "current_reference"
+      && observation.observation_kind === "current_reference_inaccessible"
+      && observation.opaque_asset_id !== null
+    ))
+    .map((observation) => stringValue(observation.opaque_asset_id)));
+  for (const currentRow of parsed.currentRows) {
+    if (!unresolvedAssetIds.has(stringValue(currentRow.opaque_asset_id))) continue;
+    exceptions.push({
+      kind: "scope_exception",
+      exceptionType: "current_reference_unresolved",
+      opaqueReference: stringValue(currentRow.opaque_current_id),
+      scopeCategory: "current_reference",
+      transcriptPossibility: "unknown",
+      resolutionState: "unresolved",
+      failClosedReason: "audited_current_reference_inaccessible",
+    });
+  }
+  return exceptions;
+}
+
+function adaptCurrentRowResolutions(
+  parsed: ParsedArtifacts,
+  canonicalAssets: readonly CanonicalAssetInput[],
+  candidates: readonly CandidateAssociationInput[],
+  exceptions: readonly ScopeExceptionInput[],
+): CurrentRowResolutionInput[] {
+  if (parsed.identitySummary.CURRENT_ROWS_AMBIGUOUS_CANDIDATE !== 0) {
+    throw new Error("current_row_ambiguous_candidate_requires_new_state_review");
+  }
+  const inventoryById = new Map(parsed.inventoryRows.map((row) => [stringValue(row.opaque_asset_id), row]));
+  const canonicalByAssetId = new Map(canonicalAssets.map((asset) => [asset.opaqueAssetId, asset]));
+  const candidateByAssetId = new Map<string, CandidateAssociationInput>();
+  for (const candidate of candidates) {
+    candidateByAssetId.set(candidate.leftOpaqueAssetId, candidate);
+    candidateByAssetId.set(candidate.rightOpaqueAssetId, candidate);
+  }
+  const unresolvedByCurrentRowId = new Map(exceptions
+    .filter((exception) => exception.exceptionType === "current_reference_unresolved")
+    .map((exception) => [exception.opaqueReference, exception]));
+  return parsed.currentRows.map((row) => {
+    const currentId = opaqueCurrentRowId(row.opaque_current_id);
+    const assetId = opaqueAssetId(row.opaque_asset_id);
+    const source = inventoryById.get(assetId);
+    if (source) {
+      const sourceCurrentIds = inventoryMetadata(source).current_call_ids as string[];
+      if (!sourceCurrentIds.includes(currentId)) throw new Error("current_row_inventory_link_mismatch");
+      const canonical = canonicalByAssetId.get(assetId);
+      if (canonical && source.selected_for_analysis === true) {
+        return {
+          kind: "current_row_resolution" as const,
+          state: "canonical_direct" as const,
+          opaqueCurrentRowId: currentId,
+          canonicalAssetRecordId: canonicalAssetRecordId(canonical.opaqueAssetId),
+        };
+      }
+      const candidate = candidateByAssetId.get(assetId);
+      if (candidate) {
+        return {
+          kind: "current_row_resolution" as const,
+          state: "candidate_reconciliable" as const,
+          opaqueCurrentRowId: currentId,
+          candidateAssociationId: candidateAssociationId(candidate),
+        };
+      }
+      return {
+        kind: "current_row_resolution" as const,
+        state: "candidate_no_verified_transcript" as const,
+        opaqueCurrentRowId: currentId,
+        auditEvidenceVersion: "identity-rule-validation-v04:current-row-no-verified-transcript-candidate",
+      };
+    }
+    const exception = unresolvedByCurrentRowId.get(currentId);
+    if (!exception) throw new Error("current_row_unresolved_exception_missing");
+    return {
+      kind: "current_row_resolution" as const,
+      state: "unresolved" as const,
+      opaqueCurrentRowId: currentId,
+      scopeExceptionId: scopeExceptionId(exception),
+    };
+  });
+}
+
 function validateBuiltAt(builtAt: string): void {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(builtAt)) throw new Error("built_at_invalid");
   const time = Date.parse(builtAt);
@@ -719,7 +1066,44 @@ export function adaptSystemOneStagingArtifacts(
 
   const parsed = parseAndValidateArtifacts(artifactsByName);
   const identity = parsed.identitySummary;
-  const emptyCandidatePairSetHash = computeCandidatePairSetHash([]);
+  const lowerBound = identity.VERIFIED_TRANSCRIPT_ASSET_LOWER_BOUND as number;
+  const upperBound = identity.VERIFIED_TRANSCRIPT_ASSET_UPPER_BOUND as number;
+  const gap = identity.IRREDUCIBLE_TRANSCRIPT_SCOPE_GAP as number;
+  if (gap !== upperBound - lowerBound) throw new Error("scope_gap_invariant_mismatch");
+  if (
+    identity.TRANSCRIPT_SCOPE_EXACTLY_VALIDATED !== false
+    || identity.TRANSCRIPT_SCOPE_BOUNDED !== true
+    || identity.GLOBAL_SCOPE_VALIDATED !== false
+    || identity.IDENTITY_RULE_VALIDATED_ON_OBSERVED_CORPUS !== false
+  ) throw new Error("artifact_status_incompatible");
+  const canonicalAssets = adaptCanonicalAssets(parsed.inventoryRows);
+  if (canonicalAssets.length !== lowerBound) throw new Error("canonical_asset_projection_count_mismatch");
+  const canonicalLogicalCalls = adaptCanonicalLogicalCalls(canonicalAssets, parsed.inventoryRows);
+  const sourceInventorySha256 = artifactsByName.get("assetInventory")!.sha256;
+  const candidateAssociations = adaptCandidateAssociations(parsed, sourceInventorySha256);
+  if (candidateAssociations.length !== identity.C_TRUE_MNN_CANDIDATE_GROUPS) {
+    throw new Error("candidate_composition_mismatch");
+  }
+  const scopeExceptions = adaptScopeExceptions(parsed);
+  const currentRowResolutions = adaptCurrentRowResolutions(
+    parsed,
+    canonicalAssets,
+    candidateAssociations,
+    scopeExceptions,
+  );
+  const currentCounts = {
+    canonical_direct: currentRowResolutions.filter((row) => row.state === "canonical_direct").length,
+    candidate_reconciliable: currentRowResolutions.filter((row) => row.state === "candidate_reconciliable").length,
+    candidate_no_verified_transcript: currentRowResolutions.filter((row) => row.state === "candidate_no_verified_transcript").length,
+    unresolved: currentRowResolutions.filter((row) => row.state === "unresolved").length,
+  };
+  assertSame(currentCounts, {
+    canonical_direct: identity.CURRENT_ROWS_DIRECTLY_ELIGIBLE,
+    candidate_reconciliable: identity.CURRENT_ROWS_STRONGLY_RECONCILIABLE_CANDIDATE,
+    candidate_no_verified_transcript: identity.CURRENT_ROWS_NO_VERIFIED_TRANSCRIPT_CANDIDATE,
+    unresolved: identity.CURRENT_ROWS_UNRESOLVED,
+  });
+  const candidatePairSetHash = computeCandidatePairSetHash(candidateAssociations);
   return {
     metadata: {
       schemaVersion: SYSTEM_ONE_STAGING_SCHEMA_VERSION,
@@ -736,24 +1120,24 @@ export function adaptSystemOneStagingArtifacts(
       canonicalIdentityRuleVersion: "canonical-exact-created-time-v01",
       candidateRuleVersion: SYSTEM_ONE_MNN_RULE_VERSION,
       candidateEvaluatorVersion: SYSTEM_ONE_MNN_EVALUATOR_VERSION,
-      candidatePairSetHash: emptyCandidatePairSetHash,
-      verifiedTranscriptAssetLowerBound: identity.VERIFIED_TRANSCRIPT_ASSET_LOWER_BOUND as number,
-      verifiedTranscriptAssetUpperBound: identity.VERIFIED_TRANSCRIPT_ASSET_UPPER_BOUND as number,
-      irreducibleTranscriptScopeGap: identity.IRREDUCIBLE_TRANSCRIPT_SCOPE_GAP as number,
+      candidatePairSetHash,
+      verifiedTranscriptAssetLowerBound: lowerBound,
+      verifiedTranscriptAssetUpperBound: upperBound,
+      irreducibleTranscriptScopeGap: gap,
       status: {
         transcriptScopeExactlyValidated: false,
         transcriptScopeBounded: true,
         globalScopeValidated: false,
         identityRuleValidatedOnObservedCorpus: false,
-        candidatePairSetHash: emptyCandidatePairSetHash,
+        candidatePairSetHash,
       },
     },
     builtAt,
-    canonicalAssets: [],
-    canonicalLogicalCalls: [],
-    currentRowResolutions: [],
-    candidateAssociations: [],
-    scopeExceptions: [],
+    canonicalAssets,
+    canonicalLogicalCalls,
+    currentRowResolutions,
+    candidateAssociations,
+    scopeExceptions,
     assertions: {
       expectedCanonicalVerifiedTranscriptAssets: identity.VERIFIED_TRANSCRIPT_ASSET_LOWER_BOUND as number,
       expectedMnnCandidateGroups: identity.C_TRUE_MNN_CANDIDATE_GROUPS as number,

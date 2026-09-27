@@ -355,13 +355,42 @@ function validateExpectedScopeExceptionCount(input: SystemOneStagingBuilderInput
     throw new Error("transcript_scope_exception_count_mismatch");
   }
 
-  const ambiguousCandidateCount = input.candidateAssociations.filter(
-    (candidate) => candidate.candidateState === "ambiguous" || candidate.candidateState === "conflicting",
-  ).length;
-  const candidateAmbiguityExceptionCount = input.scopeExceptions.filter(
-    (exception) => exception.exceptionType === "candidate_ambiguity",
-  ).length;
-  if (candidateAmbiguityExceptionCount < ambiguousCandidateCount) {
+  const candidateIdsByState = new Map(input.candidateAssociations.map((candidate) => [
+    createSystemOneDeterministicId(
+      "candidate-association",
+      SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+      {
+        leftOpaqueAssetId: candidate.leftOpaqueAssetId,
+        rightOpaqueAssetId: candidate.rightOpaqueAssetId,
+        ruleId: candidate.ruleId,
+        ruleVersion: candidate.ruleVersion,
+      },
+    ),
+    candidate.candidateState,
+  ]));
+  const ambiguousCandidateIds = new Set(
+    [...candidateIdsByState.entries()]
+      .filter(([, state]) => state === "ambiguous" || state === "conflicting")
+      .map(([candidateId]) => candidateId),
+  );
+  const linkedCandidateIds = new Set<string>();
+  for (const exception of input.scopeExceptions.filter(
+    (item) => item.exceptionType === "candidate_ambiguity",
+  )) {
+    const state = candidateIdsByState.get(exception.opaqueReference);
+    if (state === undefined) throw new Error("candidate_ambiguity_exception_orphan");
+    if (state !== "ambiguous" && state !== "conflicting") {
+      throw new Error("candidate_ambiguity_exception_link_invalid");
+    }
+    if (linkedCandidateIds.has(exception.opaqueReference)) {
+      throw new Error("candidate_ambiguity_exception_link_invalid");
+    }
+    linkedCandidateIds.add(exception.opaqueReference);
+  }
+  if (
+    linkedCandidateIds.size !== ambiguousCandidateIds.size
+    || [...ambiguousCandidateIds].some((candidateId) => !linkedCandidateIds.has(candidateId))
+  ) {
     throw new Error("candidate_ambiguity_exception_missing");
   }
 }

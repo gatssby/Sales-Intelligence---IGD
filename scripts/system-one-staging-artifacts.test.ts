@@ -31,7 +31,7 @@ function ruleEntry(rule: string) {
   };
 }
 
-function identitySummary() {
+function identitySummary(overrides: Record<string, unknown> = {}) {
   return {
     audit_version: "identity-rule-validation-v04",
     VERIFIED_TRANSCRIPT_ASSET_LOWER_BOUND: 1,
@@ -81,6 +81,7 @@ function identitySummary() {
     NO_DATA_WRITE_VERIFICATION: true,
     NO_DRIVE_WRITE_VERIFICATION: true,
     MIGRATIONS_014_015_STILL_UNAPPLIED: true,
+    ...overrides,
   };
 }
 
@@ -147,50 +148,8 @@ function scopeSummary() {
   };
 }
 
-function finalConsolidation(): string {
-  const metrics: Record<string, string | number | boolean> = {
-    VERIFIED_TRANSCRIPT_ASSET_LOWER_BOUND: 1,
-    VERIFIED_TRANSCRIPT_ASSET_UPPER_BOUND: 2,
-    IRREDUCIBLE_TRANSCRIPT_SCOPE_GAP: 1,
-    TRANSCRIPT_SCOPE_EXACTLY_VALIDATED: false,
-    TRANSCRIPT_SCOPE_BOUNDED: true,
-    GLOBAL_SCOPE_VALIDATED: false,
-    SCOPE_READY_FOR_FAIL_CLOSED_STAGING: true,
-    KNOWN_INDEPENDENT_POSITIVE_CONTROLS: 0,
-    KNOWN_COMPETITIVE_GROUPS: 0,
-    KNOWN_DISTANT_COLLISION_GROUPS: 0,
-    IDENTITY_RULE_COMPARISON_CORRECTED: true,
-    IDENTITY_FALSE_SPLIT_CONFIRMED: false,
-    IDENTITY_REPLACEMENT_RULE_SUPPORTED: false,
-    IDENTITY_RULE_VALIDATED_ON_OBSERVED_CORPUS: false,
-    IDENTITY_CHANGE_RECOMMENDED: false,
-    IDENTITY_READY_FOR_CANDIDATE_ONLY_STAGING: true,
-    HISTORICAL_TRANSITION_MATRIX_VERIFIED: false,
-    CURRENT_ROWS_DIRECTLY_ELIGIBLE: 1,
-    CURRENT_ROWS_STRONGLY_RECONCILIABLE_CANDIDATE: 0,
-    CURRENT_ROWS_AMBIGUOUS_CANDIDATE: 0,
-    CURRENT_ROWS_NO_VERIFIED_TRANSCRIPT_CANDIDATE: 0,
-    CURRENT_ROWS_UNRESOLVED: 1,
-    ZERO_CORPUS_INFERENCE: true,
-    AUXILIARY_PROVIDER_ROUTING_OBSERVED: false,
-    AUXILIARY_PROVIDER_SUCCESSFUL_CALLS_OBSERVED: false,
-    NO_DATA_WRITE_VERIFICATION: true,
-    NO_DRIVE_WRITE_VERIFICATION: true,
-    MIGRATIONS_014_015_STILL_UNAPPLIED: true,
-    A_POTENTIAL_FALSE_MERGES: 0,
-    B_POTENTIAL_FALSE_MERGES: 0,
-    C_POTENTIAL_FALSE_MERGES: 0,
-    D_POTENTIAL_FALSE_MERGES: 0,
-    A_COMPETITIVE_GROUPS_MERGED: 0,
-    B_COMPETITIVE_GROUPS_MERGED: 0,
-    C_COMPETITIVE_GROUPS_MERGED: 0,
-    D_COMPETITIVE_GROUPS_MERGED: 0,
-    C_TRUE_MNN_CANDIDATE_GROUPS: 0,
-    C_TRUE_MNN_AMBIGUOUS_GROUPS: 0,
-    C_TRUE_MNN_COMPETITIVE_GROUPS_MERGED: 0,
-    C_TRUE_MNN_POTENTIAL_FALSE_MERGES: 0,
-    D_INDEPENDENT_METADATA_CANDIDATE_GROUPS: 0,
-  };
+function finalConsolidation(summary = identitySummary()): string {
+  const { audit_version: _auditVersion, IDENTITY_RULE_COMPARISON: _comparison, ...metrics } = summary;
   return [
     "# System One final consolidation V0.5",
     ...Object.entries(metrics).map(([key, value]) => `${key} = ${String(value)}`),
@@ -311,7 +270,7 @@ function makePayloads(options: {
     CURRENT_REFERENCE_DANGLING: 0,
   };
   const values: Record<string, string> = {
-    finalConsolidation: finalConsolidation(),
+    finalConsolidation: finalConsolidation(summary),
     identitySummary: `${JSON.stringify(summary)}\n`,
     identityDetail: `${JSON.stringify(detail)}\n`,
     currentRowMatrix: `${JSON.stringify(currentRowMatrix())}\n`,
@@ -365,6 +324,213 @@ function makeLoadedFixture(options: Parameters<typeof makePayloads>[0] = {}): {
   readonly contracts: SystemOneArtifactContract[];
 } {
   const payloads = makePayloads(options);
+  const contracts = makeContracts(payloads);
+  return {
+    contracts,
+    artifacts: contracts.map((contract) => ({
+      logicalName: contract.logicalName,
+      relativePath: contract.relativePath,
+      sourceKind: contract.sourceKind,
+      parserVersion: contract.parserVersion,
+      embeddedVersion: contract.versionMode === "embedded" ? contract.expectedEmbeddedVersion : null,
+      sha256: sha256(payloads[contract.logicalName]),
+      bytes: payloads[contract.logicalName],
+    })),
+  };
+}
+
+function projectionIdentitySummary() {
+  return identitySummary({
+    VERIFIED_TRANSCRIPT_ASSET_LOWER_BOUND: 2,
+    VERIFIED_TRANSCRIPT_ASSET_UPPER_BOUND: 3,
+    IRREDUCIBLE_TRANSCRIPT_SCOPE_GAP: 1,
+    IDENTITY_RULE_COMPARISON: [
+      { ...ruleEntry("A_EXACT_CREATED_TIME"), UNMATCHED_GROUPS: 3 },
+      {
+        ...ruleEntry("B_PRIOR_CANDIDATE_P95_CIRCULAR_NOT_GROUND_TRUTH"),
+        CANDIDATE_GROUPS: 1,
+        CANDIDATE_PAIRS: 1,
+        UNMATCHED_GROUPS: 2,
+      },
+      {
+        ...ruleEntry("C_TRUE_MUTUAL_NEAREST_NEIGHBOR"),
+        CANDIDATE_GROUPS: 1,
+        CANDIDATE_PAIRS: 1,
+        UNMATCHED_GROUPS: 2,
+      },
+      { ...ruleEntry("D_MNN_PLUS_INDEPENDENT_METADATA"), UNMATCHED_GROUPS: 3 },
+    ],
+    C_TRUE_MNN_CANDIDATE_GROUPS: 1,
+    CURRENT_ROWS_DIRECTLY_ELIGIBLE: 1,
+    CURRENT_ROWS_STRONGLY_RECONCILIABLE_CANDIDATE: 1,
+    CURRENT_ROWS_AMBIGUOUS_CANDIDATE: 0,
+    CURRENT_ROWS_NO_VERIFIED_TRANSCRIPT_CANDIDATE: 1,
+    CURRENT_ROWS_UNRESOLVED: 1,
+  });
+}
+
+function makeProjectionPayloads(options: {
+  readonly reverseInventory?: boolean;
+  readonly candidateRecordingId?: string;
+} = {}): Record<string, Uint8Array> {
+  const summary = projectionIdentitySummary();
+  const detail = {
+    ...summary,
+    scope_boundary_basis: {
+      known_verified_transcript_assets: 2,
+      unresolved_unknown_assets: 1,
+      upper_bound_is_not_promoted_to_actual_count: true,
+    },
+    identity_decision_basis: {
+      false_split_candidate_pairs_across_current_exact_time_keys: 1,
+      canonical_identity_rule_changed: false,
+      candidate_only_staging_required: true,
+      independent_positive_controls_absent: true,
+    },
+  };
+  const candidateRecordingId = options.candidateRecordingId ?? "asset-recording-candidate";
+  const baseMetadata = inventoryRow().metadata as Record<string, unknown>;
+  const inventory = [
+    inventoryRow(),
+    inventoryRow({
+      opaque_asset_id: "asset-transcript-candidate",
+      opaque_logical_call_id: "logical-call-transcript-candidate",
+      metadata: {
+        ...baseMetadata,
+        created_time_ms: 10_000,
+        modified_time_ms: 10_500,
+        current_call_ids: [],
+        normalized_basename_hash: "pair-base",
+        parent_ids: ["pair-parent"],
+      },
+    }),
+    inventoryRow({
+      asset_class: "recording",
+      eligible_for_analysis: false,
+      exclusion_reason: "recording_candidate_only",
+      mime_type: "video/mp4",
+      opaque_asset_id: candidateRecordingId,
+      opaque_logical_call_id: "logical-call-recording-candidate",
+      selected_for_analysis: false,
+      structural_check_status: "not_applicable",
+      metadata: {
+        ...baseMetadata,
+        created_time_ms: 10_010,
+        modified_time_ms: 10_510,
+        current_call_ids: ["row-candidate"],
+        full_file_extension: "mp4",
+        normalized_basename_hash: "pair-base",
+        parent_ids: ["pair-parent"],
+        structural_metrics: null,
+      },
+    }),
+    inventoryRow({
+      asset_class: "recording",
+      eligible_for_analysis: false,
+      exclusion_reason: "no_verified_transcript_candidate",
+      mime_type: "audio/mpeg",
+      opaque_asset_id: "asset-recording-no-transcript",
+      opaque_logical_call_id: "logical-call-recording-no-transcript",
+      selected_for_analysis: false,
+      structural_check_status: "not_applicable",
+      metadata: {
+        ...baseMetadata,
+        created_time_ms: 20_000,
+        modified_time_ms: 20_500,
+        current_call_ids: ["row-no-transcript"],
+        full_file_extension: "mp3",
+        normalized_basename_hash: "no-transcript-base",
+        parent_ids: ["no-transcript-parent"],
+        structural_metrics: null,
+      },
+    }),
+  ];
+  if (options.reverseInventory) inventory.reverse();
+  const currentRows = [
+    { opaque_current_id: "row-direct", opaque_asset_id: "asset-direct" },
+    { opaque_current_id: "row-candidate", opaque_asset_id: candidateRecordingId },
+    { opaque_current_id: "row-no-transcript", opaque_asset_id: "asset-recording-no-transcript" },
+    { opaque_current_id: "row-unresolved", opaque_asset_id: "asset-unresolved" },
+  ];
+  const scope = scopeSummary();
+  const scopeDetail = {
+    summary: scope,
+    observations: [
+      {
+        source: "affected_folder",
+        affected_root_opaque_id: "root-one",
+        opaque_observation_id: "observation-folder",
+        opaque_asset_id: "asset-unresolved",
+        observation_kind: "content_read_inaccessible",
+        resolution: "content_access_denied_prior_observation",
+        mime_type: "application/vnd.google-apps.document",
+        file_extension: "gdoc",
+        shortcut_target_mime_type: null,
+        transcript_possibility: "unknown",
+      },
+      {
+        source: "current_reference",
+        affected_root_opaque_id: null,
+        opaque_observation_id: "observation-current",
+        opaque_asset_id: "asset-unresolved",
+        observation_kind: "current_reference_inaccessible",
+        resolution: "deleted_or_not_found",
+        mime_type: null,
+        file_extension: null,
+        shortcut_target_mime_type: null,
+        transcript_possibility: "unknown",
+      },
+    ],
+  };
+  const matrix = {
+    ...currentRowMatrix(),
+    RECONSTRUCTED_OLD_COUNTS: {
+      OLD_DIRECT: 1,
+      OLD_NO_VERIFIED_TRANSCRIPT: 1,
+      OLD_RECONCILIABLE: 1,
+      OLD_UNRESOLVED: 1,
+    },
+    RECONSTRUCTED_TRANSITION_MATRIX: {
+      RECONSTRUCTED_OLD_DIRECT_TO_NEW_DIRECT: 1,
+      RECONSTRUCTED_OLD_RECONCILIABLE_TO_NEW_STRONG: 1,
+      RECONSTRUCTED_OLD_NO_VERIFIED_TRANSCRIPT_TO_NEW_NO_TRANSCRIPT: 1,
+      RECONSTRUCTED_OLD_UNRESOLVED_TO_NEW_NO_TRANSCRIPT: 0,
+      RECONSTRUCTED_OLD_UNRESOLVED_TO_NEW_UNRESOLVED: 1,
+    },
+    CURRENT_ROWS: {
+      CURRENT_ROWS_DIRECTLY_ELIGIBLE: 1,
+      CURRENT_ROWS_STRONGLY_RECONCILIABLE_CANDIDATE: 1,
+      CURRENT_ROWS_AMBIGUOUS_CANDIDATE: 0,
+      CURRENT_ROWS_NO_VERIFIED_TRANSCRIPT_CANDIDATE: 1,
+      CURRENT_ROWS_UNRESOLVED: 1,
+    },
+    TOTAL: 4,
+  };
+  const values: Record<string, string> = {
+    finalConsolidation: finalConsolidation(summary),
+    identitySummary: `${JSON.stringify(summary)}\n`,
+    identityDetail: `${JSON.stringify(detail)}\n`,
+    currentRowMatrix: `${JSON.stringify(matrix)}\n`,
+    currentRows: currentRows.map((row) => JSON.stringify(row)).join("\n") + "\n",
+    assetInventory: inventory.map((row) => JSON.stringify(row)).join("\n") + "\n",
+    scopeExceptionDetail: `${JSON.stringify(scopeDetail)}\n`,
+    scopeExceptionSummary: `${JSON.stringify(scope)}\n`,
+    directCurrentSummary: `${JSON.stringify({
+      DIRECT_SHARED_TOTAL: 1,
+      DIRECT_SHARED_ACCESSIBLE: 1,
+      DIRECT_SHARED_INACCESSIBLE: 0,
+      DIRECT_SHARED_DANGLING: 0,
+      CURRENT_REFERENCE_ROWS_TOTAL: 4,
+      CURRENT_REFERENCE_UNIQUE_ASSETS: 4,
+      CURRENT_REFERENCE_ACCESSIBLE: 3,
+      CURRENT_REFERENCE_INACCESSIBLE: 1,
+      CURRENT_REFERENCE_DANGLING: 0,
+    })}\n`,
+  };
+  return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, Buffer.from(value, "utf8")]));
+}
+
+function makeLoadedFromPayloads(payloads: Record<string, Uint8Array>) {
   const contracts = makeContracts(payloads);
   return {
     contracts,
@@ -471,4 +637,47 @@ test("builtAt requires exact valid ISO-8601 UTC milliseconds", () => {
       /built_at_invalid/,
     );
   }
+});
+
+test("upper bound does not synthesize canonical assets", () => {
+  const fixture = makeLoadedFromPayloads(makeProjectionPayloads());
+  const input = adaptSystemOneStagingArtifacts(fixture.artifacts, FIXED_BUILD_TIME, fixture.contracts);
+  assert.equal(input.canonicalAssets.length, 2);
+  assert.equal(input.metadata.verifiedTranscriptAssetUpperBound, 3);
+});
+
+test("candidate no transcript remains a candidate epistemic state", () => {
+  const fixture = makeLoadedFromPayloads(makeProjectionPayloads());
+  const input = adaptSystemOneStagingArtifacts(fixture.artifacts, FIXED_BUILD_TIME, fixture.contracts);
+  const row = input.currentRowResolutions.find((item) => item.state === "candidate_no_verified_transcript");
+  assert.ok(row);
+  assert.equal("canonicalAssetRecordId" in row, false);
+  assert.equal("canonicalLogicalCallId" in row, false);
+});
+
+test("scope and unresolved exceptions remain first class", () => {
+  const fixture = makeLoadedFromPayloads(makeProjectionPayloads());
+  const input = adaptSystemOneStagingArtifacts(fixture.artifacts, FIXED_BUILD_TIME, fixture.contracts);
+  assert.equal(input.scopeExceptions.filter((item) => item.exceptionType === "transcript_scope_unknown").length, 1);
+  assert.equal(input.scopeExceptions.filter((item) => item.exceptionType === "current_reference_unresolved").length, 1);
+  const unresolved = input.currentRowResolutions.find((item) => item.state === "unresolved");
+  assert.ok(unresolved && input.scopeExceptions.some((item) => (
+    item.exceptionType === "current_reference_unresolved"
+    && item.opaqueReference === unresolved.opaqueCurrentRowId
+  )));
+});
+
+test("reconstructed MNN pair set is deterministic and stronger than aggregate count", () => {
+  const approved = makeLoadedFromPayloads(makeProjectionPayloads());
+  const reordered = makeLoadedFromPayloads(makeProjectionPayloads({ reverseInventory: true }));
+  const changed = makeLoadedFromPayloads(makeProjectionPayloads({ candidateRecordingId: "asset-recording-replaced" }));
+  const first = adaptSystemOneStagingArtifacts(approved.artifacts, FIXED_BUILD_TIME, approved.contracts);
+  const second = adaptSystemOneStagingArtifacts(reordered.artifacts, FIXED_BUILD_TIME, reordered.contracts);
+  const third = adaptSystemOneStagingArtifacts(changed.artifacts, FIXED_BUILD_TIME, changed.contracts);
+  assert.equal(first.candidateAssociations.length, 1);
+  assert.equal(second.candidateAssociations.length, 1);
+  assert.equal(first.metadata.candidatePairSetHash, second.metadata.candidatePairSetHash);
+  assert.notEqual(first.metadata.candidatePairSetHash, third.metadata.candidatePairSetHash);
+  assert.equal("canonicalLogicalCallId" in first.candidateAssociations[0], false);
+  assert.equal("canonicalLogicalCallKey" in first.candidateAssociations[0], false);
 });
