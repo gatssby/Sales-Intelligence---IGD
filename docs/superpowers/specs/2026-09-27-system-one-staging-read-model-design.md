@@ -1,7 +1,7 @@
 # System One staging/read model — fail-closed dry-run design
 
 Date: 2026-09-27
-Status: approved architecture; pending implementation-plan review
+Status: architecture-base approved; detailed contract pending explicit approval
 
 ## Intent
 
@@ -106,6 +106,7 @@ Every snapshot exposes:
 - `verifiedTranscriptAssetUpperBound`;
 - `transcriptScopeExactlyValidated`;
 - `transcriptScopeBounded`;
+- `globalScopeValidated`;
 - `identityRuleValidatedOnObservedCorpus`;
 - `snapshotHash`.
 
@@ -175,6 +176,7 @@ Candidates and exceptions require explicit calls:
 
 - `transcriptScopeExactlyValidated: false`;
 - `transcriptScopeBounded: true`;
+- `globalScopeValidated: false`;
 - `identityRuleValidatedOnObservedCorpus: false`.
 
 ## Offline runner and private artifacts

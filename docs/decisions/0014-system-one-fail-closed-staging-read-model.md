@@ -1,17 +1,19 @@
 # ADR 0014 — System One fail-closed staging/read model
 
 Date: 2026-09-27
-Status: Accepted for private, derived dry-run only
+Status: Proposed — pending explicit approval
 
 ## Contexto
 
 A auditoria offline de scope e identidade do System One confirmou 1.014 transcript assets verificados conhecidos, com intervalo determinístico de 1.014 a 1.026 e doze assets que permanecem um irreducible transcript scope gap. A regra canônica atual apresentou false splits conhecidos, mas a substituta baseada em mutual-nearest-neighbor não foi validada no corpus observado e, portanto, não pode substituir a identidade canônica.
 
+Os estados auditados permanecem explícitos: `TRANSCRIPT_SCOPE_EXACTLY_VALIDATED=false`, `TRANSCRIPT_SCOPE_BOUNDED=true`, `GLOBAL_SCOPE_VALIDATED=false` e `IDENTITY_RULE_VALIDATED_ON_OBSERVED_CORPUS=false`.
+
 O catálogo legado `public.calls` contém 5.235 current rows. A auditoria as classifica como 22 diretamente elegíveis, 1 candidate reconciliable, 5.203 `CURRENT_ROWS_NO_VERIFIED_TRANSCRIPT_CANDIDATE` e 9 unresolved. Essas categorias têm níveis epistemológicos diferentes e não podem ser colapsadas em fatos canônicos.
 
 A documentação de proveniência já recomenda um staging/read model reconciliado com `public.calls`, preservando os dados legados até uma reconciliação aditiva futura. As migrations 014 e 015 são dedicadas, respectivamente, a decisões do engine/piloto e não fornecem um modelo de provenance, candidate linkage, scope exception ou current-row reconciliation.
 
-## Decisão
+## Proposta de decisão
 
 Criar um read model local, privado, reproduzível e fail-closed, derivado exclusivamente de artifacts offline já existentes.
 
