@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
+import {
+  runSystemOneStagingReadModel,
+  type SystemOneStagingRunnerOptions,
+} from "./system-one-staging-read-model.js";
 import {
   adaptSystemOneStagingArtifacts,
   loadSystemOneStagingArtifacts,
@@ -680,4 +684,109 @@ test("reconstructed MNN pair set is deterministic and stronger than aggregate co
   assert.notEqual(first.metadata.candidatePairSetHash, third.metadata.candidatePairSetHash);
   assert.equal("canonicalLogicalCallId" in first.candidateAssociations[0], false);
   assert.equal("canonicalLogicalCallKey" in first.candidateAssociations[0], false);
+});
+
+async function makeRunnableSyntheticArtifactDirectory() {
+  const payloads = makeProjectionPayloads();
+  const contracts = makeContracts(payloads);
+  const privateRoot = await mkdtemp(join(process.env.TMPDIR!, "system-one-staging-runner-"));
+  await chmod(privateRoot, 0o700);
+  for (const contract of contracts) {
+    await writeFile(join(privateRoot, contract.relativePath), payloads[contract.logicalName], { mode: 0o600 });
+  }
+  return { privateRoot, contracts };
+}
+
+function makeRunnerOptions(
+  privateRoot: string,
+  overrides: Partial<SystemOneStagingRunnerOptions> = {},
+): SystemOneStagingRunnerOptions {
+  return {
+    privateRoot,
+    builtAt: FIXED_BUILD_TIME,
+    snapshotOutputName: "system-one-staging-read-model-v01.json",
+    summaryOutputName: "system-one-staging-read-model-v01-summary.json",
+    ...overrides,
+  };
+}
+
+async function octalMode(path: string): Promise<string> {
+  return (await lstat(path)).mode.toString(8).slice(-3);
+}
+
+test("runner writes private artifacts atomically with restrictive modes", async () => {
+  const fixture = await makeRunnableSyntheticArtifactDirectory();
+  const result = await runSystemOneStagingReadModel(
+    makeRunnerOptions(fixture.privateRoot),
+    fixture.contracts,
+  );
+  assert.equal(await octalMode(result.snapshotPath), "600");
+  assert.equal(await octalMode(result.summaryPath), "600");
+  assert.equal(await octalMode(fixture.privateRoot), "700");
+  assert.deepEqual(
+    (await readdir(fixture.privateRoot)).filter((name) => name.includes(".tmp-")),
+    [],
+  );
+  const summary = JSON.parse(await readFile(result.summaryPath, "utf8")) as Record<string, unknown>;
+  assert.equal(summary.snapshotHash, result.snapshotHash);
+  assert.equal(summary.candidatePairSetHash, result.candidatePairSetHash);
+  assert.equal("canonicalAssets" in summary, false);
+});
+
+test("runner rejects a symlinked private root", async () => {
+  const fixture = await makeRunnableSyntheticArtifactDirectory();
+  const linkRoot = `${fixture.privateRoot}-link`;
+  await symlink(fixture.privateRoot, linkRoot);
+  await assert.rejects(
+    () => runSystemOneStagingReadModel(makeRunnerOptions(linkRoot), fixture.contracts),
+    /unsafe_private_root_symlink/,
+  );
+});
+
+test("runner rejects a symlinked output target", async () => {
+  const fixture = await makeRunnableSyntheticArtifactDirectory();
+  const outside = join(process.env.TMPDIR!, "system-one-outside-target.json");
+  await writeFile(outside, "{}", { mode: 0o600 });
+  await symlink(outside, join(fixture.privateRoot, "system-one-staging-read-model-v01.json"));
+  await assert.rejects(
+    () => runSystemOneStagingReadModel(makeRunnerOptions(fixture.privateRoot), fixture.contracts),
+    /unsafe_output_symlink/,
+  );
+});
+
+test("runner rejects output traversal and writes nothing outside the approved root", async () => {
+  const fixture = await makeRunnableSyntheticArtifactDirectory();
+  const options = makeRunnerOptions(fixture.privateRoot, {
+    snapshotOutputName: "../escaped.json" as SystemOneStagingRunnerOptions["snapshotOutputName"],
+  });
+  await assert.rejects(
+    () => runSystemOneStagingReadModel(options, fixture.contracts),
+    /unsafe_output_name/,
+  );
+});
+
+test("runner removes temporary files and leaves no partial output after target failure", async () => {
+  const fixture = await makeRunnableSyntheticArtifactDirectory();
+  await mkdir(join(fixture.privateRoot, "system-one-staging-read-model-v01-summary.json"), { mode: 0o700 });
+  await assert.rejects(
+    () => runSystemOneStagingReadModel(makeRunnerOptions(fixture.privateRoot), fixture.contracts),
+    /unsafe_output_target/,
+  );
+  const names = await readdir(fixture.privateRoot);
+  assert.equal(names.includes("system-one-staging-read-model-v01.json"), false);
+  assert.deepEqual(names.filter((name) => name.includes(".tmp-")), []);
+});
+
+test("repeated runner builds preserve semantic hashes across timestamps", async () => {
+  const fixture = await makeRunnableSyntheticArtifactDirectory();
+  const first = await runSystemOneStagingReadModel(
+    makeRunnerOptions(fixture.privateRoot),
+    fixture.contracts,
+  );
+  const second = await runSystemOneStagingReadModel(
+    makeRunnerOptions(fixture.privateRoot, { builtAt: "2026-09-27T04:00:00.000Z" }),
+    fixture.contracts,
+  );
+  assert.equal(first.snapshotHash, second.snapshotHash);
+  assert.equal(first.candidatePairSetHash, second.candidatePairSetHash);
 });
