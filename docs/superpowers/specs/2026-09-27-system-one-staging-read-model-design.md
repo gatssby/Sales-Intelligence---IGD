@@ -1,7 +1,7 @@
 # System One staging/read model — fail-closed dry-run design
 
 Date: 2026-09-27
-Status: architecture-base approved; detailed contract pending explicit approval
+Status: Approved for implementation planning — implementation not yet approved
 
 ## Intent
 

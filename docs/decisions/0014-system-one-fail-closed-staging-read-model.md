@@ -1,7 +1,7 @@
 # ADR 0014 — System One fail-closed staging/read model
 
 Date: 2026-09-27
-Status: Proposed — pending explicit approval
+Status: Accepted — private derived staging/read-model design only; implementation requires separate approval
 
 ## Contexto
 
@@ -13,7 +13,7 @@ O catálogo legado `public.calls` contém 5.235 current rows. A auditoria as cla
 
 A documentação de proveniência já recomenda um staging/read model reconciliado com `public.calls`, preservando os dados legados até uma reconciliação aditiva futura. As migrations 014 e 015 são dedicadas, respectivamente, a decisões do engine/piloto e não fornecem um modelo de provenance, candidate linkage, scope exception ou current-row reconciliation.
 
-## Proposta de decisão
+## Decisão
 
 Criar um read model local, privado, reproduzível e fail-closed, derivado exclusivamente de artifacts offline já existentes.
 
