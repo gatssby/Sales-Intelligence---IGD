@@ -432,6 +432,28 @@ test("candidate pair set hash is order independent and version sensitive", () =>
   assert.notEqual(computeCandidatePairSetHash(pairs), computeCandidatePairSetHash(changedVersion));
 });
 
+test("candidate pair set hash matches the precomputed v01 regression vector", () => {
+  const pairs = [
+    {
+      leftOpaqueAssetId: opaqueAssetId("transcript-b"),
+      rightOpaqueAssetId: opaqueAssetId("recording-b"),
+      ruleId: "C_TRUE_MUTUAL_NEAREST_NEIGHBOR" as const,
+      ruleVersion: SYSTEM_ONE_MNN_RULE_VERSION,
+    },
+    {
+      leftOpaqueAssetId: opaqueAssetId("transcript-a"),
+      rightOpaqueAssetId: opaqueAssetId("recording-a"),
+      ruleId: "C_TRUE_MUTUAL_NEAREST_NEIGHBOR" as const,
+      ruleVersion: SYSTEM_ONE_MNN_RULE_VERSION,
+    },
+  ];
+
+  assert.equal(
+    computeCandidatePairSetHash(pairs),
+    "01fc3df59b8b05b7ff593f96ca056361f9988fd7251952efc76ec95ddf54721b",
+  );
+});
+
 test("candidate pair changes do not alter canonical logical-call identity", () => {
   const canonicalIdentity = {
     canonicalLogicalCallKey: "logical-call:canonical-1",
@@ -540,6 +562,45 @@ test("builder sorts semantic collections and excludes build time from snapshot i
   assert.deepEqual(first.canonicalAssets, second.canonicalAssets);
   assert.deepEqual(first.currentRowResolutions, second.currentRowResolutions);
   assert.notEqual(first.metadata.builtAt, second.metadata.builtAt);
+});
+
+test("builder requires an exact valid ISO-8601 builtAt at the receiving boundary", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  assert.doesNotThrow(() => buildSystemOneStagingReadModel({
+    ...valid,
+    builtAt: "2026-09-27T03:00:00.000Z",
+  }));
+
+  for (const invalid of [
+    "today",
+    "",
+    "2026-02-30T03:00:00.000Z",
+    "2026-09-27T03:00:00Z",
+    "2026-13-01T03:00:00.000Z",
+    "2026-09-27 03:00:00.000Z",
+  ]) {
+    assert.throws(
+      () => buildSystemOneStagingReadModel({ ...valid, builtAt: invalid }),
+      /built_at_invalid/,
+    );
+  }
+});
+
+test("versioned scope gap invariant requires gap to equal upper bound minus lower bound", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  assert.doesNotThrow(() => buildSystemOneStagingReadModel(valid));
+  assert.equal(
+    valid.metadata.irreducibleTranscriptScopeGap,
+    valid.metadata.verifiedTranscriptAssetUpperBound - valid.metadata.verifiedTranscriptAssetLowerBound,
+  );
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel({
+      ...valid,
+      metadata: { ...valid.metadata, irreducibleTranscriptScopeGap: 2 },
+    }),
+    /snapshot_metadata_status_incompatible/,
+  );
 });
 
 test("source artifact ordering uses a total semantic key", () => {
@@ -908,6 +969,94 @@ test("ambiguous candidate exception pointing at another id fails closed", () => 
 
   assert.throws(
     () => buildSystemOneStagingReadModel(input),
+    /candidate_ambiguity_exception_link_invalid/,
+  );
+});
+
+test("conflicting candidates require a linked conflict exception and stay non-canonical", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const conflictingCandidate = {
+    ...valid.candidateAssociations[0],
+    candidateState: "conflicting" as const,
+    evidence: {
+      ...valid.candidateAssociations[0].evidence,
+      ambiguityState: "ambiguous" as const,
+      competitionState: "competitive" as const,
+    },
+  };
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel({
+      ...valid,
+      candidateAssociations: [conflictingCandidate],
+    }),
+    /candidate_ambiguity_exception_missing/,
+  );
+
+  const candidateId = createSystemOneDeterministicId(
+    "candidate-association",
+    SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+    {
+      leftOpaqueAssetId: conflictingCandidate.leftOpaqueAssetId,
+      rightOpaqueAssetId: conflictingCandidate.rightOpaqueAssetId,
+      ruleId: conflictingCandidate.ruleId,
+      ruleVersion: conflictingCandidate.ruleVersion,
+    },
+  );
+  const model = buildSystemOneStagingReadModel({
+    ...valid,
+    candidateAssociations: [conflictingCandidate],
+    scopeExceptions: [
+      ...valid.scopeExceptions,
+      {
+        kind: "scope_exception" as const,
+        exceptionType: "candidate_ambiguity" as const,
+        opaqueReference: candidateId,
+        scopeCategory: "candidate_identity",
+        transcriptPossibility: "not_applicable" as const,
+        resolutionState: "fail_closed" as const,
+        failClosedReason: "synthetic_candidate_conflict",
+      },
+    ],
+  });
+
+  const stored = model.candidateAssociations.find((item) => item.candidateState === "conflicting");
+  assert.ok(stored);
+  assert.equal(stored.candidateState, "conflicting");
+  assert.equal("canonicalLogicalCallId" in stored, false);
+  assert.equal("canonicalLogicalCallKey" in stored, false);
+  assert.equal(model.canonicalAssets.some((asset) => asset.opaqueAssetId === stored.leftOpaqueAssetId), false);
+});
+
+test("conflict exceptions pointing at an unambiguous candidate fail closed", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const unambiguousId = createSystemOneDeterministicId(
+    "candidate-association",
+    SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+    {
+      leftOpaqueAssetId: valid.candidateAssociations[0].leftOpaqueAssetId,
+      rightOpaqueAssetId: valid.candidateAssociations[0].rightOpaqueAssetId,
+      ruleId: valid.candidateAssociations[0].ruleId,
+      ruleVersion: valid.candidateAssociations[0].ruleVersion,
+    },
+  );
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel({
+      ...valid,
+      scopeExceptions: [
+        ...valid.scopeExceptions,
+        {
+          kind: "scope_exception" as const,
+          exceptionType: "candidate_ambiguity" as const,
+          opaqueReference: unambiguousId,
+          scopeCategory: "candidate_identity",
+          transcriptPossibility: "not_applicable" as const,
+          resolutionState: "fail_closed" as const,
+          failClosedReason: "synthetic_candidate_conflict",
+        },
+      ],
+    }),
     /candidate_ambiguity_exception_link_invalid/,
   );
 });

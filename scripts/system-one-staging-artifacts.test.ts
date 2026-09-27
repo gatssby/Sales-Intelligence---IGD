@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import {
@@ -620,6 +620,140 @@ test("unversioned artifact rejects unexpected nested properties", () => {
   );
 });
 
+test("synthetic artifact contracts reject duplicate, traversing, and ambiguous logical names", () => {
+  const payloads = makePayloads();
+  const contracts = makeContracts(payloads);
+
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(makeLoadedFixture().artifacts, FIXED_BUILD_TIME, [
+      ...contracts,
+      contracts[0],
+    ]),
+    /artifact_contract_invalid/,
+  );
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(makeLoadedFixture().artifacts, FIXED_BUILD_TIME, [
+      ...contracts.slice(1),
+      { ...contracts[0], relativePath: "../outside.json" },
+    ]),
+    /artifact_contract_invalid/,
+  );
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(makeLoadedFixture().artifacts, FIXED_BUILD_TIME, [
+      ...contracts.slice(1),
+      { ...contracts[0], relativePath: "/tmp/outside.json" },
+    ]),
+    /artifact_contract_invalid/,
+  );
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(makeLoadedFixture().artifacts, FIXED_BUILD_TIME, [
+      ...contracts.slice(1),
+      { ...contracts[0], expectedSourceSha256: "not-a-hash" },
+    ]),
+    /artifact_contract_invalid/,
+  );
+});
+
+test("loaded artifact set rejects duplicates and unexpected logical artifacts", () => {
+  const fixture = makeLoadedFixture();
+
+  // Keep the artifact count equal to the contract count so the duplicate guard (rather than the
+  // coarser missing-artifact count guard) is the branch that fails closed.
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(
+      [fixture.artifacts[0], fixture.artifacts[0], ...fixture.artifacts.slice(2)],
+      FIXED_BUILD_TIME,
+      fixture.contracts,
+    ),
+    /duplicate_logical_artifact/,
+  );
+
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(
+      [...fixture.artifacts.slice(1), { ...fixture.artifacts[0], logicalName: "unexpectedArtifact" }],
+      FIXED_BUILD_TIME,
+      fixture.contracts,
+    ),
+    /unexpected_logical_artifact/,
+  );
+});
+
+test("artifact contract/schema/status mismatches fail closed before projection", () => {
+  const fixture = makeLoadedFixture();
+
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts([
+      ...fixture.artifacts.slice(1),
+      { ...fixture.artifacts[0], sourceKind: "unexpected-source-kind" },
+    ], FIXED_BUILD_TIME, fixture.contracts),
+    /artifact_contract_incompatible/,
+  );
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts([
+      ...fixture.artifacts.slice(1),
+      { ...fixture.artifacts[0], parserVersion: "unexpected-parser-version" },
+    ], FIXED_BUILD_TIME, fixture.contracts),
+    /artifact_contract_incompatible/,
+  );
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(fixture.artifacts, FIXED_BUILD_TIME, [
+      ...fixture.contracts.slice(1),
+      { ...fixture.contracts[0], sourceKind: "unexpected-source-kind" },
+    ]),
+    /artifact_contract_incompatible/,
+  );
+
+  // Flip an approved scope/identity flag consistently across every corroborating source so the
+  // build survives aggregate reconciliation and is rejected by the status-invariant guard only.
+  const statusPayloads = makePayloads();
+  const flipFlags = (value: Record<string, unknown>) => ({
+    ...value,
+    TRANSCRIPT_SCOPE_EXACTLY_VALIDATED: true,
+  });
+  statusPayloads.identitySummary = Buffer.from(
+    `${JSON.stringify(flipFlags(JSON.parse(Buffer.from(statusPayloads.identitySummary).toString("utf8"))))}\n`,
+    "utf8",
+  );
+  statusPayloads.identityDetail = Buffer.from(
+    `${JSON.stringify(flipFlags(JSON.parse(Buffer.from(statusPayloads.identityDetail).toString("utf8"))))}\n`,
+    "utf8",
+  );
+  statusPayloads.finalConsolidation = Buffer.from(
+    Buffer.from(statusPayloads.finalConsolidation).toString("utf8")
+      .replace("TRANSCRIPT_SCOPE_EXACTLY_VALIDATED = false", "TRANSCRIPT_SCOPE_EXACTLY_VALIDATED = true"),
+    "utf8",
+  );
+  const statusFixture = makeLoadedFromPayloads(statusPayloads);
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(statusFixture.artifacts, FIXED_BUILD_TIME, statusFixture.contracts),
+    /artifact_status_incompatible/,
+  );
+});
+
+test("loadSystemOneStagingArtifacts rejects a symlinked artifact and a non-file target", async () => {
+  const fixture = await makeSyntheticArtifactDirectory();
+  const symlinked = fixture.contracts[0].relativePath;
+  const original = join(fixture.root, symlinked);
+  const outside = join(fixture.root, "outside-target.json");
+  await writeFile(outside, "{}", { mode: 0o600 });
+  await unlink(original);
+  await symlink(outside, original);
+
+  await assert.rejects(
+    () => loadSystemOneStagingArtifacts(fixture.root, fixture.contracts),
+    /unsafe_input_symlink/,
+  );
+
+  const directoryFixture = await makeSyntheticArtifactDirectory();
+  const target = join(directoryFixture.root, directoryFixture.contracts[0].relativePath);
+  await unlink(target);
+  await mkdir(target, { mode: 0o700 });
+  await assert.rejects(
+    () => loadSystemOneStagingArtifacts(directoryFixture.root, directoryFixture.contracts),
+    /unsafe_input_target/,
+  );
+});
+
 test("malformed JSONL fails closed", () => {
   const fixture = makeLoadedFixture({ malformedCurrentRows: true });
   assert.throws(
@@ -754,6 +888,22 @@ test("runner rejects a symlinked output target", async () => {
   );
 });
 
+test("runner rejects a symlinked approved input artifact", async () => {
+  const fixture = await makeRunnableSyntheticArtifactDirectory();
+  const contract = fixture.contracts.find((item) => item.logicalName === "currentRows")!;
+  const inputPath = join(fixture.privateRoot, contract.relativePath);
+  const bytes = await readFile(inputPath);
+  const outsideRoot = await mkdtemp(join(process.env.TMPDIR!, "system-one-staging-input-outside-"));
+  const outsidePath = join(outsideRoot, contract.relativePath);
+  await writeFile(outsidePath, bytes, { mode: 0o600 });
+  await unlink(inputPath);
+  await symlink(outsidePath, inputPath);
+  await assert.rejects(
+    () => runSystemOneStagingReadModel(makeRunnerOptions(fixture.privateRoot), fixture.contracts),
+    /unsafe_input_symlink/,
+  );
+});
+
 test("runner rejects output traversal and writes nothing outside the approved root", async () => {
   const fixture = await makeRunnableSyntheticArtifactDirectory();
   const options = makeRunnerOptions(fixture.privateRoot, {
@@ -789,4 +939,127 @@ test("repeated runner builds preserve semantic hashes across timestamps", async 
   );
   assert.equal(first.snapshotHash, second.snapshotHash);
   assert.equal(first.candidatePairSetHash, second.candidatePairSetHash);
+});
+
+test("versioned transcript scope gap invariant rejects inconsistent bounds", () => {
+  const payloads = makeProjectionPayloads();
+  for (const name of ["identitySummary", "identityDetail"] as const) {
+    const value = JSON.parse(Buffer.from(payloads[name]).toString("utf8")) as Record<string, unknown>;
+    value.IRREDUCIBLE_TRANSCRIPT_SCOPE_GAP = 2;
+    payloads[name] = Buffer.from(`${JSON.stringify(value)}\n`, "utf8");
+  }
+  payloads.finalConsolidation = Buffer.from(
+    Buffer.from(payloads.finalConsolidation).toString("utf8")
+      .replace("IRREDUCIBLE_TRANSCRIPT_SCOPE_GAP = 1", "IRREDUCIBLE_TRANSCRIPT_SCOPE_GAP = 2"),
+    "utf8",
+  );
+  const fixture = makeLoadedFromPayloads(payloads);
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(fixture.artifacts, FIXED_BUILD_TIME, fixture.contracts),
+    /scope_gap_invariant_mismatch/,
+  );
+});
+
+test("identity aggregate count cannot hide an incompatible candidate composition", () => {
+  const payloads = makeProjectionPayloads();
+  for (const name of ["identitySummary", "identityDetail"] as const) {
+    const value = JSON.parse(Buffer.from(payloads[name]).toString("utf8")) as Record<string, unknown>;
+    const rules = value.IDENTITY_RULE_COMPARISON as Record<string, unknown>[];
+    const cRule = rules.find((rule) => rule.rule === "C_TRUE_MUTUAL_NEAREST_NEIGHBOR")!;
+    cRule.CANDIDATE_PAIRS = 0;
+    payloads[name] = Buffer.from(`${JSON.stringify(value)}\n`, "utf8");
+  }
+  const fixture = makeLoadedFromPayloads(payloads);
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(fixture.artifacts, FIXED_BUILD_TIME, fixture.contracts),
+    /candidate_composition_mismatch/,
+  );
+});
+
+test("embedded artifacts reject unexpected top-level and nested properties", () => {
+  const topLevelPayloads = makeProjectionPayloads();
+  const summary = JSON.parse(Buffer.from(topLevelPayloads.identitySummary).toString("utf8")) as Record<string, unknown>;
+  summary.unexpectedField = "anything";
+  topLevelPayloads.identitySummary = Buffer.from(`${JSON.stringify(summary)}\n`, "utf8");
+  const topLevelFixture = makeLoadedFromPayloads(topLevelPayloads);
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(
+      topLevelFixture.artifacts,
+      FIXED_BUILD_TIME,
+      topLevelFixture.contracts,
+    ),
+    /artifact_schema_incompatible/,
+  );
+
+  const nestedPayloads = makeProjectionPayloads();
+  const detail = JSON.parse(Buffer.from(nestedPayloads.identityDetail).toString("utf8")) as Record<string, unknown>;
+  detail.scope_boundary_basis = {
+    ...(detail.scope_boundary_basis as Record<string, unknown>),
+    unexpectedNested: "anything",
+  };
+  nestedPayloads.identityDetail = Buffer.from(`${JSON.stringify(detail)}\n`, "utf8");
+  const nestedFixture = makeLoadedFromPayloads(nestedPayloads);
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(
+      nestedFixture.artifacts,
+      FIXED_BUILD_TIME,
+      nestedFixture.contracts,
+    ),
+    /artifact_schema_incompatible/,
+  );
+});
+
+test("inventory schema rejects unknown structural status before projection", () => {
+  const payloads = makeProjectionPayloads();
+  const rows = Buffer.from(payloads.assetInventory).toString("utf8").trim().split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  rows[0].structural_check_status = "unexpected_status";
+  payloads.assetInventory = Buffer.from(`${rows.map((row) => JSON.stringify(row)).join("\n")}\n`, "utf8");
+  const fixture = makeLoadedFromPayloads(payloads);
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(fixture.artifacts, FIXED_BUILD_TIME, fixture.contracts),
+    /artifact_schema_incompatible/,
+  );
+});
+
+test("current-row total mismatch fails closed before snapshot construction", () => {
+  const payloads = makeProjectionPayloads();
+  const rows = Buffer.from(payloads.currentRows).toString("utf8").trim().split("\n")
+    .filter((line) => !line.includes("row-no-transcript"));
+  payloads.currentRows = Buffer.from(`${rows.join("\n")}\n`, "utf8");
+  const matrix = JSON.parse(Buffer.from(payloads.currentRowMatrix).toString("utf8")) as Record<string, unknown>;
+  matrix.TOTAL = 3;
+  payloads.currentRowMatrix = Buffer.from(`${JSON.stringify(matrix)}\n`, "utf8");
+  const direct = JSON.parse(Buffer.from(payloads.directCurrentSummary).toString("utf8")) as Record<string, unknown>;
+  direct.CURRENT_REFERENCE_ROWS_TOTAL = 3;
+  direct.CURRENT_REFERENCE_UNIQUE_ASSETS = 3;
+  direct.CURRENT_REFERENCE_ACCESSIBLE = 2;
+  payloads.directCurrentSummary = Buffer.from(`${JSON.stringify(direct)}\n`, "utf8");
+  const fixture = makeLoadedFromPayloads(payloads);
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(fixture.artifacts, FIXED_BUILD_TIME, fixture.contracts),
+    /artifact_aggregate_disagreement/,
+  );
+});
+
+test("runner rejects relative sensitive roots and does not use cwd fallback", async () => {
+  const fixture = await makeRunnableSyntheticArtifactDirectory();
+  await assert.rejects(
+    () => runSystemOneStagingReadModel(makeRunnerOptions("relative/private"), fixture.contracts),
+    /private_root_must_be_absolute/,
+  );
+});
+
+test("runner tightens permissive private-root mode without relaxing restrictive roots", async () => {
+  const permissive = await makeRunnableSyntheticArtifactDirectory();
+  await chmod(permissive.privateRoot, 0o755);
+  await runSystemOneStagingReadModel(makeRunnerOptions(permissive.privateRoot), permissive.contracts);
+  assert.equal(await octalMode(permissive.privateRoot), "700");
+
+  const restrictive = await makeRunnableSyntheticArtifactDirectory();
+  await chmod(restrictive.privateRoot, 0o600);
+  await assert.rejects(
+    () => runSystemOneStagingReadModel(makeRunnerOptions(restrictive.privateRoot), restrictive.contracts),
+    /unsafe_private_root_mode/,
+  );
 });

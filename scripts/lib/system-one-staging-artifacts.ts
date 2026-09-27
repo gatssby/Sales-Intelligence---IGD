@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { basename, isAbsolute, resolve, sep } from "node:path";
+import { lstat, readFile, realpath } from "node:fs/promises";
+import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
 import {
   SYSTEM_ONE_MNN_EVALUATOR_VERSION,
   SYSTEM_ONE_MNN_RULE_VERSION,
@@ -491,7 +491,12 @@ function parseInventory(bytes: Uint8Array): JsonObject[] {
     stringValue(row.opaque_logical_call_id);
     booleanValue(row.selected_for_analysis);
     stringValue(row.source_kind);
-    stringValue(row.structural_check_status);
+    if (![
+      "passed",
+      "failed",
+      "not_checked",
+      "not_applicable",
+    ].includes(stringValue(row.structural_check_status))) failSchema();
     if (assetIds.has(assetId)) failSchema();
     assetIds.add(assetId);
     const metadata = exactObject(row.metadata, [
@@ -994,11 +999,23 @@ export async function loadSystemOneStagingArtifacts(
   contracts: readonly SystemOneArtifactContract[] = SYSTEM_ONE_STAGING_REQUIRED_ARTIFACTS,
 ): Promise<readonly LoadedSystemOneArtifact[]> {
   validateContractSet(contracts);
-  const root = resolve(privateRoot);
+  const root = await realpath(resolve(privateRoot));
   const loaded: LoadedSystemOneArtifact[] = [];
   for (const contract of contracts) {
     const path = resolve(root, contract.relativePath);
     if (!path.startsWith(`${root}${sep}`)) throw new Error("artifact_path_escape");
+    try {
+      const stats = await lstat(path);
+      if (stats.isSymbolicLink()) throw new Error("unsafe_input_symlink");
+      if (!stats.isFile()) throw new Error("unsafe_input_target");
+      const resolvedPath = await realpath(path);
+      if (dirname(resolvedPath) !== root) throw new Error("artifact_path_escape");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error(`required_artifact_missing:${contract.logicalName}`);
+      }
+      throw error;
+    }
     let bytes: Uint8Array;
     try {
       bytes = await readFile(path);

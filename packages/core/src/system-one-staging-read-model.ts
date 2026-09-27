@@ -288,11 +288,31 @@ const CANONICAL_EVIDENCE_ORIGINS = new Set<CanonicalEvidenceOrigin>([
   "observed_source_state",
 ]);
 
+function validateBuiltAt(builtAt: string): void {
+  if (typeof builtAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(builtAt)) {
+    throw new Error("built_at_invalid");
+  }
+  const time = Date.parse(builtAt);
+  if (!Number.isFinite(time) || new Date(time).toISOString() !== builtAt) {
+    throw new Error("built_at_invalid");
+  }
+}
+
 function validateMetadataBounds(input: SystemOneStagingBuilderInput): void {
+  validateBuiltAt(input.builtAt);
   if (input.metadata.verifiedTranscriptAssetLowerBound > input.metadata.verifiedTranscriptAssetUpperBound) {
     throw new Error("transcript_scope_bounds_invalid");
   }
 
+  // Versioned invariant, not a universal domain truth: for the approved v01 audited snapshot the
+  // irreducible transcript-scope gap is defined as exactly the unresolvable difference between the
+  // verified-transcript upper and lower bounds
+  //   irreducibleTranscriptScopeGap = verifiedTranscriptAssetUpperBound - verifiedTranscriptAssetLowerBound
+  // For the approved v01 source (1014..1026) that is 12. The equality is a property of this
+  // audited version's bound definition; a future version whose bounds are derived differently must
+  // revisit this assertion (and its schema/adapter version) rather than assume the relation holds.
+  // The version-specific numeric values themselves live with the v01 artifact adapter/runner, never
+  // as domain constants here.
   const metadata = input.metadata;
   const status = metadata.status;
   if (

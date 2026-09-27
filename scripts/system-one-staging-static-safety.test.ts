@@ -94,6 +94,7 @@ const FORBIDDEN_DEPENDENCY_PREFIXES = [
   "@googleapis",
   "googleapis",
   "google-auth-library",
+  "@google-cloud",
   "openai",
   "@ai-sdk",
   "ai",
@@ -256,6 +257,7 @@ test("offline staging closure rejects transitive database, Drive, provider, and 
   const forbiddenCases = [
     ["pg", 'import pg from "pg"; export default pg;'],
     ["googleapis", 'import { google } from "googleapis"; export default google;'],
+    ["@google-cloud/storage", 'import { Storage } from "@google-cloud/storage"; export default Storage;'],
     ["openai", 'import OpenAI from "openai"; export default OpenAI;'],
     ["node:http", 'import http from "node:http"; export default http;'],
     ["undici", 'import { request } from "undici"; export default request;'],
@@ -286,6 +288,37 @@ test("real runner and adapter import closure is offline-only", async () => {
   assert.ok(result.visitedFiles.includes(ADAPTER_PATH));
   assert.ok(result.visitedFiles.some((path) => path.endsWith("packages/core/src/system-one-staging-read-model.ts")));
   assert.ok(result.visitedFiles.some((path) => path.endsWith("scripts/lib/system-one-identity-rule-validation.ts")));
+});
+
+test("offline staging closure rejects hidden production and transcript-content paths", async () => {
+  const forbiddenCases = [
+    ["public.calls", 'export const query = "select * from public.calls";'],
+    ["source_locations", 'export const table = "source_locations";'],
+    ["migrations", 'export const migration = "packages/db/migrations/016.sql";'],
+    ["transcript_body", 'export const transcript_body = "forbidden";'],
+    ["transcript_reader", "export function readTranscriptBody() { return 'forbidden'; }"],
+  ] as const;
+  for (const [token, helperSource] of forbiddenCases) {
+    const fixture = await makeSyntheticImportGraph({
+      "runner.ts": 'import "./helper.js";',
+      "helper.ts": helperSource,
+    });
+    await assert.rejects(
+      () => assertOfflineDependencyClosure([fixture.path("runner.ts")]),
+      new RegExp(`forbidden_executable_token:${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+    );
+  }
+});
+
+test("offline staging closure rejects non-literal dynamic imports", async () => {
+  const fixture = await makeSyntheticImportGraph({
+    "runner.ts": 'const target = "./helper.js"; export const value = import(target);',
+    "helper.ts": "export const value = 1;",
+  });
+  await assert.rejects(
+    () => assertOfflineDependencyClosure([fixture.path("runner.ts")]),
+    /non_literal_dynamic_import/,
+  );
 });
 
 test("runner closure references only private system-one outputs and no production persistence paths", async () => {
