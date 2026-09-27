@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export const SYSTEM_ONE_STAGING_SCHEMA_VERSION = "system-one-staging-read-model-v01" as const;
 export const SYSTEM_ONE_MNN_RULE_VERSION = "identity-rule-validation-v04:C_TRUE_MUTUAL_NEAREST_NEIGHBOR" as const;
 export const SYSTEM_ONE_MNN_EVALUATOR_VERSION = "system-one-identity-rule-validation-evaluator-v01" as const;
@@ -94,3 +96,102 @@ export type ScopeException = {
   readonly resolutionState: "unresolved" | "fail_closed";
   readonly failClosedReason: string;
 };
+
+export type SystemOneRecordNamespace =
+  | "canonical-asset"
+  | "canonical-logical-call"
+  | "current-row-resolution"
+  | "candidate-association"
+  | "scope-exception";
+
+function compareText(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+function canonicalize(value: unknown, seen: WeakSet<object>): string {
+  if (value === null) return "null";
+
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error("unsupported_canonical_value");
+    return JSON.stringify(Object.is(value, -0) ? 0 : value);
+  }
+
+  if (typeof value !== "object") throw new Error("unsupported_canonical_value");
+  if (seen.has(value)) throw new Error("unsupported_canonical_value");
+
+  const prototype = Object.getPrototypeOf(value);
+  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) {
+    throw new Error("unsupported_canonical_value");
+  }
+  if (Reflect.ownKeys(value).some((key) => typeof key === "symbol")) {
+    throw new Error("unsupported_canonical_value");
+  }
+
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => canonicalize(item, seen)).join(",")}]`;
+    }
+
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record).sort(compareText);
+    return `{${keys
+      .map((key) => `${JSON.stringify(key)}:${canonicalize(record[key], seen)}`)
+      .join(",")}}`;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+export function canonicalizeSystemOneValue(value: unknown): string {
+  return canonicalize(value, new WeakSet());
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+export function createSystemOneDeterministicId(
+  namespace: SystemOneRecordNamespace,
+  schemaVersion: string,
+  identity: unknown,
+): string {
+  if (!namespace) throw new Error("system_one_record_namespace_required");
+  if (!schemaVersion) throw new Error("system_one_schema_version_required");
+  const digest = sha256(canonicalizeSystemOneValue({ identity, namespace, schemaVersion }));
+  return `${namespace}:${schemaVersion}:${digest}`;
+}
+
+export function computeSystemOneSnapshotHash(
+  semanticSnapshotWithoutHashOrBuildTime: unknown,
+): string {
+  return sha256(canonicalizeSystemOneValue(semanticSnapshotWithoutHashOrBuildTime));
+}
+
+export function computeCandidatePairSetHash(
+  pairs: readonly Pick<
+    CandidateAssociation,
+    "leftOpaqueAssetId" | "rightOpaqueAssetId" | "ruleId" | "ruleVersion"
+  >[],
+): string {
+  const normalizedPairs = pairs.map((pair) => {
+    if (!pair.leftOpaqueAssetId || !pair.rightOpaqueAssetId || !pair.ruleId || !pair.ruleVersion) {
+      throw new Error("candidate_pair_identity_incomplete");
+    }
+    return {
+      transcriptOpaqueAssetId: pair.leftOpaqueAssetId,
+      recordingOpaqueAssetId: pair.rightOpaqueAssetId,
+      ruleId: pair.ruleId,
+      ruleVersion: pair.ruleVersion,
+    };
+  }).sort((left, right) => compareText(
+    `${left.transcriptOpaqueAssetId}\u0000${left.recordingOpaqueAssetId}\u0000${left.ruleId}\u0000${left.ruleVersion}`,
+    `${right.transcriptOpaqueAssetId}\u0000${right.recordingOpaqueAssetId}\u0000${right.ruleId}\u0000${right.ruleVersion}`,
+  ));
+
+  return sha256(canonicalizeSystemOneValue(normalizedPairs));
+}
