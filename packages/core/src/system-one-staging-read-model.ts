@@ -97,6 +97,55 @@ export type ScopeException = {
   readonly failClosedReason: string;
 };
 
+export type SourceArtifactDescriptor = {
+  readonly artifactName: string;
+  readonly sourceKind: string;
+  readonly parserVersion: string;
+  readonly embeddedVersion: string | null;
+  readonly sha256: string;
+};
+
+export type SnapshotStatus = {
+  readonly transcriptScopeExactlyValidated: false;
+  readonly transcriptScopeBounded: true;
+  readonly globalScopeValidated: false;
+  readonly identityRuleValidatedOnObservedCorpus: false;
+  readonly candidatePairSetHash: string;
+};
+
+export type SnapshotMetadata = {
+  readonly schemaVersion: typeof SYSTEM_ONE_STAGING_SCHEMA_VERSION;
+  readonly sourceArtifacts: readonly SourceArtifactDescriptor[];
+  readonly canonicalIdentityRuleVersion: string;
+  readonly candidateRuleVersion: typeof SYSTEM_ONE_MNN_RULE_VERSION;
+  readonly candidateEvaluatorVersion: typeof SYSTEM_ONE_MNN_EVALUATOR_VERSION;
+  readonly candidatePairSetHash: string;
+  readonly verifiedTranscriptAssetLowerBound: number;
+  readonly verifiedTranscriptAssetUpperBound: number;
+  readonly irreducibleTranscriptScopeGap: number;
+  readonly status: SnapshotStatus;
+  readonly snapshotHash: string;
+  readonly builtAt: string;
+};
+
+export type SystemOneStagingReadModel = {
+  readonly metadata: SnapshotMetadata;
+  readonly canonicalAssets: readonly CanonicalAssetFact[];
+  readonly canonicalLogicalCalls: readonly CanonicalLogicalCallProjection[];
+  readonly currentRowResolutions: readonly CurrentRowResolution[];
+  readonly candidateAssociations: readonly CandidateAssociation[];
+  readonly scopeExceptions: readonly ScopeException[];
+};
+
+export interface SystemOneStagingReadApi {
+  getCanonicalAssets(): readonly CanonicalAssetFact[];
+  getCanonicalLogicalCalls(): readonly CanonicalLogicalCallProjection[];
+  getCurrentRowResolution(): readonly CurrentRowResolution[];
+  getSnapshotStatus(): SnapshotMetadata;
+  getCandidateAssociations(): readonly CandidateAssociation[];
+  getScopeExceptions(): readonly ScopeException[];
+}
+
 export type SystemOneRecordNamespace =
   | "canonical-asset"
   | "canonical-logical-call"
@@ -194,4 +243,31 @@ export function computeCandidatePairSetHash(
   ));
 
   return sha256(canonicalizeSystemOneValue(normalizedPairs));
+}
+
+function deepFreezeCopy<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return Object.freeze(value.map((item) => deepFreezeCopy(item))) as T;
+  }
+  if (value !== null && typeof value === "object") {
+    const copy = Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, deepFreezeCopy(item)]),
+    );
+    return Object.freeze(copy) as T;
+  }
+  return value;
+}
+
+export function createSystemOneStagingReadApi(
+  model: SystemOneStagingReadModel,
+): SystemOneStagingReadApi {
+  const snapshot = deepFreezeCopy(model);
+  return Object.freeze({
+    getCanonicalAssets: () => snapshot.canonicalAssets,
+    getCanonicalLogicalCalls: () => snapshot.canonicalLogicalCalls,
+    getCurrentRowResolution: () => snapshot.currentRowResolutions,
+    getSnapshotStatus: () => snapshot.metadata,
+    getCandidateAssociations: () => snapshot.candidateAssociations,
+    getScopeExceptions: () => snapshot.scopeExceptions,
+  });
 }
