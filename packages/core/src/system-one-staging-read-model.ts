@@ -146,6 +146,33 @@ export interface SystemOneStagingReadApi {
   getScopeExceptions(): readonly ScopeException[];
 }
 
+export type CanonicalEvidenceOrigin =
+  | "verified_asset_inventory"
+  | "canonical_identity_rule"
+  | "direct_current_row_reference"
+  | "observed_source_state";
+
+type WithoutRecordId<T> = T extends { readonly recordId: string } ? Omit<T, "recordId"> : never;
+
+export type SystemOneStagingBuilderInput = {
+  readonly metadata: Omit<SnapshotMetadata, "snapshotHash" | "builtAt">;
+  readonly builtAt: string;
+  readonly canonicalAssets: readonly (
+    Omit<CanonicalAssetFact, "recordId"> & { readonly evidenceOrigin: CanonicalEvidenceOrigin }
+  )[];
+  readonly canonicalLogicalCalls: readonly Omit<CanonicalLogicalCallProjection, "recordId">[];
+  readonly currentRowResolutions: readonly WithoutRecordId<CurrentRowResolution>[];
+  readonly candidateAssociations: readonly Omit<CandidateAssociation, "candidateId">[];
+  readonly scopeExceptions: readonly Omit<ScopeException, "exceptionId">[];
+  readonly assertions: {
+    readonly expectedCanonicalVerifiedTranscriptAssets: number;
+    readonly expectedMnnCandidateGroups: number;
+    readonly expectedTranscriptScopeUnknownExceptions: number;
+    readonly expectedCurrentRowsByState: Readonly<Record<CurrentRowResolution["state"], number>>;
+    readonly expectedCurrentRowsTotal: number;
+  };
+};
+
 export type SystemOneRecordNamespace =
   | "canonical-asset"
   | "canonical-logical-call"
@@ -183,6 +210,11 @@ function canonicalize(value: unknown, seen: WeakSet<object>): string {
   seen.add(value);
   try {
     if (Array.isArray(value)) {
+      for (let index = 0; index < value.length; index += 1) {
+        if (!Object.prototype.hasOwnProperty.call(value, index)) {
+          throw new Error("unsupported_canonical_value");
+        }
+      }
       return `[${value.map((item) => canonicalize(item, seen)).join(",")}]`;
     }
 
@@ -243,6 +275,363 @@ export function computeCandidatePairSetHash(
   ));
 
   return sha256(canonicalizeSystemOneValue(normalizedPairs));
+}
+
+function sortByRecordId<T extends { readonly recordId: string }>(records: readonly T[]): T[] {
+  return [...records].sort((left, right) => compareText(left.recordId, right.recordId));
+}
+
+const CANONICAL_EVIDENCE_ORIGINS = new Set<CanonicalEvidenceOrigin>([
+  "verified_asset_inventory",
+  "canonical_identity_rule",
+  "direct_current_row_reference",
+  "observed_source_state",
+]);
+
+function validateMetadataBounds(input: SystemOneStagingBuilderInput): void {
+  if (input.metadata.verifiedTranscriptAssetLowerBound > input.metadata.verifiedTranscriptAssetUpperBound) {
+    throw new Error("transcript_scope_bounds_invalid");
+  }
+
+  const metadata = input.metadata;
+  const status = metadata.status;
+  if (
+    metadata.schemaVersion !== SYSTEM_ONE_STAGING_SCHEMA_VERSION
+    || metadata.irreducibleTranscriptScopeGap
+      !== metadata.verifiedTranscriptAssetUpperBound - metadata.verifiedTranscriptAssetLowerBound
+    || status.transcriptScopeExactlyValidated !== false
+    || status.transcriptScopeBounded !== true
+    || status.globalScopeValidated !== false
+    || status.identityRuleValidatedOnObservedCorpus !== false
+    || status.candidatePairSetHash !== metadata.candidatePairSetHash
+    || metadata.candidateRuleVersion !== SYSTEM_ONE_MNN_RULE_VERSION
+    || metadata.candidateEvaluatorVersion !== SYSTEM_ONE_MNN_EVALUATOR_VERSION
+    || metadata.canonicalIdentityRuleVersion.length === 0
+  ) {
+    throw new Error("snapshot_metadata_status_incompatible");
+  }
+}
+
+function validateCanonicalEvidence(input: SystemOneStagingBuilderInput): void {
+  for (const asset of input.canonicalAssets) {
+    if (!CANONICAL_EVIDENCE_ORIGINS.has(asset.evidenceOrigin)) {
+      throw new Error("canonical_evidence_origin_invalid");
+    }
+  }
+}
+
+function validateCandidateShape(input: SystemOneStagingBuilderInput): void {
+  for (const candidate of input.candidateAssociations as readonly Record<string, unknown>[]) {
+    if (
+      Object.prototype.hasOwnProperty.call(candidate, "canonicalLogicalCallId")
+      || Object.prototype.hasOwnProperty.call(candidate, "canonicalLogicalCallKey")
+    ) {
+      throw new Error("candidate_canonical_identity_forbidden");
+    }
+    if (
+      candidate.candidateType !== "transcript_recording"
+      || candidate.ruleId !== "C_TRUE_MUTUAL_NEAREST_NEIGHBOR"
+      || candidate.ruleVersion !== SYSTEM_ONE_MNN_RULE_VERSION
+      || candidate.evaluatorVersion !== SYSTEM_ONE_MNN_EVALUATOR_VERSION
+      || typeof candidate.sourceInventorySha256 !== "string"
+      || !/^[0-9a-f]{64}$/.test(candidate.sourceInventorySha256)
+    ) {
+      throw new Error("candidate_metadata_invalid");
+    }
+  }
+}
+
+function validateExpectedCandidateCount(input: SystemOneStagingBuilderInput): void {
+  if (input.candidateAssociations.length !== input.assertions.expectedMnnCandidateGroups) {
+    throw new Error("candidate_count_mismatch");
+  }
+}
+
+function validateExpectedScopeExceptionCount(input: SystemOneStagingBuilderInput): void {
+  const transcriptScopeUnknownCount = input.scopeExceptions.filter(
+    (exception) => exception.exceptionType === "transcript_scope_unknown",
+  ).length;
+  if (transcriptScopeUnknownCount !== input.assertions.expectedTranscriptScopeUnknownExceptions) {
+    throw new Error("transcript_scope_exception_count_mismatch");
+  }
+
+  const ambiguousCandidateCount = input.candidateAssociations.filter(
+    (candidate) => candidate.candidateState === "ambiguous" || candidate.candidateState === "conflicting",
+  ).length;
+  const candidateAmbiguityExceptionCount = input.scopeExceptions.filter(
+    (exception) => exception.exceptionType === "candidate_ambiguity",
+  ).length;
+  if (candidateAmbiguityExceptionCount < ambiguousCandidateCount) {
+    throw new Error("candidate_ambiguity_exception_missing");
+  }
+}
+
+function validateCurrentRowAccounting(input: SystemOneStagingBuilderInput): void {
+  const seenCurrentRows = new Set<string>();
+  const counts: Record<CurrentRowResolution["state"], number> = {
+    canonical_direct: 0,
+    candidate_reconciliable: 0,
+    candidate_no_verified_transcript: 0,
+    unresolved: 0,
+  };
+
+  for (const resolution of input.currentRowResolutions) {
+    if (
+      (resolution.state === "candidate_reconciliable"
+        || resolution.state === "candidate_no_verified_transcript")
+      && (
+        Object.prototype.hasOwnProperty.call(resolution, "canonicalLogicalCallId")
+        || Object.prototype.hasOwnProperty.call(resolution, "canonicalLogicalCallKey")
+      )
+    ) {
+      throw new Error("current_row_candidate_canonical_identity_forbidden");
+    }
+    if (seenCurrentRows.has(resolution.opaqueCurrentRowId)) {
+      throw new Error("current_row_state_overlap");
+    }
+    seenCurrentRows.add(resolution.opaqueCurrentRowId);
+    if (!Object.prototype.hasOwnProperty.call(counts, resolution.state)) {
+      throw new Error("current_row_accounting_mismatch");
+    }
+    counts[resolution.state] += 1;
+  }
+
+  if (
+    input.currentRowResolutions.length !== input.assertions.expectedCurrentRowsTotal
+    || counts.canonical_direct !== input.assertions.expectedCurrentRowsByState.canonical_direct
+    || counts.candidate_reconciliable !== input.assertions.expectedCurrentRowsByState.candidate_reconciliable
+    || counts.candidate_no_verified_transcript
+      !== input.assertions.expectedCurrentRowsByState.candidate_no_verified_transcript
+    || counts.unresolved !== input.assertions.expectedCurrentRowsByState.unresolved
+  ) {
+    throw new Error("current_row_accounting_mismatch");
+  }
+}
+
+function isCanonicalVerifiedTranscript(asset: Omit<CanonicalAssetFact, "recordId">): boolean {
+  return (
+    asset.assetClass === "verified_transcript_candidate"
+    && asset.provenanceState === "verified"
+    && asset.structuralValidationState === "passed"
+    && asset.eligibilityState === "eligible"
+  );
+}
+
+function validateCanonicalVerifiedTranscriptCount(input: SystemOneStagingBuilderInput): void {
+  const canonicalVerifiedTranscriptCount = input.canonicalAssets.filter(isCanonicalVerifiedTranscript).length;
+  if (canonicalVerifiedTranscriptCount !== input.assertions.expectedCanonicalVerifiedTranscriptAssets) {
+    throw new Error("canonical_verified_transcript_count_mismatch");
+  }
+}
+
+function validateCurrentRowReferences(
+  currentRowResolutions: readonly CurrentRowResolution[],
+  canonicalAssets: readonly CanonicalAssetFact[],
+  candidateAssociations: readonly CandidateAssociation[],
+  scopeExceptions: readonly ScopeException[],
+): void {
+  const canonicalAssetIds = new Set(canonicalAssets.map((asset) => asset.recordId));
+  const candidateIds = new Set(candidateAssociations.map((candidate) => candidate.candidateId));
+  const exceptionIds = new Set(scopeExceptions.map((exception) => exception.exceptionId));
+  for (const resolution of currentRowResolutions) {
+    if (
+      resolution.state === "canonical_direct"
+      && !canonicalAssetIds.has(resolution.canonicalAssetRecordId)
+    ) {
+      throw new Error("current_row_canonical_asset_missing");
+    }
+    if (
+      resolution.state === "candidate_reconciliable"
+      && !candidateIds.has(resolution.candidateAssociationId)
+    ) {
+      throw new Error("current_row_candidate_association_missing");
+    }
+    if (resolution.state === "unresolved" && !exceptionIds.has(resolution.scopeExceptionId)) {
+      throw new Error("unresolved_scope_exception_missing");
+    }
+  }
+}
+
+function validateCanonicalProjectionReferences(
+  canonicalLogicalCalls: readonly CanonicalLogicalCallProjection[],
+  canonicalAssets: readonly CanonicalAssetFact[],
+): void {
+  const canonicalAssetsById = new Map(canonicalAssets.map((asset) => [asset.recordId, asset]));
+  for (const logicalCall of canonicalLogicalCalls) {
+    if (logicalCall.canonicalAssetRecordIds.some((recordId) => !canonicalAssetsById.has(recordId))) {
+      throw new Error("canonical_projection_asset_missing");
+    }
+    if (logicalCall.canonicalAssetRecordIds.some(
+      (recordId) => canonicalAssetsById.get(recordId)?.canonicalLogicalCallKey
+        !== logicalCall.canonicalLogicalCallKey,
+    )) {
+      throw new Error("canonical_projection_logical_call_key_mismatch");
+    }
+    if (
+      logicalCall.selectedVerifiedTranscriptRecordId !== null
+      && (
+        !logicalCall.canonicalAssetRecordIds.includes(logicalCall.selectedVerifiedTranscriptRecordId)
+        || !isCanonicalVerifiedTranscript(
+          canonicalAssetsById.get(logicalCall.selectedVerifiedTranscriptRecordId)!,
+        )
+      )
+    ) {
+      throw new Error("canonical_projection_selected_transcript_invalid");
+    }
+  }
+}
+
+export function assertSystemOneGeneratedRecordIdIntegrity(
+  collections: readonly {
+    readonly namespace: SystemOneRecordNamespace;
+    readonly recordIds: readonly string[];
+  }[],
+): void {
+  const recordIdsByNamespace = new Map<SystemOneRecordNamespace, Set<string>>();
+  const namespaceByRecordId = new Map<string, SystemOneRecordNamespace>();
+
+  for (const collection of collections) {
+    const namespaceRecordIds = recordIdsByNamespace.get(collection.namespace) ?? new Set<string>();
+    recordIdsByNamespace.set(collection.namespace, namespaceRecordIds);
+    for (const recordId of collection.recordIds) {
+      if (namespaceRecordIds.has(recordId)) {
+        throw new Error("duplicate_record_id");
+      }
+      const existingNamespace = namespaceByRecordId.get(recordId);
+      if (existingNamespace !== undefined && existingNamespace !== collection.namespace) {
+        throw new Error("cross_namespace_collision");
+      }
+      namespaceRecordIds.add(recordId);
+      namespaceByRecordId.set(recordId, collection.namespace);
+    }
+  }
+}
+
+export function buildSystemOneStagingReadModel(
+  input: SystemOneStagingBuilderInput,
+): SystemOneStagingReadModel {
+  validateMetadataBounds(input);
+  validateCanonicalEvidence(input);
+  validateCandidateShape(input);
+  validateExpectedCandidateCount(input);
+  const canonicalAssets = sortByRecordId(input.canonicalAssets.map(({ evidenceOrigin: _evidenceOrigin, ...asset }) => ({
+    ...asset,
+    recordId: createSystemOneDeterministicId(
+      "canonical-asset",
+      SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+      { opaqueAssetId: asset.opaqueAssetId },
+    ),
+  })));
+  const canonicalLogicalCalls = sortByRecordId(input.canonicalLogicalCalls.map((logicalCall) => ({
+    ...logicalCall,
+    canonicalAssetRecordIds: [...logicalCall.canonicalAssetRecordIds].sort(compareText),
+    recordId: createSystemOneDeterministicId(
+      "canonical-logical-call",
+      SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+      { canonicalLogicalCallKey: logicalCall.canonicalLogicalCallKey },
+    ),
+  })));
+  const currentRowResolutions = sortByRecordId(input.currentRowResolutions.map((resolution) => ({
+    ...resolution,
+    recordId: createSystemOneDeterministicId(
+      "current-row-resolution",
+      SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+      { opaqueCurrentRowId: resolution.opaqueCurrentRowId },
+    ),
+  })) as CurrentRowResolution[]);
+  const candidateAssociations = input.candidateAssociations.map((candidate) => ({
+    ...candidate,
+    evidence: {
+      ...candidate.evidence,
+      independentMetadataEvidence: [...candidate.evidence.independentMetadataEvidence].sort(compareText),
+    },
+    candidateId: createSystemOneDeterministicId(
+      "candidate-association",
+      SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+      {
+        leftOpaqueAssetId: candidate.leftOpaqueAssetId,
+        rightOpaqueAssetId: candidate.rightOpaqueAssetId,
+        ruleId: candidate.ruleId,
+        ruleVersion: candidate.ruleVersion,
+      },
+    ),
+  })).sort((left, right) => compareText(left.candidateId, right.candidateId));
+  const scopeExceptions = input.scopeExceptions.map((exception) => ({
+    ...exception,
+    exceptionId: createSystemOneDeterministicId(
+      "scope-exception",
+      SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+      {
+        exceptionType: exception.exceptionType,
+        opaqueReference: exception.opaqueReference,
+        scopeCategory: exception.scopeCategory,
+      },
+    ),
+  })).sort((left, right) => compareText(left.exceptionId, right.exceptionId));
+  const candidatePairSetHash = computeCandidatePairSetHash(candidateAssociations);
+  if (
+    candidatePairSetHash !== input.metadata.candidatePairSetHash
+    || candidatePairSetHash !== input.metadata.status.candidatePairSetHash
+  ) {
+    throw new Error("candidate_pair_set_hash_mismatch");
+  }
+  validateExpectedScopeExceptionCount(input);
+  validateCurrentRowAccounting(input);
+  validateCurrentRowReferences(
+    currentRowResolutions,
+    canonicalAssets,
+    candidateAssociations,
+    scopeExceptions,
+  );
+  validateCanonicalVerifiedTranscriptCount(input);
+  validateCanonicalProjectionReferences(canonicalLogicalCalls, canonicalAssets);
+  assertSystemOneGeneratedRecordIdIntegrity([
+    { namespace: "canonical-asset", recordIds: canonicalAssets.map((record) => record.recordId) },
+    {
+      namespace: "canonical-logical-call",
+      recordIds: canonicalLogicalCalls.map((record) => record.recordId),
+    },
+    {
+      namespace: "current-row-resolution",
+      recordIds: currentRowResolutions.map((record) => record.recordId),
+    },
+    {
+      namespace: "candidate-association",
+      recordIds: candidateAssociations.map((record) => record.candidateId),
+    },
+    { namespace: "scope-exception", recordIds: scopeExceptions.map((record) => record.exceptionId) },
+  ]);
+  const metadataWithoutIdentity = {
+    ...input.metadata,
+    sourceArtifacts: [...input.metadata.sourceArtifacts]
+      .sort((left, right) => compareText(
+        canonicalizeSystemOneValue(left),
+        canonicalizeSystemOneValue(right),
+      )),
+    candidatePairSetHash,
+    status: {
+      ...input.metadata.status,
+      candidatePairSetHash,
+    },
+  };
+  const semanticSnapshot = {
+    metadata: metadataWithoutIdentity,
+    canonicalAssets,
+    canonicalLogicalCalls,
+    currentRowResolutions,
+    candidateAssociations,
+    scopeExceptions,
+  };
+  const snapshotHash = computeSystemOneSnapshotHash(semanticSnapshot);
+
+  return deepFreezeCopy({
+    ...semanticSnapshot,
+    metadata: {
+      ...metadataWithoutIdentity,
+      snapshotHash,
+      builtAt: input.builtAt,
+    },
+  });
 }
 
 function deepFreezeCopy<T>(value: T): T {

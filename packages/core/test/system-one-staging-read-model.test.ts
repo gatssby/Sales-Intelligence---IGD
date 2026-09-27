@@ -4,6 +4,8 @@ import {
   SYSTEM_ONE_MNN_EVALUATOR_VERSION,
   SYSTEM_ONE_MNN_RULE_VERSION,
   SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+  assertSystemOneGeneratedRecordIdIntegrity,
+  buildSystemOneStagingReadModel,
   canonicalizeSystemOneValue,
   computeCandidatePairSetHash,
   computeSystemOneSnapshotHash,
@@ -11,12 +13,14 @@ import {
   createSystemOneDeterministicId,
   type CandidateAssociation,
   type CanonicalAssetFact,
+  type CanonicalEvidenceOrigin,
   type CanonicalSystemOneLogicalCallKey,
   type CurrentRowResolution,
   type OpaqueSystemOneAssetId,
   type OpaqueSystemOneCurrentRowId,
   type ScopeException,
   type SystemOneStagingReadApi,
+  type SystemOneStagingBuilderInput,
   type SystemOneStagingReadModel,
 } from "../src/system-one-staging-read-model.js";
 
@@ -109,7 +113,7 @@ function makeSyntheticReadModel(): SystemOneStagingReadModel {
       ruleId: "C_TRUE_MUTUAL_NEAREST_NEIGHBOR",
       ruleVersion: SYSTEM_ONE_MNN_RULE_VERSION,
       evaluatorVersion: SYSTEM_ONE_MNN_EVALUATOR_VERSION,
-      sourceInventorySha256: "inventory-sha256",
+      sourceInventorySha256: "a".repeat(64),
       leftOpaqueAssetId: opaqueAssetId("transcript-candidate"),
       rightOpaqueAssetId: opaqueAssetId("recording-candidate"),
       evidence: {
@@ -132,6 +136,179 @@ function makeSyntheticReadModel(): SystemOneStagingReadModel {
       resolutionState: "fail_closed",
       failClosedReason: "synthetic_unknown",
     }],
+  };
+}
+
+function makeValidSyntheticBuilderInput(options: {
+  readonly builtAt?: string;
+  readonly reverseInputOrder?: boolean;
+  readonly candidateRecordingId?: string;
+} = {}): SystemOneStagingBuilderInput {
+  const canonicalAssets = [
+    {
+      kind: "canonical_asset_fact" as const,
+      opaqueAssetId: opaqueAssetId("asset-transcript-one"),
+      assetClass: "verified_transcript_candidate" as const,
+      provenanceState: "verified" as const,
+      structuralValidationState: "passed" as const,
+      eligibilityState: "eligible" as const,
+      scopeState: "known_canonical" as const,
+      sourceState: "accessible" as const,
+      canonicalLogicalCallKey: canonicalLogicalCallKey("logical-call:one"),
+      evidenceOrigin: "verified_asset_inventory" as CanonicalEvidenceOrigin,
+    },
+    {
+      kind: "canonical_asset_fact" as const,
+      opaqueAssetId: opaqueAssetId("asset-transcript-two"),
+      assetClass: "verified_transcript_candidate" as const,
+      provenanceState: "verified" as const,
+      structuralValidationState: "passed" as const,
+      eligibilityState: "eligible" as const,
+      scopeState: "known_canonical" as const,
+      sourceState: "accessible" as const,
+      canonicalLogicalCallKey: canonicalLogicalCallKey("logical-call:one"),
+      evidenceOrigin: "verified_asset_inventory" as CanonicalEvidenceOrigin,
+    },
+  ];
+  const canonicalAssetRecordIds = canonicalAssets.map((asset) => createSystemOneDeterministicId(
+    "canonical-asset",
+    SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+    { opaqueAssetId: asset.opaqueAssetId },
+  ));
+  const candidateAssociations = [{
+    kind: "candidate_association" as const,
+    candidateType: "transcript_recording" as const,
+    ruleId: "C_TRUE_MUTUAL_NEAREST_NEIGHBOR" as const,
+    ruleVersion: SYSTEM_ONE_MNN_RULE_VERSION,
+    evaluatorVersion: SYSTEM_ONE_MNN_EVALUATOR_VERSION,
+    sourceInventorySha256: "a".repeat(64),
+    leftOpaqueAssetId: opaqueAssetId("transcript-candidate"),
+    rightOpaqueAssetId: opaqueAssetId(options.candidateRecordingId ?? "recording-candidate"),
+    evidence: {
+      sameParentFingerprint: "parent-fingerprint",
+      normalizedBaseFingerprint: "base-fingerprint",
+      temporalDeltaMs: 1_000,
+      competitionState: "non_competitive" as const,
+      ambiguityState: "unambiguous" as const,
+      independentMetadataEvidence: [] as string[],
+    },
+    candidateState: "candidate" as const,
+  }];
+  const candidateAssociationId = createSystemOneDeterministicId(
+    "candidate-association",
+    SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+    {
+      leftOpaqueAssetId: candidateAssociations[0].leftOpaqueAssetId,
+      rightOpaqueAssetId: candidateAssociations[0].rightOpaqueAssetId,
+      ruleId: candidateAssociations[0].ruleId,
+      ruleVersion: candidateAssociations[0].ruleVersion,
+    },
+  );
+  const scopeExceptions = [{
+    kind: "scope_exception" as const,
+    exceptionType: "transcript_scope_unknown" as const,
+    opaqueReference: "scope-unknown-one",
+    scopeCategory: "transcript_scope",
+    transcriptPossibility: "unknown" as const,
+    resolutionState: "fail_closed" as const,
+    failClosedReason: "synthetic_unknown",
+  }];
+  const scopeExceptionId = createSystemOneDeterministicId(
+    "scope-exception",
+    SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+    {
+      exceptionType: scopeExceptions[0].exceptionType,
+      opaqueReference: scopeExceptions[0].opaqueReference,
+      scopeCategory: scopeExceptions[0].scopeCategory,
+    },
+  );
+  const currentRowResolutions = [
+    {
+      kind: "current_row_resolution" as const,
+      state: "canonical_direct" as const,
+      opaqueCurrentRowId: opaqueCurrentRowId("row-canonical"),
+      canonicalAssetRecordId: canonicalAssetRecordIds[0],
+    },
+    {
+      kind: "current_row_resolution" as const,
+      state: "candidate_reconciliable" as const,
+      opaqueCurrentRowId: opaqueCurrentRowId("row-candidate"),
+      candidateAssociationId,
+    },
+    {
+      kind: "current_row_resolution" as const,
+      state: "candidate_no_verified_transcript" as const,
+      opaqueCurrentRowId: opaqueCurrentRowId("row-no-transcript"),
+      auditEvidenceVersion: "candidate-linkage-v02",
+    },
+    {
+      kind: "current_row_resolution" as const,
+      state: "unresolved" as const,
+      opaqueCurrentRowId: opaqueCurrentRowId("row-unresolved"),
+      scopeExceptionId,
+    },
+  ];
+  const candidatePairSetHash = computeCandidatePairSetHash(candidateAssociations);
+  const sourceArtifacts = [
+    {
+      artifactName: "synthetic-a",
+      sourceKind: "synthetic",
+      parserVersion: "synthetic-parser-v01",
+      embeddedVersion: null,
+      sha256: "a".repeat(64),
+    },
+    {
+      artifactName: "synthetic-b",
+      sourceKind: "synthetic",
+      parserVersion: "synthetic-parser-v01",
+      embeddedVersion: "synthetic-v01",
+      sha256: "b".repeat(64),
+    },
+  ];
+  const reverse = options.reverseInputOrder === true;
+
+  return {
+    metadata: {
+      schemaVersion: SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+      sourceArtifacts: reverse ? [...sourceArtifacts].reverse() : sourceArtifacts,
+      canonicalIdentityRuleVersion: "canonical-exact-created-time-v01",
+      candidateRuleVersion: SYSTEM_ONE_MNN_RULE_VERSION,
+      candidateEvaluatorVersion: SYSTEM_ONE_MNN_EVALUATOR_VERSION,
+      candidatePairSetHash,
+      verifiedTranscriptAssetLowerBound: 2,
+      verifiedTranscriptAssetUpperBound: 3,
+      irreducibleTranscriptScopeGap: 1,
+      status: {
+        transcriptScopeExactlyValidated: false,
+        transcriptScopeBounded: true,
+        globalScopeValidated: false,
+        identityRuleValidatedOnObservedCorpus: false,
+        candidatePairSetHash,
+      },
+    },
+    builtAt: options.builtAt ?? "2026-09-27T10:00:00.000Z",
+    canonicalAssets: reverse ? [...canonicalAssets].reverse() : canonicalAssets,
+    canonicalLogicalCalls: [{
+      kind: "canonical_logical_call",
+      canonicalLogicalCallKey: canonicalLogicalCallKey("logical-call:one"),
+      canonicalAssetRecordIds: reverse ? [...canonicalAssetRecordIds].reverse() : canonicalAssetRecordIds,
+      selectedVerifiedTranscriptRecordId: canonicalAssetRecordIds[0],
+    }],
+    currentRowResolutions: reverse ? [...currentRowResolutions].reverse() : currentRowResolutions,
+    candidateAssociations,
+    scopeExceptions,
+    assertions: {
+      expectedCanonicalVerifiedTranscriptAssets: 2,
+      expectedMnnCandidateGroups: 1,
+      expectedTranscriptScopeUnknownExceptions: 1,
+      expectedCurrentRowsByState: {
+        canonical_direct: 1,
+        candidate_reconciliable: 1,
+        candidate_no_verified_transcript: 1,
+        unresolved: 1,
+      },
+      expectedCurrentRowsTotal: 4,
+    },
   };
 }
 
@@ -284,6 +461,7 @@ test("canonical serialization rejects unsupported or nondeterministic values", (
   assert.throws(() => canonicalizeSystemOneValue({ value: undefined }), /unsupported_canonical_value/);
   assert.throws(() => canonicalizeSystemOneValue({ value: Number.NaN }), /unsupported_canonical_value/);
   assert.throws(() => canonicalizeSystemOneValue(new Date("2026-09-27T00:00:00.000Z")), /unsupported_canonical_value/);
+  assert.throws(() => canonicalizeSystemOneValue(new Array(1)), /unsupported_canonical_value/);
 });
 
 test("canonical API never returns candidate or exception records", () => {
@@ -327,6 +505,461 @@ test("read API exposes deeply immutable records and collections", () => {
   assert.equal(Object.isFrozen(logicalCalls[0].canonicalAssetRecordIds), true);
   assert.throws(() => (assets as CanonicalAssetFact[]).push(assets[0]), TypeError);
   assert.throws(() => (logicalCalls[0].canonicalAssetRecordIds as string[]).push("unexpected"), TypeError);
+});
+
+test("MNN remains candidate-only and carries no canonical logical-call identity", () => {
+  const model = buildSystemOneStagingReadModel(makeValidSyntheticBuilderInput());
+
+  assert.equal(model.candidateAssociations.length, 1);
+  assert.equal(model.canonicalLogicalCalls.length, 1);
+  assert.equal("canonicalLogicalCallId" in model.candidateAssociations[0], false);
+  assert.equal("canonicalLogicalCallKey" in model.candidateAssociations[0], false);
+});
+
+test("upper bound is metadata rather than canonical asset count", () => {
+  const model = buildSystemOneStagingReadModel(makeValidSyntheticBuilderInput());
+
+  assert.equal(model.metadata.verifiedTranscriptAssetUpperBound, 3);
+  assert.equal(
+    model.canonicalAssets.filter((asset) => asset.assetClass === "verified_transcript_candidate").length,
+    2,
+  );
+});
+
+test("builder sorts semantic collections and excludes build time from snapshot identity", () => {
+  const first = buildSystemOneStagingReadModel(makeValidSyntheticBuilderInput({
+    builtAt: "2026-09-27T10:00:00.000Z",
+  }));
+  const second = buildSystemOneStagingReadModel(makeValidSyntheticBuilderInput({
+    builtAt: "2026-09-27T11:00:00.000Z",
+    reverseInputOrder: true,
+  }));
+
+  assert.equal(first.metadata.snapshotHash, second.metadata.snapshotHash);
+  assert.equal(first.metadata.candidatePairSetHash, second.metadata.candidatePairSetHash);
+  assert.deepEqual(first.canonicalAssets, second.canonicalAssets);
+  assert.deepEqual(first.currentRowResolutions, second.currentRowResolutions);
+  assert.notEqual(first.metadata.builtAt, second.metadata.builtAt);
+});
+
+test("source artifact ordering uses a total semantic key", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const sourceArtifacts = [
+    {
+      artifactName: "synthetic-shared-name",
+      sourceKind: "synthetic-b",
+      parserVersion: "synthetic-parser-v02",
+      embeddedVersion: null,
+      sha256: "b".repeat(64),
+    },
+    {
+      artifactName: "synthetic-shared-name",
+      sourceKind: "synthetic-a",
+      parserVersion: "synthetic-parser-v01",
+      embeddedVersion: null,
+      sha256: "a".repeat(64),
+    },
+  ];
+  const first = buildSystemOneStagingReadModel({
+    ...valid,
+    metadata: { ...valid.metadata, sourceArtifacts },
+  });
+  const second = buildSystemOneStagingReadModel({
+    ...valid,
+    metadata: { ...valid.metadata, sourceArtifacts: [...sourceArtifacts].reverse() },
+  });
+
+  assert.equal(first.metadata.snapshotHash, second.metadata.snapshotHash);
+  assert.deepEqual(first.metadata.sourceArtifacts, second.metadata.sourceArtifacts);
+});
+
+test("candidate changes alter pair-set and snapshot hashes without changing canonical logical-call identity", () => {
+  const first = buildSystemOneStagingReadModel(makeValidSyntheticBuilderInput());
+  const second = buildSystemOneStagingReadModel(makeValidSyntheticBuilderInput({
+    candidateRecordingId: "recording-candidate-changed",
+  }));
+
+  assert.notEqual(first.metadata.candidatePairSetHash, second.metadata.candidatePairSetHash);
+  assert.notEqual(first.metadata.snapshotHash, second.metadata.snapshotHash);
+  assert.equal(first.canonicalLogicalCalls[0].recordId, second.canonicalLogicalCalls[0].recordId);
+  assert.equal(
+    first.canonicalLogicalCalls[0].canonicalLogicalCallKey,
+    second.canonicalLogicalCalls[0].canonicalLogicalCallKey,
+  );
+});
+
+test("candidate promotion fails closed", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    canonicalAssets: [
+      { ...valid.canonicalAssets[0], evidenceOrigin: "C_TRUE_MUTUAL_NEAREST_NEIGHBOR" as never },
+      ...valid.canonicalAssets.slice(1),
+    ],
+  };
+
+  assert.throws(() => buildSystemOneStagingReadModel(input), /canonical_evidence_origin_invalid/);
+});
+
+test("candidate canonical logical-call properties fail closed even when empty", () => {
+  for (const forbiddenValue of [null, undefined, ""] as const) {
+    const valid = makeValidSyntheticBuilderInput();
+    const candidateWithCanonicalIdentity = {
+      ...valid.candidateAssociations[0],
+      canonicalLogicalCallId: forbiddenValue,
+    };
+    const input = {
+      ...valid,
+      candidateAssociations: [candidateWithCanonicalIdentity],
+    } as unknown as SystemOneStagingBuilderInput;
+
+    assert.throws(
+      () => buildSystemOneStagingReadModel(input),
+      /candidate_canonical_identity_forbidden/,
+    );
+  }
+});
+
+test("metadata lower bound above upper bound fails closed", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    metadata: {
+      ...valid.metadata,
+      verifiedTranscriptAssetLowerBound: 4,
+      verifiedTranscriptAssetUpperBound: 3,
+    },
+  };
+
+  assert.throws(() => buildSystemOneStagingReadModel(input), /transcript_scope_bounds_invalid/);
+});
+
+test("metadata and snapshot status incompatibility fails closed", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    metadata: {
+      ...valid.metadata,
+      status: {
+        ...valid.metadata.status,
+        transcriptScopeBounded: false,
+      },
+    },
+  } as unknown as SystemOneStagingBuilderInput;
+
+  assert.throws(() => buildSystemOneStagingReadModel(input), /snapshot_metadata_status_incompatible/);
+});
+
+test("MNN candidate count mismatch fails closed", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    assertions: {
+      ...valid.assertions,
+      expectedMnnCandidateGroups: 2,
+    },
+  };
+
+  assert.throws(() => buildSystemOneStagingReadModel(input), /candidate_count_mismatch/);
+});
+
+test("candidate pair-set metadata mismatch fails closed", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const mismatchedHash = "f".repeat(64);
+  const input = {
+    ...valid,
+    metadata: {
+      ...valid.metadata,
+      candidatePairSetHash: mismatchedHash,
+      status: {
+        ...valid.metadata.status,
+        candidatePairSetHash: mismatchedHash,
+      },
+    },
+  };
+
+  assert.throws(() => buildSystemOneStagingReadModel(input), /candidate_pair_set_hash_mismatch/);
+});
+
+test("candidate rule, evaluator, and source metadata mismatches fail closed", () => {
+  const invalidCandidates = [
+    { ruleVersion: "unexpected-rule-version" },
+    { evaluatorVersion: "unexpected-evaluator-version" },
+    { sourceInventorySha256: "not-a-sha256" },
+    { ruleId: "unexpected-rule" },
+  ];
+
+  for (const mutation of invalidCandidates) {
+    const valid = makeValidSyntheticBuilderInput();
+    const input = {
+      ...valid,
+      candidateAssociations: [
+        { ...valid.candidateAssociations[0], ...mutation },
+      ],
+    } as unknown as SystemOneStagingBuilderInput;
+
+    assert.throws(() => buildSystemOneStagingReadModel(input), /candidate_metadata_invalid/);
+  }
+});
+
+test("scope exceptions cannot disappear", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    scopeExceptions: [],
+  };
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel(input),
+    /transcript_scope_exception_count_mismatch/,
+  );
+});
+
+test("current row membership is exclusive and fully accounted", () => {
+  const duplicateValid = makeValidSyntheticBuilderInput();
+  const duplicateInput = {
+    ...duplicateValid,
+    currentRowResolutions: [
+      ...duplicateValid.currentRowResolutions,
+      {
+        kind: "current_row_resolution" as const,
+        state: "unresolved" as const,
+        opaqueCurrentRowId: duplicateValid.currentRowResolutions[0].opaqueCurrentRowId,
+        scopeExceptionId: duplicateValid.currentRowResolutions[3].state === "unresolved"
+          ? duplicateValid.currentRowResolutions[3].scopeExceptionId
+          : "unreachable",
+      },
+    ],
+  };
+  assert.throws(
+    () => buildSystemOneStagingReadModel(duplicateInput),
+    /current_row_state_overlap/,
+  );
+
+  const missingValid = makeValidSyntheticBuilderInput();
+  const missingInput = {
+    ...missingValid,
+    currentRowResolutions: missingValid.currentRowResolutions.slice(0, -1),
+  };
+  assert.throws(
+    () => buildSystemOneStagingReadModel(missingInput),
+    /current_row_accounting_mismatch/,
+  );
+});
+
+test("canonical verified transcript count mismatch fails closed", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    assertions: {
+      ...valid.assertions,
+      expectedCanonicalVerifiedTranscriptAssets: 3,
+    },
+  };
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel(input),
+    /canonical_verified_transcript_count_mismatch/,
+  );
+});
+
+test("duplicate deterministic record ids fail closed", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    canonicalAssets: [
+      ...valid.canonicalAssets,
+      { ...valid.canonicalAssets[0] },
+    ],
+    assertions: {
+      ...valid.assertions,
+      expectedCanonicalVerifiedTranscriptAssets: 3,
+    },
+  };
+
+  assert.throws(() => buildSystemOneStagingReadModel(input), /duplicate_record_id/);
+});
+
+test("cross-namespace deterministic record-id collisions fail closed", () => {
+  assert.throws(
+    () => assertSystemOneGeneratedRecordIdIntegrity([
+      { namespace: "canonical-asset", recordIds: ["forced-collision"] },
+      { namespace: "candidate-association", recordIds: ["forced-collision"] },
+    ]),
+    /cross_namespace_collision/,
+  );
+});
+
+test("ambiguous candidates require preserved ambiguity exceptions", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    candidateAssociations: [
+      {
+        ...valid.candidateAssociations[0],
+        candidateState: "ambiguous" as const,
+        evidence: {
+          ...valid.candidateAssociations[0].evidence,
+          ambiguityState: "ambiguous" as const,
+        },
+      },
+    ],
+  };
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel(input),
+    /candidate_ambiguity_exception_missing/,
+  );
+});
+
+test("unresolved current rows must retain an existing scope exception", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    currentRowResolutions: valid.currentRowResolutions.map((
+      resolution: SystemOneStagingBuilderInput["currentRowResolutions"][number],
+    ) => (
+      resolution.state === "unresolved"
+        ? { ...resolution, scopeExceptionId: "scope-exception:missing" }
+        : resolution
+    )),
+  };
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel(input),
+    /unresolved_scope_exception_missing/,
+  );
+});
+
+test("candidate current-row states reject canonical logical-call identity properties", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    currentRowResolutions: valid.currentRowResolutions.map((
+      resolution: SystemOneStagingBuilderInput["currentRowResolutions"][number],
+    ) => (
+      resolution.state === "candidate_reconciliable"
+        ? { ...resolution, canonicalLogicalCallId: null }
+        : resolution
+    )),
+  } as unknown as SystemOneStagingBuilderInput;
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel(input),
+    /current_row_candidate_canonical_identity_forbidden/,
+  );
+});
+
+test("candidate current-row resolutions require an existing candidate association", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    currentRowResolutions: valid.currentRowResolutions.map((
+      resolution: SystemOneStagingBuilderInput["currentRowResolutions"][number],
+    ) => (
+      resolution.state === "candidate_reconciliable"
+        ? { ...resolution, candidateAssociationId: "candidate-association:missing" }
+        : resolution
+    )),
+  };
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel(input),
+    /current_row_candidate_association_missing/,
+  );
+});
+
+test("canonical-direct current-row resolutions require an existing canonical asset", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    currentRowResolutions: valid.currentRowResolutions.map((
+      resolution: SystemOneStagingBuilderInput["currentRowResolutions"][number],
+    ) => (
+      resolution.state === "canonical_direct"
+        ? { ...resolution, canonicalAssetRecordId: "canonical-asset:missing" }
+        : resolution
+    )),
+  };
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel(input),
+    /current_row_canonical_asset_missing/,
+  );
+});
+
+test("canonical logical-call projections require existing canonical asset references", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    canonicalLogicalCalls: [{
+      ...valid.canonicalLogicalCalls[0],
+      canonicalAssetRecordIds: [
+        ...valid.canonicalLogicalCalls[0].canonicalAssetRecordIds,
+        "canonical-asset:missing",
+      ],
+    }],
+  };
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel(input),
+    /canonical_projection_asset_missing/,
+  );
+});
+
+test("canonical logical-call selected transcript must belong to the projection", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    canonicalLogicalCalls: [{
+      ...valid.canonicalLogicalCalls[0],
+      selectedVerifiedTranscriptRecordId: "canonical-asset:missing",
+    }],
+  };
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel(input),
+    /canonical_projection_selected_transcript_invalid/,
+  );
+});
+
+test("canonical logical-call selected transcript must be a verified eligible transcript", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    canonicalAssets: [
+      { ...valid.canonicalAssets[0], assetClass: "recording" as const },
+      valid.canonicalAssets[1],
+    ],
+    assertions: {
+      ...valid.assertions,
+      expectedCanonicalVerifiedTranscriptAssets: 1,
+    },
+  };
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel(input),
+    /canonical_projection_selected_transcript_invalid/,
+  );
+});
+
+test("canonical logical-call projection members must share its canonical key", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    canonicalAssets: [
+      valid.canonicalAssets[0],
+      {
+        ...valid.canonicalAssets[1],
+        canonicalLogicalCallKey: canonicalLogicalCallKey("logical-call:different"),
+      },
+    ],
+  };
+
+  assert.throws(
+    () => buildSystemOneStagingReadModel(input),
+    /canonical_projection_logical_call_key_mismatch/,
+  );
 });
 
 if (false) {
