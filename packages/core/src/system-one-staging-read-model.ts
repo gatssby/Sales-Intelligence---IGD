@@ -473,6 +473,30 @@ function validateCanonicalVerifiedTranscriptCount(input: SystemOneStagingBuilder
   }
 }
 
+// A record whose audited transcript possibility is still unknown must stay a fail-closed exception; it
+// is never allowed to appear as a canonical verified-transcript fact for the same opaque reference.
+// Without this check, a future adapter could satisfy the count assertions above by both emitting an
+// unknown-possibility exception and promoting the same reference into the canonical collection.
+function validateUnknownTranscriptNotPromoted(input: SystemOneStagingBuilderInput): void {
+  const unknownPossibilityReferences = new Set<string>();
+  for (const exception of input.scopeExceptions) {
+    if (
+      exception.exceptionType === "transcript_scope_unknown"
+      && exception.transcriptPossibility === "unknown"
+    ) {
+      unknownPossibilityReferences.add(exception.opaqueReference);
+    }
+  }
+  for (const asset of input.canonicalAssets) {
+    if (
+      isCanonicalVerifiedTranscript(asset)
+      && unknownPossibilityReferences.has(asset.opaqueAssetId as string)
+    ) {
+      throw new Error("transcript_possibility_unknown_canonicalized");
+    }
+  }
+}
+
 function validateCurrentRowReferences(
   currentRowResolutions: readonly CurrentRowResolution[],
   canonicalAssets: readonly CanonicalAssetFact[],
@@ -633,6 +657,7 @@ export function buildSystemOneStagingReadModel(
     scopeExceptions,
   );
   validateCanonicalVerifiedTranscriptCount(input);
+  validateUnknownTranscriptNotPromoted(input);
   validateCanonicalProjectionReferences(canonicalLogicalCalls, canonicalAssets);
   assertSystemOneGeneratedRecordIdIntegrity([
     { namespace: "canonical-asset", recordIds: canonicalAssets.map((record) => record.recordId) },

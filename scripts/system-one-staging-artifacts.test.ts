@@ -1063,3 +1063,89 @@ test("runner tightens permissive private-root mode without relaxing restrictive 
     /unsafe_private_root_mode/,
   );
 });
+
+test("runner outputs carry no raw inventory record fields", async () => {
+  const fixture = await makeRunnableSyntheticArtifactDirectory();
+  const result = await runSystemOneStagingReadModel(
+    makeRunnerOptions(fixture.privateRoot),
+    fixture.contracts,
+  );
+  const snapshotText = await readFile(result.snapshotPath, "utf8");
+  const summaryText = await readFile(result.summaryPath, "utf8");
+
+  for (const rawInventoryField of [
+    "modified_time_ms",
+    "created_time_ms",
+    "normalized_basename_hash",
+    "created_year",
+    "mime_type",
+    "exclusion_reason",
+    "full_file_extension",
+    "property_fingerprints",
+    "ancestor_ids",
+    "shortcut_target_id",
+    "structural_metrics",
+    "source_kind",
+  ]) {
+    assert.doesNotMatch(snapshotText, new RegExp(`"${rawInventoryField}"`));
+    assert.doesNotMatch(summaryText, new RegExp(`"${rawInventoryField}"`));
+  }
+});
+
+test("summary repeats no per-record identity while the snapshot keeps references opaque", async () => {
+  const fixture = await makeRunnableSyntheticArtifactDirectory();
+  const result = await runSystemOneStagingReadModel(
+    makeRunnerOptions(fixture.privateRoot),
+    fixture.contracts,
+  );
+  const snapshotText = await readFile(result.snapshotPath, "utf8");
+  const summaryText = await readFile(result.summaryPath, "utf8");
+
+  // The summary is a review surface: counts, versions, and hashes only.
+  assert.doesNotMatch(summaryText, /asset-direct|asset-unresolved|row-unresolved|row-no-transcript/);
+  assert.doesNotMatch(summaryText, /canonical-asset:|scope-exception:|candidate-association:/);
+  assert.doesNotMatch(summaryText, /"opaqueAssetId"|"opaqueReference"|"opaqueCurrentRowId"/);
+
+  // The snapshot may carry opaque identifiers, but never a raw Drive identifier or transcript body.
+  assert.doesNotMatch(snapshotText, /transcriptBody|transcript_text|content_hash|driveId|drive_file_id/);
+  assert.doesNotMatch(snapshotText, /@[a-z0-9.-]+\.(com|br|io)\b/i);
+});
+
+test("a current row whose unresolved exception is absent fails closed", () => {
+  const payloads = makeProjectionPayloads();
+  const scopeDetail = JSON.parse(Buffer.from(payloads.scopeExceptionDetail).toString("utf8")) as {
+    summary: Record<string, unknown>;
+    observations: Record<string, unknown>[];
+  };
+  for (const observation of scopeDetail.observations) {
+    if (observation.opaque_asset_id === "asset-unresolved") {
+      observation.opaque_asset_id = "asset-unrelated-to-any-current-row";
+    }
+  }
+  payloads.scopeExceptionDetail = Buffer.from(`${JSON.stringify(scopeDetail)}\n`, "utf8");
+  const fixture = makeLoadedFromPayloads(payloads);
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(fixture.artifacts, FIXED_BUILD_TIME, fixture.contracts),
+    /current_row_unresolved_exception_missing/,
+  );
+});
+
+test("a current row missing from its inventory current-call ids fails closed", () => {
+  const payloads = makeProjectionPayloads();
+  const inventory = Buffer.from(payloads.assetInventory).toString("utf8").trim().split("\n")
+    .map((line) => JSON.parse(line) as { opaque_asset_id: string; metadata: Record<string, unknown> });
+  for (const row of inventory) {
+    if (row.opaque_asset_id === "asset-direct") {
+      row.metadata.current_call_ids = [];
+    }
+  }
+  payloads.assetInventory = Buffer.from(
+    `${inventory.map((row) => JSON.stringify(row)).join("\n")}\n`,
+    "utf8",
+  );
+  const fixture = makeLoadedFromPayloads(payloads);
+  assert.throws(
+    () => adaptSystemOneStagingArtifacts(fixture.artifacts, FIXED_BUILD_TIME, fixture.contracts),
+    /current_row_inventory_link_mismatch/,
+  );
+});

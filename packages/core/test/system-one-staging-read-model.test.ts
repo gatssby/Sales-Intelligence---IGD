@@ -1268,3 +1268,80 @@ const exception = {} as ScopeException;
 // @ts-expect-error exceptions are not candidates
 const invalidCandidate: CandidateAssociation = exception;
 void invalidCandidate;
+
+test("an unknown transcript possibility cannot become a canonical verified transcript", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const promotedAssetId = "asset-transcript-one";
+  const input = {
+    ...valid,
+    scopeExceptions: [
+      ...valid.scopeExceptions,
+      {
+        kind: "scope_exception" as const,
+        exceptionType: "transcript_scope_unknown" as const,
+        opaqueReference: promotedAssetId,
+        scopeCategory: "transcript_scope",
+        transcriptPossibility: "unknown" as const,
+        resolutionState: "fail_closed" as const,
+        failClosedReason: "audited_transcript_possibility_unknown",
+      },
+    ],
+    assertions: {
+      ...valid.assertions,
+      expectedTranscriptScopeUnknownExceptions: valid.assertions.expectedTranscriptScopeUnknownExceptions + 1,
+    },
+  };
+  assert.throws(
+    () => buildSystemOneStagingReadModel(input),
+    /transcript_possibility_unknown_canonicalized/,
+  );
+});
+
+test("a canonical fact whose reference stays unknown keeps the exception and is rejected", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const unknownReference = valid.canonicalAssets[0].opaqueAssetId as string;
+  const input = {
+    ...valid,
+    scopeExceptions: [
+      ...valid.scopeExceptions,
+      {
+        kind: "scope_exception" as const,
+        exceptionType: "transcript_scope_unknown" as const,
+        opaqueReference: unknownReference,
+        scopeCategory: "transcript_scope",
+        transcriptPossibility: "unknown" as const,
+        resolutionState: "fail_closed" as const,
+        failClosedReason: "audited_transcript_possibility_unknown",
+      },
+    ],
+    assertions: {
+      ...valid.assertions,
+      expectedTranscriptScopeUnknownExceptions: valid.assertions.expectedTranscriptScopeUnknownExceptions + 1,
+    },
+  };
+  assert.throws(
+    () => buildSystemOneStagingReadModel(input),
+    /transcript_possibility_unknown_canonicalized/,
+  );
+});
+
+test("an exception that is not an unknown possibility does not block canonical construction", () => {
+  const valid = makeValidSyntheticBuilderInput();
+  const input = {
+    ...valid,
+    scopeExceptions: [
+      ...valid.scopeExceptions,
+      {
+        kind: "scope_exception" as const,
+        exceptionType: "inaccessible_reference" as const,
+        opaqueReference: valid.canonicalAssets[0].opaqueAssetId as string,
+        scopeCategory: "direct_shared",
+        transcriptPossibility: "possible" as const,
+        resolutionState: "fail_closed" as const,
+        failClosedReason: "audited_current_reference_inaccessible",
+      },
+    ],
+  };
+  const model = buildSystemOneStagingReadModel(input);
+  assert.equal(model.canonicalAssets.length, 2);
+});
