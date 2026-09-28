@@ -5,6 +5,7 @@ import {
   SYSTEM_ONE_MNN_EVALUATOR_VERSION,
   SYSTEM_ONE_MNN_RULE_VERSION,
   SYSTEM_ONE_STAGING_SCHEMA_VERSION,
+  canonicalizeSystemOneValue,
   computeCandidatePairSetHash,
   createSystemOneDeterministicId,
   type CanonicalSystemOneLogicalCallKey,
@@ -614,9 +615,16 @@ function parseDirectCurrentSummary(value: unknown): JsonObject {
   return result;
 }
 
-function assertSame(left: unknown, right: unknown): void {
-  if (JSON.stringify(left) !== JSON.stringify(right)) throw new Error("artifact_aggregate_disagreement");
+// Value equality for aggregates that may be produced in different key insertion orders. Object keys are
+// canonicalized (sorted) before comparison; array order stays significant and primitive types stay
+// distinct, so this cannot fail open on a genuinely different aggregate.
+export function assertSameSystemOneAggregate(left: unknown, right: unknown): void {
+  if (canonicalizeSystemOneValue(left) !== canonicalizeSystemOneValue(right)) {
+    throw new Error("artifact_aggregate_disagreement");
+  }
 }
+
+const assertSame = assertSameSystemOneAggregate;
 
 function parseAndValidateArtifacts(byName: ReadonlyMap<string, LoadedSystemOneArtifact>): ParsedArtifacts {
   const finalMetrics = parseFinalMetrics(byName.get("finalConsolidation")!.bytes);

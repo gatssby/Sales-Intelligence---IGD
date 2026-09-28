@@ -1149,3 +1149,26 @@ test("a current row missing from its inventory current-call ids fails closed", (
     /current_row_inventory_link_mismatch/,
   );
 });
+
+// RED regression for the real-artifact blocker: the audited current-row matrix persists CURRENT_ROWS in
+// alphabetical key order, while the aggregate assertion builds its comparison object in domain order.
+// Same keys, same values, different insertion order is a FALSE REJECTION and must adapt successfully.
+test("aggregate comparison accepts a different key insertion order for equal values", () => {
+  const payloads = makeProjectionPayloads();
+  const matrix = JSON.parse(Buffer.from(payloads.currentRowMatrix).toString("utf8")) as {
+    CURRENT_ROWS: Record<string, number>;
+  };
+  const domainOrder = JSON.stringify(matrix.CURRENT_ROWS);
+  matrix.CURRENT_ROWS = Object.fromEntries(
+    Object.keys(matrix.CURRENT_ROWS).sort().map((key) => [key, matrix.CURRENT_ROWS[key]]),
+  );
+  assert.notEqual(JSON.stringify(matrix.CURRENT_ROWS), domainOrder, "key order must genuinely differ");
+  assert.deepEqual(
+    Object.keys(matrix.CURRENT_ROWS).sort(),
+    Object.keys(JSON.parse(domainOrder) as Record<string, number>).sort(),
+  );
+  payloads.currentRowMatrix = Buffer.from(`${JSON.stringify(matrix)}\n`, "utf8");
+  const fixture = makeLoadedFromPayloads(payloads);
+  const input = adaptSystemOneStagingArtifacts(fixture.artifacts, FIXED_BUILD_TIME, fixture.contracts);
+  assert.equal(input.currentRowResolutions.length, 4);
+});
