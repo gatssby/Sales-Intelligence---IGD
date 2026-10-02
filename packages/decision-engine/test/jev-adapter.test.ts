@@ -38,7 +38,7 @@ test("JevDecisionEngine maps the Vercel evaluate transport into domain decisions
     questions: {
       discovery: { type: "choice", instructions: "Classify discovery.", criteria: { low: "Low", high: "High" } },
       price_objection: { type: "boolean", instructions: "Is there a price objection?" },
-      intent: { type: "score", instructions: "Rate intent.", minimum: 1, maximum: 5 },
+      intent: { type: "score", instructions: "Rate intent.", criteria: ["1", "2", "3", "4", "5"] },
     },
   });
   const price = result.decisions.find((decision) => decision.key === "price_objection");
