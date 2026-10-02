@@ -6,3 +6,8 @@ export * from "./benchmark.js";
 export * from "./benchmark-protocol.js";
 export * from "./benchmark-metrics.js";
 export * from "./pilot.js";
+export * from "./call-eligibility-v03.js";
+export * from "./aggregation-v03.js";
+export * from "./buyer-intent-v03.js";
+export * from "./call-labeling-v03.js";
+export * from "./v03-observations.js";

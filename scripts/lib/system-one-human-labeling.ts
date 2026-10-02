@@ -1,6 +1,6 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-import { CALL_PILOT_DECISION_KEYS, CALL_PILOT_QUESTIONS, type PilotDecisionKey } from "@igd/decision-engine";
+import { CALL_PILOT_DECISION_KEYS, CALL_PILOT_QUESTIONS, CALL_TYPES_V03, INTERNAL_MODES_V03, SALES_CALL_MODES_V03, type PilotDecisionKey } from "@igd/decision-engine";
 
 export const HUMAN_LABEL_CONTRACT_VERSION = "system-one-human-labels-v0.1";
 export const DOUBLE_REVIEW_TEMPLATE_VERSION = "system-one-double-review-template-v0.1";
@@ -22,6 +22,55 @@ export type HumanLabelFile = {
   version: typeof HUMAN_LABEL_CONTRACT_VERSION | typeof DOUBLE_REVIEW_TEMPLATE_VERSION | typeof PILOT_BLIND_TEMPLATE_VERSION;
   entries: HumanLabelEntry[];
 };
+
+export type HumanLabelV03Artifact = {
+  version: "system-one-human-labels-v03";
+  callEligibility: {
+    callType: string;
+    salesCallMode: string;
+    internalMode: string;
+    eligibleForSalesAnalysis: true | false | "needs_review";
+    confidence: number;
+    rationale: string;
+    adjudicationStatus: "pending" | "adjudicated" | "needs_review";
+  };
+  commercialLabels: Array<{
+    decisionId: PilotDecisionKey;
+    humanValue: HumanLabelValue;
+    humanConfidence: number;
+    rationale: string;
+    adjudicationStatus: "pending" | "adjudicated" | "needs_review";
+  }>;
+};
+
+export function validateHumanLabelV03Artifact(input: unknown): asserts input is HumanLabelV03Artifact {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("human_label_v03_artifact_invalid");
+  const artifact = input as Record<string, unknown>;
+  if (JSON.stringify(Object.keys(artifact).sort()) !== JSON.stringify(["callEligibility", "commercialLabels", "version"].sort()) || artifact.version !== "system-one-human-labels-v03" || !artifact.callEligibility || typeof artifact.callEligibility !== "object" || Array.isArray(artifact.callEligibility) || !Array.isArray(artifact.commercialLabels)) throw new Error("human_label_v03_artifact_invalid");
+  const eligibility = artifact.callEligibility as Record<string, unknown>;
+  if (JSON.stringify(Object.keys(eligibility).sort()) !== JSON.stringify(["adjudicationStatus", "callType", "confidence", "eligibleForSalesAnalysis", "internalMode", "rationale", "salesCallMode"].sort()) || typeof eligibility.callType !== "string" || !CALL_TYPES_V03.includes(eligibility.callType as typeof CALL_TYPES_V03[number]) || typeof eligibility.salesCallMode !== "string" || !SALES_CALL_MODES_V03.includes(eligibility.salesCallMode as typeof SALES_CALL_MODES_V03[number]) || typeof eligibility.internalMode !== "string" || !INTERNAL_MODES_V03.includes(eligibility.internalMode as typeof INTERNAL_MODES_V03[number]) || ![true, false, "needs_review"].includes(eligibility.eligibleForSalesAnalysis as true | false | "needs_review") || !["pending", "adjudicated", "needs_review"].includes(eligibility.adjudicationStatus as string)) throw new Error("human_label_v03_eligibility_invalid");
+  if ((eligibility.callType === "customer_sales_call" && (eligibility.salesCallMode === "not_applicable" || eligibility.internalMode !== "not_applicable")) || (eligibility.callType !== "customer_sales_call" && eligibility.salesCallMode !== "not_applicable") || (eligibility.callType === "internal_debrief_coaching" && eligibility.internalMode !== "coaching_debrief")) throw new Error("human_label_v03_eligibility_invalid");
+  const confidence = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+  if (!confidence(eligibility.confidence) || typeof eligibility.rationale !== "string" || !eligibility.rationale.trim()) throw new Error("human_label_v03_eligibility_invalid");
+  const labels = artifact.commercialLabels as unknown[];
+  if ((eligibility.eligibleForSalesAnalysis === true && labels.length !== CALL_PILOT_DECISION_KEYS.length) || (eligibility.eligibleForSalesAnalysis !== true && labels.length !== 0)) throw new Error("human_label_v03_commercial_label_count_invalid");
+  const seen = new Set<string>();
+  for (const value of labels) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("human_label_v03_commercial_label_invalid");
+    const label = value as Record<string, unknown>;
+    if (JSON.stringify(Object.keys(label).sort()) !== JSON.stringify(["adjudicationStatus", "decisionId", "humanConfidence", "humanValue", "rationale"].sort()) || typeof label.decisionId !== "string" || !CALL_PILOT_DECISION_KEYS.includes(label.decisionId as PilotDecisionKey) || seen.has(label.decisionId) || !confidence(label.humanConfidence) || typeof label.rationale !== "string" || !label.rationale.trim() || !["pending", "adjudicated", "needs_review"].includes(label.adjudicationStatus as string)) throw new Error("human_label_v03_commercial_label_invalid");
+    seen.add(label.decisionId);
+    validateHumanLabelValue(label.decisionId as PilotDecisionKey, label.humanValue as HumanLabelValue);
+  }
+}
+
+export function normalizeV03HumanConfidence(value: number, source: "ui_percent" | "machine"): number {
+  if (!Number.isFinite(value)) throw new Error("human_confidence_invalid");
+  if (source !== "ui_percent" && source !== "machine") throw new Error("human_confidence_source_invalid");
+  const normalized = source === "ui_percent" ? value / 100 : value;
+  if (normalized < 0 || normalized > 1) throw new Error("human_confidence_out_of_range");
+  return normalized;
+}
 export type BlindReviewAnswer = { decisionKey: PilotDecisionKey; humanValue: HumanLabelValue; notes: string | null };
 export type TablePrivileges = { select: boolean; insert: boolean; update: boolean; delete: boolean; truncate: boolean; references: boolean; trigger: boolean };
 export type HumanReviewDatabaseSafety = {

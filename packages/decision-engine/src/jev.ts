@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DecisionResponseSchema, type Decision, type DecisionProvider, type DecisionRequest, type ProviderHealth } from "./types.js";
+import { normalizeV03TypedDecisions, parseV03ChunkContext } from "./v03-observations.js";
 
 type FetchLike = typeof fetch;
 export type JevTransport = "vercel-ai-gateway" | "typesafe-direct";
@@ -307,21 +308,29 @@ export class JevDecisionEngine implements DecisionProvider {
       if (this.transport === "vercel-ai-gateway") {
         const parsed = GatewayResponseSchema.parse(body);
         if (JSON.stringify(Object.keys(parsed.answers).sort()) !== JSON.stringify(questionKeys)) throw new Error("provider_response_question_set_mismatch");
+        const nativeDecisions = questionKeys.map((key) => mapGatewayDecision(key, questions[key]!, parsed.answers[key]!, parsed.providerMetadata?.typesafe?.confidence?.[key]));
+        const decisions = request.schemaVersion === "sales-decision-calls-v0.3"
+          ? normalizeV03TypedDecisions(nativeDecisions, parseV03ChunkContext(request.input))
+          : nativeDecisions;
         return DecisionResponseSchema.parse({
           model: parsed.model ?? this.model,
-          decisions: questionKeys.map((key) => mapGatewayDecision(key, questions[key]!, parsed.answers[key]!, parsed.providerMetadata?.typesafe?.confidence?.[key])),
+          decisions,
           usage: parsed.usage,
-          metadata: { transport: this.transport, httpStatus: response.status },
+          metadata: { transport: this.transport, ...(request.schemaVersion ? { schemaVersion: request.schemaVersion } : {}), httpStatus: response.status },
           latencyMs: performance.now() - startedAt,
         });
       }
       const parsed = TypesafeResponseSchema.parse(body);
       if (JSON.stringify(Object.keys(parsed.answers).sort()) !== JSON.stringify(questionKeys)) throw new Error("provider_response_question_set_mismatch");
+      const nativeDecisions = questionKeys.map((key) => mapTypesafeDecision(key, questions[key]!, parsed.answers[key]!));
+      const decisions = request.schemaVersion === "sales-decision-calls-v0.3"
+        ? normalizeV03TypedDecisions(nativeDecisions, parseV03ChunkContext(request.input))
+        : nativeDecisions;
       return DecisionResponseSchema.parse({
         model: parsed.model,
-        decisions: questionKeys.map((key) => mapTypesafeDecision(key, questions[key]!, parsed.answers[key]!)),
+        decisions,
         usage: { inputTokens: parsed.usage.input_tokens, outputTokens: parsed.usage.output_tokens },
-        metadata: { transport: this.transport, httpStatus: response.status },
+        metadata: { transport: this.transport, ...(request.schemaVersion ? { schemaVersion: request.schemaVersion } : {}), httpStatus: response.status },
         latencyMs: performance.now() - startedAt,
       });
     } catch (error) {

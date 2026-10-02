@@ -26,6 +26,7 @@ export const CALL_PILOT_QUESTIONS = {
   next_step_defined: { type: "noul", instructions: "Is a concrete next step explicitly defined?" },
   buyer_intent: { type: "score", instructions: "Rate buyer intent from one to five.", minimum: 1, maximum: 5 },
 } as const;
+export const V03_SCHEMA_VERSION = "sales-decision-calls-v0.3" as const;
 
 export type PilotDecisionKey = typeof CALL_PILOT_DECISION_KEYS[number];
 export type PilotManifest = { version: typeof PILOT_MANIFEST_VERSION; callIds: string[] };
