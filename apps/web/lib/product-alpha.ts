@@ -16,8 +16,9 @@ export type AlphaCall = {
   alphaCallId: string;
   alias: string;
   contentKind: "literal_transcript" | "google_meet_caption_transcript";
+  sourceKind: string;
   samplingBucket: "short" | "medium" | "long";
-  transcriptVersion: number;
+  byteCount: number;
   transcriptCharacterCount: number;
   eligibility: {
     status: "eligible" | "ineligible" | "needs_review";
@@ -95,8 +96,9 @@ const AlphaDatasetSchema = z.object({
     alphaCallId: z.string().regex(/^[a-f0-9]{24}$/),
     alias: z.string().regex(/^Call [0-9]{2}$/),
     contentKind: z.enum(["literal_transcript", "google_meet_caption_transcript"]),
+    sourceKind: z.string().min(1),
     samplingBucket: z.enum(["short", "medium", "long"]),
-    transcriptVersion: z.number().int().positive(),
+    byteCount: z.number().int().nonnegative(),
     transcriptCharacterCount: z.number().int().nonnegative(),
     eligibility: z.object({ status: z.enum(["eligible", "ineligible", "needs_review"]), source: z.string().min(1), result: z.object({ callType: z.string(), salesCallMode: z.string(), internalMode: z.string(), eligibleForSalesAnalysis: z.union([z.boolean(), z.literal("needs_review")]), evidence: z.array(z.object({ kind: z.string(), confidence: z.number().min(0).max(1) })), reason: z.string().nullable() }) }),
     analysis: z.record(z.string(), z.unknown()).nullable(),

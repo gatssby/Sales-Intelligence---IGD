@@ -150,6 +150,90 @@ export function validateTranscriptStructure(contentText: string): {
   return { status: passed ? "passed" : "failed", metrics };
 }
 
+export type ImportedTranscriptContentKind = "literal_transcript" | "google_meet_caption_transcript" | "gemini_generated_notes_or_summary" | "unknown";
+
+export type ImportedTranscriptClassification = {
+  contentKind: ImportedTranscriptContentKind;
+  sourceKind: string;
+  hasGeminiNotesHeader: boolean;
+  hasSummarySection: boolean;
+  hasNextStepsSection: boolean;
+  hasDetailsSection: boolean;
+  hasGeminiReviewFooter: boolean;
+  speakerAttributedLines: number;
+  speakerTurnDensity: number;
+  derivedNotesDetected: boolean;
+  structuralMetrics: TranscriptStructuralMetrics;
+};
+
+function sectionSignal(text: string, labels: string[]): boolean {
+  const pattern = new RegExp(`(?:^|\\n)\\s*(?:${labels.join("|")})\\s*:?[ \\t]*(?:\\n|$)`, "im");
+  return pattern.test(text);
+}
+
+export function classifyImportedTranscriptContent(input: {
+  sourceKind: string;
+  contentText: string;
+}): ImportedTranscriptClassification {
+  const sourceKind = String(input.sourceKind ?? "").trim();
+  const text = String(input.contentText ?? "").replace(/\r/g, "").trim();
+  const normalized = normalize(text);
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const hasGeminiNotesHeader = /(?:^|\n)\s*(?:anota(?:c|ç)(?:o|õ)es do gemini|gemini notes|ai notes|meeting notes|notas da reuniao|anotacoes da reuniao)\s*:?[ \t]*(?:\n|$)/im.test(text)
+    || /(?:anotacoes do gemini|gemini notes|ai notes|meeting notes)/i.test(normalized);
+  const hasSummarySection = sectionSignal(text, ["summary", "resumo", "resumo da reuniao", "meeting summary"]);
+  const hasNextStepsSection = sectionSignal(text, ["next steps", "proximos passos", "próximos passos"]);
+  const hasDetailsSection = sectionSignal(text, ["details", "detalhes"]);
+  const hasGeminiReviewFooter = /(?:generated|reviewed|created|gerado|revisado|criado)\s+(?:by|por)\s+gemini|gemini\s+(?:review|reviewed|generated)/i.test(text);
+  const timestampPattern = /^(?:(?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?)\s*(?:,|-->)\s*(?:(?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?)/;
+  const speakerPattern = /^([^:]{1,80}):\s+\S/;
+  const webVttVoicePattern = /^<v(?:\.[^\s>]+)*\s+([^>]+)>\s*\S/i;
+  const speakers = new Set<string>();
+  let speakerAttributedLines = 0;
+  let timestampCueCount = 0;
+  for (const line of lines) {
+    if (timestampPattern.test(line)) timestampCueCount += 1;
+    const match = line.match(speakerPattern) ?? line.match(webVttVoicePattern);
+    if (match) {
+      speakerAttributedLines += 1;
+      speakers.add(normalize(match[1]));
+    }
+  }
+  const structuralMetrics: TranscriptStructuralMetrics = {
+    characterCount: text.length,
+    nonemptyLineCount: lines.length,
+    speakerTurnCount: speakerAttributedLines,
+    uniqueSpeakerCount: speakers.size,
+    timestampCueCount,
+  };
+  const speakerTurnDensity = lines.length ? speakerAttributedLines / lines.length : 0;
+  const transcriptLike = text.length >= 100
+    && speakerAttributedLines >= 2
+    && speakers.size >= 2
+    && (timestampCueCount >= 2 || (lines.length >= 20 && speakerAttributedLines >= 20 && speakerTurnDensity >= 0.2));
+  const derivedNotesDetected = hasGeminiNotesHeader || hasSummarySection || hasNextStepsSection || hasDetailsSection || hasGeminiReviewFooter;
+  const contentKind: ImportedTranscriptContentKind = derivedNotesDetected
+    ? "gemini_generated_notes_or_summary"
+    : sourceKind === "google_meet_caption_transcript" && transcriptLike
+      ? "google_meet_caption_transcript"
+      : sourceKind === "manual_or_programmatic_import" && transcriptLike
+        ? "literal_transcript"
+        : "unknown";
+  return {
+    contentKind,
+    sourceKind,
+    hasGeminiNotesHeader,
+    hasSummarySection,
+    hasNextStepsSection,
+    hasDetailsSection,
+    hasGeminiReviewFooter,
+    speakerAttributedLines,
+    speakerTurnDensity,
+    derivedNotesDetected,
+    structuralMetrics,
+  };
+}
+
 function normalizedMeetingBase(asset: SystemOneSourceAsset): string | null {
   const raw = asset.originalFilename ?? asset.name ?? "";
   let base = normalize(raw).replace(/\b(?:sbv|vtt|mp4|m4a|mov|webm|txt)\b$/u, " ");

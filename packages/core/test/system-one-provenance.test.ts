@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  classifyImportedTranscriptContent,
   classifySystemOneSource,
   reconstructSystemOneLogicalCalls,
   type SystemOneSourceAsset,
@@ -16,6 +17,33 @@ const transcriptText = [
   "0:00:12.000,0:00:16.000",
   "Lead: Hoje o principal problema é a previsibilidade.",
 ].join("\n");
+
+test("Gemini notes stored under manual_or_programmatic_import are rejected", () => {
+  const result = classifyImportedTranscriptContent({
+    sourceKind: "manual_or_programmatic_import",
+    contentText: ["Summary:", "Closer: The buyer described the current issue.", "Next steps:", "Lead: Send the proposal."].join("\n"),
+  });
+  assert.equal(result.contentKind, "gemini_generated_notes_or_summary");
+  assert.equal(result.derivedNotesDetected, true);
+});
+
+test("manual_or_programmatic_import is accepted only with transcript-like deterministic signals", () => {
+  const result = classifyImportedTranscriptContent({ sourceKind: "manual_or_programmatic_import", contentText: transcriptText });
+  assert.equal(result.contentKind, "literal_transcript");
+  assert.equal(result.derivedNotesDetected, false);
+  assert.ok(result.speakerAttributedLines >= 4);
+});
+
+test("google_meet_caption_transcript is accepted without derived-note signals", () => {
+  const result = classifyImportedTranscriptContent({ sourceKind: "google_meet_caption_transcript", contentText: transcriptText });
+  assert.equal(result.contentKind, "google_meet_caption_transcript");
+  assert.equal(result.derivedNotesDetected, false);
+});
+
+test("unknown source or non-transcript text is rejected", () => {
+  const result = classifyImportedTranscriptContent({ sourceKind: "unknown", contentText: transcriptText });
+  assert.equal(result.contentKind, "unknown");
+});
 
 const asset = (overrides: Partial<SystemOneSourceAsset> = {}): SystemOneSourceAsset => ({
   assetId: "asset-a",

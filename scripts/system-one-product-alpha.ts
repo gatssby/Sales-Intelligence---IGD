@@ -11,52 +11,9 @@ import {
   type CallEligibilityResultV03,
   type V03Observation,
 } from "@igd/decision-engine";
+import { classifyImportedTranscriptContent, type ImportedTranscriptClassification } from "@igd/core";
 import { buildPilotAuthoritativeBuyerIntentEvents, buildPilotCompletedOutputV03, PILOT_CHUNKING_OPTIONS, runV03CommercialPreflight, type PilotChunkMetric } from "./lib/system-one-pilot.js";
 
-const KNOWN_ELIGIBILITY: Record<string, CallEligibilityResultV03> = {
-  "2907c58faebcf6ef11815dfb": {
-    callType: "internal_debrief_coaching",
-    salesCallMode: "not_applicable",
-    internalMode: "coaching_debrief",
-    eligibleForSalesAnalysis: false,
-    evidence: [{ kind: "coaching_debrief", confidence: 1 }],
-    reason: null,
-  },
-  "8f380c9ccaeae990f51ee177": {
-    callType: "customer_sales_call",
-    salesCallMode: "active_sale",
-    internalMode: "not_applicable",
-    eligibleForSalesAnalysis: true,
-    evidence: [{ kind: "direct_customer_buyer_participation", confidence: 1 }, { kind: "active_commercial_interaction", confidence: 1 }, { kind: "substantive_commercial_progression", confidence: 1 }],
-    reason: null,
-  },
-  "7b0bd185268db9d16a957c4e": {
-    callType: "customer_sales_call",
-    salesCallMode: "active_sale",
-    internalMode: "not_applicable",
-    eligibleForSalesAnalysis: true,
-    evidence: [{ kind: "direct_customer_buyer_participation", confidence: 1 }, { kind: "active_commercial_interaction", confidence: 1 }, { kind: "substantive_commercial_progression", confidence: 1 }],
-    reason: null,
-  },
-  "b612481cf82ac30c938c3b2f": {
-    callType: "unknown",
-    salesCallMode: "unknown",
-    internalMode: "unknown",
-    eligibleForSalesAnalysis: false,
-    evidence: [{ kind: "insufficient_evidence", confidence: 1 }],
-    reason: "insufficient_whole_call_evidence",
-  },
-  "efc44c8d53c8cd1793141871": {
-    callType: "internal_debrief_coaching",
-    salesCallMode: "not_applicable",
-    internalMode: "coaching_debrief",
-    eligibleForSalesAnalysis: false,
-    evidence: [{ kind: "coaching_debrief", confidence: 1 }],
-    reason: null,
-  },
-};
-
-const KNOWN_IDS = Object.keys(KNOWN_ELIGIBILITY);
 const ProductAlphaDecisionSchema = z.object({
   key: z.string().min(1),
   value: z.union([z.boolean(), z.number(), z.string()]).nullable(),
@@ -100,7 +57,8 @@ const ProductAlphaResultSchema = z.object({
     alias: z.string().regex(/^Call [0-9]{2}$/),
     contentKind: z.enum(["literal_transcript", "google_meet_caption_transcript"]),
     samplingBucket: z.enum(["short", "medium", "long"]),
-    transcriptVersion: z.number().int().positive(),
+    sourceKind: z.string().min(1),
+    byteCount: z.number().int().nonnegative(),
     transcriptCharacterCount: z.number().int().nonnegative(),
     eligibility: z.object({ status: z.enum(["eligible", "ineligible", "needs_review"]), source: z.string().min(1), result: z.record(z.string(), z.unknown()) }),
     analysis: z.record(z.string(), z.unknown()).nullable(),
@@ -116,7 +74,7 @@ with pool as (
     t.version as transcript_version,
     octet_length(t.normalized_text)::integer as byte_count,
     char_length(t.normalized_text)::integer as character_count,
-    case when t.source = 'google_meet_caption_transcript' then 'google_meet_caption_transcript' else 'literal_transcript' end as content_kind,
+    t.source as source_kind,
     substr(encode(digest('system-one-shared-folder-audit-v02:candidate-set:current:' || c.id::text, 'sha256'), 'hex'), 1, 24) as alpha_call_id
   from public.calls c
   join lateral (
@@ -133,15 +91,8 @@ with pool as (
   select *, case when character_count < 8000 then 'short' when character_count < 24000 then 'medium' else 'long' end as sampling_bucket,
     row_number() over (partition by case when character_count < 8000 then 'short' when character_count < 24000 then 'medium' else 'long' end order by alpha_call_id) as bucket_rank
   from pool
-), selected as (
-  select * from ranked where alpha_call_id = any($1::text[])
-  union
-  select * from ranked where alpha_call_id <> all($1::text[])
-    and ((sampling_bucket = 'short' and bucket_rank <= 3)
-      or (sampling_bucket = 'medium' and bucket_rank <= 3)
-      or (sampling_bucket = 'long' and bucket_rank <= 2))
 )
-select * from selected order by case when alpha_call_id = any($1::text[]) then 0 else 1 end, alpha_call_id;
+select * from ranked order by alpha_call_id;
 `;
 
 type CandidateRow = {
@@ -151,7 +102,7 @@ type CandidateRow = {
   transcript_version: number;
   byte_count: number;
   character_count: number;
-  content_kind: "literal_transcript" | "google_meet_caption_transcript";
+  source_kind: string;
   alpha_call_id: string;
   sampling_bucket: "short" | "medium" | "long";
 };
@@ -160,19 +111,34 @@ type ProductCall = {
   alphaCallId: string;
   alias: string;
   contentKind: "literal_transcript" | "google_meet_caption_transcript";
+  sourceKind: string;
   samplingBucket: CandidateRow["sampling_bucket"];
-  transcriptVersion: number;
+  byteCount: number;
   transcriptCharacterCount: number;
-  eligibility: {
-    status: "eligible" | "ineligible" | "needs_review";
-    source: "alpha5_frozen_v03" | "conservative_no_new_label";
-    result: CallEligibilityResultV03;
-  };
+  eligibility: { status: "eligible" | "ineligible" | "needs_review"; source: "v03_current_no_semantic_evidence"; result: CallEligibilityResultV03 };
   analysis: Record<string, unknown> | null;
 };
 
+type ClassifiedCandidate = CandidateRow & { classification: ImportedTranscriptClassification };
+
+function isAcceptedContentKind(value: ImportedTranscriptClassification["contentKind"]): value is ProductCall["contentKind"] {
+  return value === "literal_transcript" || value === "google_meet_caption_transcript";
+}
+
 function safeError(error: unknown): string {
   return error instanceof Error ? error.message.replace(/[^a-zA-Z0-9_:-]/g, "_").slice(0, 120) : "provider_unavailable";
+}
+
+function selectDeterministicAlpha10(rows: ClassifiedCandidate[]): ClassifiedCandidate[] {
+  const accepted = rows.filter((row) => isAcceptedContentKind(row.classification.contentKind));
+  const targets: Record<CandidateRow["sampling_bucket"], number> = { short: 3, medium: 4, long: 3 };
+  const selected: ClassifiedCandidate[] = [];
+  for (const bucket of ["short", "medium", "long"] as const) selected.push(...accepted.filter((row) => row.sampling_bucket === bucket).slice(0, targets[bucket]));
+  if (selected.length < 10) {
+    const selectedIds = new Set(selected.map((row) => row.alpha_call_id));
+    selected.push(...accepted.filter((row) => !selectedIds.has(row.alpha_call_id)).slice(0, 10 - selected.length));
+  }
+  return selected.slice(0, 10);
 }
 
 async function analyzeCall(provider: JevDecisionEngine, call: CandidateRow): Promise<Record<string, unknown>> {
@@ -260,9 +226,21 @@ async function main(): Promise<void> {
   const sql = postgres(databaseUrl, { max: 1, ssl: process.env.DATABASE_SSL === "require" ? "require" : false });
   const startedAt = new Date().toISOString();
   try {
-    const rows = await sql.unsafe<CandidateRow[]>(CANDIDATE_SQL, [KNOWN_IDS]);
+    const rows = await sql.unsafe<CandidateRow[]>(CANDIDATE_SQL);
     const unique = [...new Map(rows.map((row) => [row.alpha_call_id, row])).values()];
-    const candidates = unique.slice(0, 10);
+    const classified: ClassifiedCandidate[] = unique.map((row) => ({
+      ...row,
+      classification: classifyImportedTranscriptContent({ sourceKind: row.source_kind, contentText: row.transcript }),
+    }));
+    const candidates = selectDeterministicAlpha10(classified);
+    const derivedNotesRejected = candidates.filter((candidate) => candidate.classification.contentKind === "gemini_generated_notes_or_summary").length;
+    const unknownRejected = candidates.filter((candidate) => candidate.classification.contentKind === "unknown").length;
+    const validTranscriptInput = candidates.filter((candidate) => isAcceptedContentKind(candidate.classification.contentKind)).length;
+    if (candidates.length !== 10 || validTranscriptInput !== 10 || derivedNotesRejected !== 0 || unknownRejected !== 0) {
+      throw new Error(`product_alpha_transcript_gate_failed:candidates=${candidates.length}:valid=${validTranscriptInput}:derived=${derivedNotesRejected}:unknown=${unknownRejected}`);
+    }
+    const v03Eligibility = classifyCallEligibility({});
+    if (v03Eligibility.eligibleForSalesAnalysis === "needs_review") throw new Error("product_alpha_eligibility_source_missing");
     const provider = new JevDecisionEngine();
     await runV03CommercialPreflight(provider);
     let attempted = 0;
@@ -276,17 +254,19 @@ async function main(): Promise<void> {
     const calls: ProductCall[] = [];
 
     for (const [index, candidate] of candidates.entries()) {
-      const known = KNOWN_ELIGIBILITY[candidate.alpha_call_id];
-      const eligibility = known ?? classifyCallEligibility({});
+      const eligibility = v03Eligibility;
+      const contentKind = candidate.classification.contentKind;
+      if (!isAcceptedContentKind(contentKind)) throw new Error("product_alpha_transcript_gate_not_preserved");
       const eligibilityStatus = eligibility.eligibleForSalesAnalysis === true ? "eligible" : eligibility.eligibleForSalesAnalysis === false ? "ineligible" : "needs_review";
       const productCall: ProductCall = {
         alphaCallId: candidate.alpha_call_id,
         alias: `Call ${String(index + 1).padStart(2, "0")}`,
-        contentKind: candidate.content_kind,
+        contentKind,
+        sourceKind: candidate.source_kind,
         samplingBucket: candidate.sampling_bucket,
-        transcriptVersion: candidate.transcript_version,
+        byteCount: candidate.byte_count,
         transcriptCharacterCount: candidate.character_count,
-        eligibility: { status: eligibilityStatus, source: known ? "alpha5_frozen_v03" : "conservative_no_new_label", result: eligibility },
+        eligibility: { status: eligibilityStatus, source: "v03_current_no_semantic_evidence", result: eligibility },
         analysis: null,
       };
       if (eligibility.eligibleForSalesAnalysis === true) {
