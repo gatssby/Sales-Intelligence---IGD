@@ -30,6 +30,7 @@ export default async function ProductAlphaCallsPage() {
         <div><p className="page-kicker">PRODUCT ALPHA10 · JEV</p><h2>Call Analysis</h2><p>Leitura estruturada de até 10 calls reais, estritamente read-only.</p></div>
         <div className="call-summary-strip"><span><strong>{data.cohort.candidates}</strong> candidates</span><span><strong>{data.cohort.eligible}</strong> elegíveis</span><span><strong>{data.execution.succeeded}</strong> analisadas</span><span><strong>{data.cohort.needsReviewEligibility}</strong> em revisão</span></div>
       </div>
+      {data.status === "blocked" ? <section className="panel alpha-blocked" role="status"><strong>Execução bloqueada</strong><span>{data.blockedReason ?? "O dataset real ainda não está disponível."}</span><small>Nenhum resultado foi fabricado. A interface permanece read-only.</small></section> : null}
       <section className="panel alpha-summary-panel">
         <SectionHeader eyebrow="Sanity alpha" title="Cohort atual" description="Transcripts aceitos: literal_transcript e google_meet_caption_transcript. Notes, summaries e unknown ficam fora." icon="calls" />
         <div className="alpha-summary-grid">

@@ -49,6 +49,8 @@ export type AlphaCall = {
 export type AlphaDataset = {
   schemaVersion: string;
   product: string;
+  status?: "blocked" | "ready";
+  blockedReason?: string;
   methodology: string;
   generatedAt: string | null;
   provider: "jev";
@@ -81,6 +83,8 @@ export type AlphaDataset = {
 const AlphaDatasetSchema = z.object({
   schemaVersion: z.string().min(1),
   product: z.string().min(1),
+  status: z.enum(["blocked", "ready"]).optional(),
+  blockedReason: z.string().min(1).optional(),
   methodology: z.string().min(1),
   generatedAt: z.string().datetime().nullable(),
   provider: z.literal("jev"),

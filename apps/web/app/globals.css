@@ -460,6 +460,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .alpha-disclaimer { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid rgba(167,101,8,.22); border-radius: var(--radius-card); background: var(--status-warning-bg); color: var(--status-warning); font-size: 11px; }
 .alpha-disclaimer strong { font-weight: 680; }
 .alpha-disclaimer span { color: var(--color-text-muted); }
+.alpha-blocked { display: flex; flex-direction: column; gap: 5px; border-color: rgba(167,101,8,.28); background: var(--status-warning-bg); }
+.alpha-blocked strong { color: var(--status-warning); font-size: 13px; }
+.alpha-blocked span, .alpha-blocked small { color: var(--color-text-secondary); font-size: 11px; }
 .alpha-summary-panel, .alpha-calls-panel, .alpha-eligibility-card, .alpha-decisions-card, .alpha-warnings { display: grid; gap: 4px; }
 .alpha-summary-grid, .alpha-facts { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; }
 .alpha-summary-grid > div, .alpha-facts > div { display: flex; flex-direction: column; gap: 4px; padding: 10px; border: 1px solid var(--color-border-soft); border-radius: 6px; background: var(--color-surface-subtle); }

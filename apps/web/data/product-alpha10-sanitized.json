@@ -1,6 +1,8 @@
 {
   "schemaVersion": "system-one-product-alpha10-results-v01",
   "product": "SYSTEM ONE PRODUCT ALPHA10",
+  "status": "blocked",
+  "blockedReason": "Jev gateway billing unavailable (HTTP 402); no real calls were analyzed.",
   "methodology": "product_sanity_alpha_read_only_no_new_human_labels",
   "generatedAt": null,
   "provider": "jev",
