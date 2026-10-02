@@ -90,10 +90,14 @@ function requireExactKeys(actual: Record<string, number>, expected: string[], er
 
 function gatewayQuestions(questions: unknown): Record<string, Record<string, unknown>> {
   const parsed = TypedQuestionsSchema.parse(questions ?? {});
-  return Object.fromEntries(Object.entries(parsed).map(([key, question]) => [
-    key,
-    question.type === "noul" ? { ...question, type: "boolean" } : question,
-  ]));
+  return Object.fromEntries(Object.entries(parsed).map(([key, question]) => {
+    if (question.type === "choice") return [key, { type: "choice", instructions: question.instructions, criteria: question.criteria }];
+    if (question.type === "noul") return [key, { type: "boolean", instructions: question.instructions }];
+    const minimum = Number(question.minimum);
+    const maximum = Number(question.maximum);
+    if (!Number.isInteger(minimum) || !Number.isInteger(maximum) || maximum <= minimum) throw new Error("provider_request_score_schema_invalid");
+    return [key, { type: "score", instructions: question.instructions, criteria: Array.from({ length: maximum - minimum + 1 }, (_, index) => String(minimum + index)) }];
+  }));
 }
 
 function typesafeQuestions(questions: Record<string, z.infer<typeof TypedQuestionSchema>>): Record<string, Record<string, unknown>> {
