@@ -68,8 +68,6 @@ const ProductAlphaResultSchema = z.object({
 const CANDIDATE_SQL = `
 with pool as (
   select
-    c.id::text as call_id,
-    c.id as raw_id,
     t.normalized_text as transcript,
     t.version as transcript_version,
     octet_length(t.normalized_text)::integer as byte_count,
@@ -96,8 +94,6 @@ select * from ranked order by alpha_call_id;
 `;
 
 type CandidateRow = {
-  call_id: string;
-  raw_id: string;
   transcript: string;
   transcript_version: number;
   byte_count: number;
@@ -159,7 +155,7 @@ async function analyzeCall(provider: JevDecisionEngine, call: CandidateRow): Pro
     const context = buildV03ChunkContext({ currentChunk: chunk, ...(previousChunk ? { previousChunk, previousObservations } : {}) });
     const response = await provider.decide({
       subjectType: "call",
-      subjectId: call.call_id,
+      subjectId: call.alpha_call_id,
       input: context,
       questions: buildV03EvidenceQuestions(context),
       schemaVersion: V03_SCHEMA_VERSION,
