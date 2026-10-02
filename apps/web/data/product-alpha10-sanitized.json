@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "system-one-product-alpha10-results-v01",
+  "product": "SYSTEM ONE PRODUCT ALPHA10",
+  "methodology": "product_sanity_alpha_read_only_no_new_human_labels",
+  "generatedAt": null,
+  "provider": "jev",
+  "transcriptPolicy": {
+    "acceptedContentKinds": ["literal_transcript", "google_meet_caption_transcript"],
+    "excludedContentKinds": ["gemini_generated_notes_or_summary", "summary", "unknown"],
+    "transcriptBodyPersisted": false
+  },
+  "cohort": { "candidates": 0, "eligible": 0, "ineligible": 0, "needsReviewEligibility": 0 },
+  "execution": {
+    "attempted": 0,
+    "succeeded": 0,
+    "failed": 0,
+    "totalLatencyMs": 0,
+    "averageLatencyMs": null,
+    "tokenUsage": { "inputTokens": 0, "outputTokens": 0 },
+    "estimatedCostUsd": null,
+    "productionWrites": 0
+  },
+  "calls": [],
+  "privacy": {
+    "aliasesOnly": true,
+    "rawUuidPersisted": false,
+    "transcriptBodyPersisted": false,
+    "piiPersisted": false,
+    "providerSecretsPersisted": false
+  }
+}

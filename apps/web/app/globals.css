@@ -457,6 +457,34 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .form-error { background: var(--status-error-bg); color: var(--status-error); }
 .form-success { background: var(--status-success-bg); color: var(--status-success); }
 
+.alpha-disclaimer { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid rgba(167,101,8,.22); border-radius: var(--radius-card); background: var(--status-warning-bg); color: var(--status-warning); font-size: 11px; }
+.alpha-disclaimer strong { font-weight: 680; }
+.alpha-disclaimer span { color: var(--color-text-muted); }
+.alpha-summary-panel, .alpha-calls-panel, .alpha-eligibility-card, .alpha-decisions-card, .alpha-warnings { display: grid; gap: 4px; }
+.alpha-summary-grid, .alpha-facts { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; }
+.alpha-summary-grid > div, .alpha-facts > div { display: flex; flex-direction: column; gap: 4px; padding: 10px; border: 1px solid var(--color-border-soft); border-radius: 6px; background: var(--color-surface-subtle); }
+.alpha-summary-grid span, .alpha-facts span { color: var(--color-text-secondary); font-size: 10px; }
+.alpha-summary-grid strong, .alpha-facts strong { font-size: 12px; font-weight: 620; }
+.alpha-call-link { display: flex; flex-direction: column; gap: 3px; }
+.alpha-call-link strong { color: var(--color-accent); font-size: 13px; }
+.alpha-call-link small, .alpha-calls-table td small { color: var(--color-text-secondary); font-size: 10px; }
+.alpha-experimental { display: block; margin-top: 3px; color: var(--status-warning); font-size: 10px; font-weight: 620; }
+.alpha-empty { display: flex; flex-direction: column; align-items: center; gap: 5px; min-height: 150px; justify-content: center; color: var(--color-text-secondary); font-size: 12px; }
+.alpha-call-hero { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.alpha-call-hero h2 { font-size: 30px; letter-spacing: -1px; }
+.alpha-hero-state { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; color: var(--color-text-secondary); font-size: 11px; }
+.alpha-hero-state strong { color: var(--color-accent); font-size: 20px; text-transform: uppercase; }
+.alpha-decision-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.alpha-decision { padding: 12px; border: 1px solid var(--color-border-soft); border-left: 3px solid var(--color-border); border-radius: 6px; background: var(--color-surface-subtle); }
+.alpha-decision-success { border-left-color: var(--status-success); }
+.alpha-decision-warning { border-left-color: var(--status-warning); }
+.alpha-decision-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.alpha-decision-heading > div { display: flex; flex-direction: column; gap: 2px; }
+.alpha-decision-label { font-size: 12px; font-weight: 650; }
+.alpha-decision-heading > strong { font-family: var(--font-mono); font-size: 14px; text-align: right; }
+.alpha-decision-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; color: var(--color-text-secondary); font-size: 10px; }
+.alpha-warnings ul { display: grid; gap: 6px; padding-left: 20px; color: var(--status-warning); font-family: var(--font-mono); font-size: 11px; }
+
 .auth-shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--color-sidebar); }
 .auth-card { width: min(100%, 420px); padding: 28px; border: 1px solid var(--color-border); border-radius: 10px; background: #fff; }
 .brand-mark { width: 42px; height: 42px; display: grid; place-items: center; margin-bottom: 18px; border-radius: 50%; background: var(--color-accent); color: #fff; font-size: 13px; font-weight: 650; }
@@ -484,6 +512,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .stage-stepper { grid-template-columns: repeat(4,1fr); }
   .form-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .user-list { grid-template-columns: 1fr; }
+  .alpha-summary-grid, .alpha-facts, .alpha-decision-list { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 1040px) {
@@ -497,6 +526,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .audit-facts { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .scope-node { max-width: 82px; }
   .scope-submit { padding-inline: 7px; }
+  .alpha-call-hero { align-items: flex-start; flex-direction: column; }
+  .alpha-hero-state { align-items: flex-start; }
 }
 
 @media (prefers-reduced-motion: reduce) {

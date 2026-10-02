@@ -42,6 +42,7 @@
     "system-one:benchmark": "tsx scripts/system-one-benchmark.ts",
     "system-one:benchmark:freeze": "tsx scripts/system-one-benchmark-freeze.ts",
     "system-one:pilot": "tsx scripts/system-one-pilot.ts",
+    "system-one:product-alpha": "tsx scripts/system-one-product-alpha.ts",
     "system-one:labels:prepare": "tsx scripts/prepare-system-one-human-labels.ts",
     "system-one:review": "tsx scripts/system-one-human-review.ts",
     "system-one:benchmark:human": "tsx scripts/system-one-human-benchmark.ts",
