@@ -120,7 +120,7 @@ with pool as (
     substr(encode(digest('system-one-shared-folder-audit-v02:candidate-set:current:' || c.id::text, 'sha256'), 'hex'), 1, 24) as alpha_call_id
   from public.calls c
   join lateral (
-    select normalized_text, version
+    select normalized_text, source, version
     from public.transcripts
     where call_id = c.id
     order by version desc, created_at desc, id desc
