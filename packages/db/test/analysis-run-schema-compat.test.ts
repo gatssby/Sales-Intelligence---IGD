@@ -46,5 +46,5 @@ test("dashboard summary remains readable without migration 014 column", async ()
 test("missing engine_family uses a composable TRUE SQL predicate", async () => {
   const { sql } = fakeSql();
   const predicate = await legacyAnalysisRunPredicate(sql as never, "ar");
-  assert.equal((predicate as unknown as { text: string }).text, "TRUE");
+  assert.equal(predicate, "TRUE");
 });

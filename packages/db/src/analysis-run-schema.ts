@@ -1,4 +1,4 @@
-import type { PendingQuery, Sql } from "postgres";
+import type { Sql } from "postgres";
 
 const LEGACY_ENGINE_FAMILY = "generative-ai-v1";
 const schemaCapabilityCache = new WeakMap<object, Promise<boolean>>();
@@ -24,8 +24,8 @@ function hasAnalysisRunEngineFamily(sql: Sql): Promise<boolean> {
 export async function legacyAnalysisRunPredicate(
   sql: Sql,
   alias: string,
-): Promise<PendingQuery<never[]>> {
+): Promise<string> {
   const supported = await hasAnalysisRunEngineFamily(sql);
-  if (!supported) return sql.unsafe("TRUE");
-  return sql.unsafe(`${alias}.engine_family = '${LEGACY_ENGINE_FAMILY}'`);
+  if (!supported) return "TRUE";
+  return `${alias}.engine_family = '${LEGACY_ENGINE_FAMILY}'`;
 }
