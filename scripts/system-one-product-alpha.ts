@@ -5,7 +5,6 @@ import {
   adaptV03ProviderDecisions,
   buildV03ChunkContext,
   buildV03EvidenceQuestions,
-  classifyCallEligibility,
   chunkPilotTranscript,
   JevDecisionEngine,
   type CallEligibilityResultV03,
@@ -13,6 +12,7 @@ import {
 } from "@igd/decision-engine";
 import { classifyImportedTranscriptContent, type ImportedTranscriptClassification } from "@igd/core";
 import { buildPilotAuthoritativeBuyerIntentEvents, buildPilotCompletedOutputV03, PILOT_CHUNKING_OPTIONS, runV03CommercialPreflight, type PilotChunkMetric } from "./lib/system-one-pilot.js";
+import { evaluateProductAlphaEligibility } from "./lib/system-one-product-alpha-eligibility.js";
 
 const ProductAlphaDecisionSchema = z.object({
   key: z.string().min(1),
@@ -51,6 +51,12 @@ const ProductAlphaResultSchema = z.object({
     schemaVersion: z.literal(V03_SCHEMA_VERSION),
     rubricVersion: z.string().min(1),
     promptVersion: z.string().min(1),
+    eligibilityAttempted: z.number().int().nonnegative(),
+    eligibilitySucceeded: z.number().int().nonnegative(),
+    eligibilityFailed: z.number().int().nonnegative(),
+    eligibilityLatencyMs: z.number().nonnegative(),
+    eligibilityTokenUsage: z.object({ inputTokens: z.number().int().nonnegative(), outputTokens: z.number().int().nonnegative() }),
+    eligibilityEstimatedCostUsd: z.number().nonnegative().nullable(),
   }),
   calls: z.array(z.object({
     alphaCallId: z.string().regex(/^[a-f0-9]{24}$/),
@@ -111,7 +117,7 @@ type ProductCall = {
   samplingBucket: CandidateRow["sampling_bucket"];
   byteCount: number;
   transcriptCharacterCount: number;
-  eligibility: { status: "eligible" | "ineligible" | "needs_review"; source: "v03_current_no_semantic_evidence"; result: CallEligibilityResultV03 };
+  eligibility: { status: "eligible" | "ineligible" | "needs_review"; source: string; result: CallEligibilityResultV03 };
   analysis: Record<string, unknown> | null;
 };
 
@@ -235,9 +241,7 @@ async function main(): Promise<void> {
     if (candidates.length !== 10 || validTranscriptInput !== 10 || derivedNotesRejected !== 0 || unknownRejected !== 0) {
       throw new Error(`product_alpha_transcript_gate_failed:candidates=${candidates.length}:valid=${validTranscriptInput}:derived=${derivedNotesRejected}:unknown=${unknownRejected}`);
     }
-    const v03Eligibility = classifyCallEligibility({});
-    if (v03Eligibility.eligibleForSalesAnalysis === "needs_review") throw new Error("product_alpha_eligibility_source_missing");
-    const provider = new JevDecisionEngine();
+    const provider = new JevDecisionEngine({ transport: "typesafe-direct" });
     await runV03CommercialPreflight(provider);
     let attempted = 0;
     let succeeded = 0;
@@ -247,12 +251,42 @@ async function main(): Promise<void> {
     let outputTokens = 0;
     let estimatedCost = 0;
     let costKnown = false;
+    let eligibilityAttempted = 0;
+    let eligibilitySucceeded = 0;
+    let eligibilityFailed = 0;
+    let eligibilityLatency = 0;
+    let eligibilityInputTokens = 0;
+    let eligibilityOutputTokens = 0;
+    let eligibilityEstimatedCost = 0;
+    let eligibilityCostKnown = false;
     const calls: ProductCall[] = [];
 
     for (const [index, candidate] of candidates.entries()) {
-      const eligibility = v03Eligibility;
       const contentKind = candidate.classification.contentKind;
       if (!isAcceptedContentKind(contentKind)) throw new Error("product_alpha_transcript_gate_not_preserved");
+      eligibilityAttempted += 1;
+      let eligibility: CallEligibilityResultV03;
+      let eligibilitySource = "jev_semantic_v03";
+      try {
+        const evaluation = await evaluateProductAlphaEligibility({ provider, transcript: candidate.transcript, subjectId: candidate.alpha_call_id });
+        eligibility = evaluation.result;
+        eligibilitySucceeded += 1;
+        eligibilityLatency += evaluation.latencyMs;
+        eligibilityInputTokens += evaluation.inputTokens;
+        eligibilityOutputTokens += evaluation.outputTokens;
+        if (evaluation.estimatedCostUsd !== null) { eligibilityEstimatedCost += evaluation.estimatedCostUsd; eligibilityCostKnown = true; }
+      } catch (error) {
+        eligibilityFailed += 1;
+        eligibilitySource = "jev_semantic_v03_failed_closed";
+        eligibility = {
+          callType: "unknown",
+          salesCallMode: "unknown",
+          internalMode: "unknown",
+          eligibleForSalesAnalysis: "needs_review",
+          evidence: [{ kind: "insufficient_evidence", confidence: 0 }],
+          reason: "insufficient_whole_call_evidence",
+        };
+      }
       const eligibilityStatus = eligibility.eligibleForSalesAnalysis === true ? "eligible" : eligibility.eligibleForSalesAnalysis === false ? "ineligible" : "needs_review";
       const productCall: ProductCall = {
         alphaCallId: candidate.alpha_call_id,
@@ -262,7 +296,7 @@ async function main(): Promise<void> {
         samplingBucket: candidate.sampling_bucket,
         byteCount: candidate.byte_count,
         transcriptCharacterCount: candidate.character_count,
-        eligibility: { status: eligibilityStatus, source: "v03_current_no_semantic_evidence", result: eligibility },
+        eligibility: { status: eligibilityStatus, source: eligibilitySource, result: eligibility },
         analysis: null,
       };
       if (eligibility.eligibleForSalesAnalysis === true) {
@@ -293,7 +327,7 @@ async function main(): Promise<void> {
       labelingVersion: "v03",
       transcriptPolicy: { acceptedContentKinds: ["literal_transcript", "google_meet_caption_transcript"], excludedContentKinds: ["gemini_generated_notes_or_summary", "summary", "unknown"], transcriptBodyPersisted: false },
       cohort: { candidates: calls.length, eligible: calls.filter((call) => call.eligibility.status === "eligible").length, ineligible: calls.filter((call) => call.eligibility.status === "ineligible").length, needsReviewEligibility: calls.filter((call) => call.eligibility.status === "needs_review").length },
-      execution: { attempted, succeeded, failed, totalLatencyMs: totalLatency, averageLatencyMs: succeeded ? Number((totalLatency / succeeded).toFixed(2)) : null, tokenUsage: { inputTokens, outputTokens }, estimatedCostUsd: costKnown ? Number(estimatedCost.toFixed(6)) : null, productionWrites: 0, model: provider.model, modelVersion: provider.modelVersion, schemaVersion: V03_SCHEMA_VERSION, rubricVersion: "system-one-v03.1", promptVersion: "system-one-v03-evidence-questions" },
+      execution: { attempted, succeeded, failed, totalLatencyMs: totalLatency, averageLatencyMs: succeeded ? Number((totalLatency / succeeded).toFixed(2)) : null, tokenUsage: { inputTokens, outputTokens }, estimatedCostUsd: costKnown ? Number(estimatedCost.toFixed(6)) : null, productionWrites: 0, model: provider.model, modelVersion: provider.modelVersion, schemaVersion: V03_SCHEMA_VERSION, rubricVersion: "system-one-v03.1", promptVersion: "system-one-v03-evidence-questions", eligibilityAttempted, eligibilitySucceeded, eligibilityFailed, eligibilityLatencyMs: eligibilityLatency, eligibilityTokenUsage: { inputTokens: eligibilityInputTokens, outputTokens: eligibilityOutputTokens }, eligibilityEstimatedCostUsd: eligibilityCostKnown ? Number(eligibilityEstimatedCost.toFixed(6)) : null },
       calls,
       privacy: { aliasesOnly: true, rawUuidPersisted: false, transcriptBodyPersisted: false, piiPersisted: false, providerSecretsPersisted: false },
     };

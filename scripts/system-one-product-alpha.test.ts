@@ -8,7 +8,9 @@ test("product runner uses deterministic provenance and no Alpha5 human eligibili
   const source = await readFile(runnerPath, "utf8");
   assert.match(source, /classifyImportedTranscriptContent/);
   assert.match(source, /product_alpha_transcript_gate_failed/);
-  assert.match(source, /product_alpha_eligibility_source_missing/);
+  assert.match(source, /evaluateProductAlphaEligibility/);
+  assert.match(source, /typesafe-direct/);
+  assert.doesNotMatch(source, /product_alpha_eligibility_source_missing/);
   assert.doesNotMatch(source, /KNOWN_ELIGIBILITY/);
   assert.doesNotMatch(source, /alpha5_frozen_v03/);
 });
