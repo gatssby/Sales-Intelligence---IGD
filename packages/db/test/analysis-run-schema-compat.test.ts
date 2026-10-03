@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildAuthorizationContext } from "@igd/auth";
 import { ScopedSalesRepository } from "../src/access";
+import { legacyAnalysisRunPredicate } from "../src/analysis-run-schema";
 
 function fakeSql() {
   const queries: string[] = [];
@@ -40,4 +41,10 @@ test("dashboard summary remains readable without migration 014 column", async ()
   const dashboardQuery = queries.find((query) => query.includes("with scoped_calls as"));
   assert.ok(dashboardQuery);
   assert.doesNotMatch(dashboardQuery, /ar\.engine_family/);
+});
+
+test("missing engine_family uses a composable TRUE SQL predicate", async () => {
+  const { sql } = fakeSql();
+  const predicate = await legacyAnalysisRunPredicate(sql as never, "ar");
+  assert.equal((predicate as unknown as { text: string }).text, "TRUE");
 });

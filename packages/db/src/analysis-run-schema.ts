@@ -26,6 +26,6 @@ export async function legacyAnalysisRunPredicate(
   alias: string,
 ): Promise<PendingQuery<never[]>> {
   const supported = await hasAnalysisRunEngineFamily(sql);
-  if (!supported) return sql`true`;
+  if (!supported) return sql.unsafe("TRUE");
   return sql.unsafe(`${alias}.engine_family = '${LEGACY_ENGINE_FAMILY}'`);
 }
