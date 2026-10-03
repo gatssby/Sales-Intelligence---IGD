@@ -1,6 +1,8 @@
 import type { Sql } from "postgres";
 import type { AnalysisAttemptResult, OfficialAnalysisExecution } from "@igd/ai";
 
+const LEGACY_ENGINE_FAMILY = "generative-ai-v1";
+
 export type AnalysisLifecycleStrategy = {
   strategyVersion: string;
   confidencePolicyVersion: string;
@@ -46,14 +48,14 @@ export class PostgresOfficialAnalysisLifecycle {
       insert into analysis_jobs (call_id, status, stage, last_error_code)
       select c.id,
         case
-          when exists (select 1 from analysis_runs ar where ar.call_id=c.id and ar.status='completed' and ar.is_current=true) then 'completed'
+          when exists (select 1 from analysis_runs ar where ar.call_id=c.id and ar.engine_family=${LEGACY_ENGINE_FAMILY} and ar.status='completed' and ar.is_current=true) then 'completed'
           when c.status='needs_review' then 'quarantine'
           when c.status='failed_permanent' then 'failed_terminal'
           when exists (select 1 from transcripts t where t.call_id=c.id) then 'ready'
           else 'awaiting_transcript'
         end,
         case
-          when exists (select 1 from analysis_runs ar where ar.call_id=c.id and ar.status='completed' and ar.is_current=true) then 'completed'
+          when exists (select 1 from analysis_runs ar where ar.call_id=c.id and ar.engine_family=${LEGACY_ENGINE_FAMILY} and ar.status='completed' and ar.is_current=true) then 'completed'
           when exists (select 1 from transcripts t where t.call_id=c.id) then 'queue'
           else 'transcript'
         end,
@@ -235,7 +237,7 @@ export class PostgresOfficialAnalysisLifecycle {
         where (j.status='ready' or (j.status='retry_wait' and j.retry_at <= now()))
           and not exists (
             select 1 from analysis_runs current
-            where current.call_id=c.id and current.status='completed' and current.is_current=true
+            where current.call_id=c.id and current.engine_family=${LEGACY_ENGINE_FAMILY} and current.status='completed' and current.is_current=true
           )
         order by coalesce(c.started_at, c.created_at) desc,
           s.active desc,
@@ -251,19 +253,19 @@ export class PostgresOfficialAnalysisLifecycle {
       if (!runId) {
         const runs = await tx<{ id: string }[]>`
           insert into analysis_runs (
-            call_id, transcript_id, provider, model, rubric_version, prompt_version, schema_version,
+            call_id, transcript_id, provider, model, rubric_version, prompt_version, schema_version, engine_family,
             status, phase, strategy_version, confidence_policy_version, primary_model,
             escalation_model, confidence_threshold, started_at
           ) values (
             ${job.call_id}, ${job.transcript_id}, 'vercel-ai-gateway', ${input.strategy.primaryModel},
-            ${input.strategy.rubricVersion}, ${input.strategy.promptVersion}, ${input.strategy.schemaVersion},
+            ${input.strategy.rubricVersion}, ${input.strategy.promptVersion}, ${input.strategy.schemaVersion}, ${LEGACY_ENGINE_FAMILY},
             'running', 'analyzing_primary', ${input.strategy.strategyVersion}, ${input.strategy.confidencePolicyVersion},
             ${input.strategy.primaryModel}, ${input.strategy.escalationModel}, ${input.strategy.confidenceThreshold}, now()
           ) returning id
         `;
         runId = runs[0].id;
       } else {
-        await tx`update analysis_runs set status='running', started_at=coalesce(started_at,now()) where id=${runId}`;
+        await tx`update analysis_runs set status='running', started_at=coalesce(started_at,now()) where id=${runId} and engine_family=${LEGACY_ENGINE_FAMILY}`;
       }
       await tx`
         update analysis_jobs set analysis_run_id=${runId}, status='claimed', worker_id=${input.workerId},
@@ -284,7 +286,7 @@ export class PostgresOfficialAnalysisLifecycle {
         t.normalized_text transcript, j.worker_id "workerId", j.stage
       from analysis_jobs j join analysis_runs ar on ar.id=j.analysis_run_id
       join transcripts t on t.id=ar.transcript_id
-      where j.worker_id=${workerId} and j.status='claimed' limit 1
+      where j.worker_id=${workerId} and j.status='claimed' and ar.engine_family=${LEGACY_ENGINE_FAMILY} limit 1
     `;
     return rows[0] ?? null;
   }
@@ -310,7 +312,7 @@ export class PostgresOfficialAnalysisLifecycle {
         aa.cached_input_tokens, aa.cost_usd, aa.gateway_actual_cost_usd, aa.estimated_cost_usd,
         aa.cost_source, aa.latency_ms, aa.requested_at, ar.escalation_reasons
       from analysis_attempts aa join analysis_runs ar on ar.id=aa.analysis_run_id
-      where aa.analysis_run_id=${runId} and aa.role='primary' and aa.status='completed'
+      where aa.analysis_run_id=${runId} and ar.engine_family=${LEGACY_ENGINE_FAMILY} and aa.role='primary' and aa.status='completed'
       order by aa.attempt_number desc limit 1
     `;
     const row = rows[0];
@@ -341,7 +343,7 @@ export class PostgresOfficialAnalysisLifecycle {
       await tx`
         update analysis_runs set phase=${input.phase},
           escalation_reasons=coalesce(${input.escalationReasons ?? null}, escalation_reasons)
-        where id=${input.runId} and status='running'
+        where id=${input.runId} and engine_family=${LEGACY_ENGINE_FAMILY} and status='running'
       `;
     });
   }
@@ -402,7 +404,7 @@ export class PostgresOfficialAnalysisLifecycle {
         )
       `;
       if (outcomeUnknown) {
-        await tx`update analysis_runs set status='needs_review', phase='outcome_unknown', error_code='gateway_actual_cost_missing', is_current=false where id=${input.runId}`;
+        await tx`update analysis_runs set status='needs_review', phase='outcome_unknown', error_code='gateway_actual_cost_missing', is_current=false where id=${input.runId} and engine_family=${LEGACY_ENGINE_FAMILY}`;
         await tx`update analysis_jobs set status='reconciliation_required', last_error_code='gateway_actual_cost_missing', worker_id=null, lease_expires_at=null, updated_at=now() where id=${input.jobId}`;
         return { reconciliationRequired: true };
       }
@@ -412,14 +414,14 @@ export class PostgresOfficialAnalysisLifecycle {
             analysis_eligibility=${input.attempt.output.scoreability}, unscorable_reason=${input.attempt.output.unscorable_reason},
             human_review_requested=${input.attempt.output.requires_human_review},
             confidence_policy_version=${input.confidencePolicyVersion}, final_model=${input.attempt.model}, phase='finalizing'
-          where id=${input.runId} and status='running'
+          where id=${input.runId} and engine_family=${LEGACY_ENGINE_FAMILY} and status='running'
         `;
         await tx`update analysis_jobs set stage='finalization', updated_at=now() where id=${input.jobId} and status='claimed'`;
       } else if (input.attempt.status === "completed" && input.attempt.role === "primary") {
         await tx`
           update analysis_runs set phase='escalation_required', escalation_reasons=${input.escalationReasons ?? []},
             confidence_policy_version=${input.confidencePolicyVersion}
-          where id=${input.runId} and status='running'
+          where id=${input.runId} and engine_family=${LEGACY_ENGINE_FAMILY} and status='running'
         `;
         await tx`update analysis_jobs set stage='escalation', updated_at=now() where id=${input.jobId} and status='claimed'`;
       }
@@ -430,7 +432,7 @@ export class PostgresOfficialAnalysisLifecycle {
   async finalize(input: { jobId: string; runId: string; execution: OfficialAnalysisExecution }): Promise<void> {
     await this.sql.begin(async (tx) => {
       const runs = await tx<{ call_id: string; status: string; phase: string }[]>`
-        select call_id, status, phase from analysis_runs where id=${input.runId} for update
+        select call_id, status, phase from analysis_runs where id=${input.runId} and engine_family=${LEGACY_ENGINE_FAMILY} for update
       `;
       const run = runs[0];
       if (!run) throw new Error("analysis_run_not_found");
@@ -441,13 +443,13 @@ export class PostgresOfficialAnalysisLifecycle {
           coalesce(sum(gateway_actual_cost_usd),0) cost_usd, coalesce(sum(latency_ms),0)::integer latency_ms
         from analysis_attempts where analysis_run_id=${input.runId}
       `;
-      await tx`update analysis_runs set is_current=false where call_id=${run.call_id} and id<>${input.runId} and is_current=true`;
+      await tx`update analysis_runs set is_current=false where call_id=${run.call_id} and engine_family=${LEGACY_ENGINE_FAMILY} and id<>${input.runId} and is_current=true`;
       await tx`
         update analysis_runs set status='completed', phase='completed', is_current=true, finished_at=now(),
           input_tokens=${totals[0].input_tokens}, output_tokens=${totals[0].output_tokens}, cost_usd=${Number(totals[0].cost_usd)},
           latency_ms=${totals[0].latency_ms}, escalated=${input.execution.escalated},
           escalation_reasons=${input.execution.escalationReasons}, error_code=null
-        where id=${input.runId}
+        where id=${input.runId} and engine_family=${LEGACY_ENGINE_FAMILY}
       `;
       await tx`update calls set status='analyzed', updated_at=now() where id=${run.call_id}`;
       await tx`update analysis_jobs set status='completed', stage='completed', worker_id=null, lease_expires_at=null, last_error_code=null, updated_at=now() where id=${input.jobId}`;
@@ -457,7 +459,7 @@ export class PostgresOfficialAnalysisLifecycle {
   async retryLater(input: { jobId: string; runId: string; errorCode: string; delaySeconds: number; stage?: "primary" | "escalation" }): Promise<void> {
     const safeCode = input.errorCode.replace(/[^a-z0-9_-]/gi, "_").slice(0, 80) || "analysis_worker_error";
     await this.sql.begin(async (tx) => {
-      await tx`update analysis_runs set status='queued', phase='queued', error_code=${safeCode} where id=${input.runId} and status='running'`;
+      await tx`update analysis_runs set status='queued', phase='queued', error_code=${safeCode} where id=${input.runId} and engine_family=${LEGACY_ENGINE_FAMILY} and status='running'`;
       await tx`
         update analysis_jobs set status='retry_wait', stage=${input.stage ?? "primary"}, retry_at=now()+(${input.delaySeconds}*interval '1 second'),
           worker_id=null, lease_expires_at=null, last_error_code=${safeCode}, updated_at=now()
@@ -468,7 +470,7 @@ export class PostgresOfficialAnalysisLifecycle {
 
   async pauseForBudget(input: { jobId: string; runId: string }): Promise<void> {
     await this.sql.begin(async (tx) => {
-      await tx`update analysis_runs set status='queued', phase='queued', error_code=null where id=${input.runId} and status='running'`;
+      await tx`update analysis_runs set status='queued', phase='queued', error_code=null where id=${input.runId} and engine_family=${LEGACY_ENGINE_FAMILY} and status='running'`;
       await tx`update analysis_jobs set status='paused_budget', worker_id=null, lease_expires_at=null, last_error_code='budget_ceiling', updated_at=now() where id=${input.jobId}`;
     });
   }
@@ -487,7 +489,7 @@ export class PostgresOfficialAnalysisLifecycle {
       const jobs = await tx<{ job_id: string; call_id: string; run_id: string; phase: string; result_json: unknown | null; score: string | number | null }[]>`
         select j.id job_id, j.call_id, ar.id run_id, ar.phase, ar.result_json, ar.score
         from analysis_jobs j join analysis_runs ar on ar.id=j.analysis_run_id
-        where j.status='claimed' and j.lease_expires_at < ${staleBefore}
+        where j.status='claimed' and ar.engine_family=${LEGACY_ENGINE_FAMILY} and j.lease_expires_at < ${staleBefore}
         for update of j, ar skip locked
       `;
       let finalized = 0;
@@ -495,7 +497,7 @@ export class PostgresOfficialAnalysisLifecycle {
       let outcomeUnknown = 0;
       for (const job of jobs) {
         if (job.phase === "finalizing" && job.result_json) {
-          await tx`update analysis_runs set is_current=false where call_id=${job.call_id} and id<>${job.run_id} and is_current=true`;
+          await tx`update analysis_runs set is_current=false where call_id=${job.call_id} and engine_family=${LEGACY_ENGINE_FAMILY} and id<>${job.run_id} and is_current=true`;
           await tx`
             update analysis_runs set status='completed', phase='completed', is_current=true, finished_at=now(),
               input_tokens=(select coalesce(sum(input_tokens),0)::integer from analysis_attempts where analysis_run_id=${job.run_id}),
@@ -503,7 +505,7 @@ export class PostgresOfficialAnalysisLifecycle {
               cost_usd=(select coalesce(sum(gateway_actual_cost_usd),0) from analysis_attempts where analysis_run_id=${job.run_id}),
               latency_ms=(select coalesce(sum(latency_ms),0)::integer from analysis_attempts where analysis_run_id=${job.run_id}),
               escalated=exists(select 1 from analysis_attempts where analysis_run_id=${job.run_id} and role='escalation' and status='completed')
-            where id=${job.run_id} and status='running'
+            where id=${job.run_id} and engine_family=${LEGACY_ENGINE_FAMILY} and status='running'
           `;
           await tx`update calls set status='analyzed', updated_at=now() where id=${job.call_id}`;
           await tx`
@@ -518,12 +520,12 @@ export class PostgresOfficialAnalysisLifecycle {
           where owner_type='official' and owner_id=${job.run_id} and status in ('request_started','outcome_unknown') limit 1
         `;
         if (unknown.length) {
-          await tx`update analysis_runs set status='needs_review', phase='outcome_unknown', error_code='paid_request_outcome_unknown', is_current=false where id=${job.run_id}`;
+          await tx`update analysis_runs set status='needs_review', phase='outcome_unknown', error_code='paid_request_outcome_unknown', is_current=false where id=${job.run_id} and engine_family=${LEGACY_ENGINE_FAMILY}`;
           await tx`update analysis_jobs set status='reconciliation_required', last_error_code='paid_request_outcome_unknown', worker_id=null, lease_expires_at=null, updated_at=now() where id=${job.job_id}`;
           outcomeUnknown += 1;
         } else {
           await tx`update analysis_jobs set status='ready', worker_id=null, lease_expires_at=null, updated_at=now() where id=${job.job_id}`;
-          await tx`update analysis_runs set status='queued' where id=${job.run_id} and status='running'`;
+          await tx`update analysis_runs set status='queued' where id=${job.run_id} and engine_family=${LEGACY_ENGINE_FAMILY} and status='running'`;
           resumed += 1;
         }
       }

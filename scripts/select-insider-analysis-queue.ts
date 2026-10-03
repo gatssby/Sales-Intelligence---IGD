@@ -21,7 +21,7 @@ try {
   const officialRows = await repository.sql<{ transcript_file_id: string }[]>`
     select c.transcript_file_id
     from calls c join analysis_runs ar on ar.call_id = c.id
-    where ar.status = 'completed' and ar.is_current = true and c.transcript_file_id is not null
+    where ar.status = 'completed' and ar.engine_family = 'generative-ai-v1' and ar.is_current = true and c.transcript_file_id is not null
   `;
   const official = new Set(officialRows.map((row) => row.transcript_file_id));
   const transcriptRows = await repository.sql<{ transcript_file_id: string }[]>`

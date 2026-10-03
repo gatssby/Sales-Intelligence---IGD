@@ -146,6 +146,21 @@ infra/
 - nenhum segredo, transcrição real ou PII deve entrar no GitHub.
 - mudanças de agentes devem ocorrer em branches/PRs independentes.
 
+## System One foundation
+
+The isolated `feat/system-one-foundation` line adds a non-generative decision path. Jev is the champion adapter, Laya is the local challenger, and both use the typed `@igd/decision-engine` interface. Generative AI v1 remains archived and readable; System One starts with no active results.
+
+Run the local synthetic lab without production credentials or database writes:
+
+```bash
+npm run system-one:lab -- --provider=jev --calls=6
+npm run system-one:lab -- --provider=laya --calls=6
+npm run system-one:health
+npm run system-one:benchmark
+```
+
+Use `--live` only with an explicitly configured provider: `npm run system-one:lab -- --provider=jev --live --calls=2` or `npm run system-one:lab -- --provider=laya --live --calls=2`. Laya's first local server run downloads its model only after explicit approval. `GENERATIVE_AI_ENABLED=false` and `DRIVE_DISCOVERY_AUTO_QUEUE=false` remain the safe defaults.
+
 ## Próximos marcos
 
 1. receber e validar o primeiro lote privado controlado;

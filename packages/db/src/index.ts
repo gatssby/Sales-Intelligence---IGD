@@ -3,6 +3,8 @@ import postgres, { type Sql, type TransactionSql } from "postgres";
 import type { IngestionInput, IngestionRepository, PersistedCall } from "@igd/core";
 import type { AnalysisAttemptResult, AnalysisOutput, AnalysisStrategy, BenchmarkModelResult } from "@igd/ai";
 
+const LEGACY_ENGINE_FAMILY = "generative-ai-v1";
+
 export * from "./access";
 export * from "./ai-spend";
 export * from "./auth";
@@ -170,7 +172,7 @@ export class PostgresIngestionRepository implements IngestionRepository {
   async queueAnalysis(callId: string): Promise<{ queued: boolean; reason?: string }> {
     return this.sql.begin(async (tx) => {
       const completed = await tx`
-        select 1 from analysis_runs where call_id=${callId} and status='completed' and is_current=true limit 1
+        select 1 from analysis_runs where call_id=${callId} and engine_family=${LEGACY_ENGINE_FAMILY} and status='completed' and is_current=true limit 1
       `;
       if (completed.length) return { queued: false, reason: "official_analysis_exists" };
       const transcripts = await tx`select 1 from transcripts where call_id=${callId} limit 1`;
@@ -221,6 +223,7 @@ export class PostgresIngestionRepository implements IngestionRepository {
         from analysis_runs ar
         join transcripts t on t.id = ar.transcript_id
         where ar.status = 'queued'
+          and ar.engine_family = ${LEGACY_ENGINE_FAMILY}
           and ar.strategy_version is not null
           and ar.primary_model is not null
           and ar.escalation_model is not null
@@ -228,6 +231,7 @@ export class PostgresIngestionRepository implements IngestionRepository {
           and not exists (
             select 1 from analysis_runs official
             where official.call_id = ar.call_id
+              and official.engine_family = ${LEGACY_ENGINE_FAMILY}
               and official.status = 'completed'
               and official.is_current = true
           )
@@ -237,7 +241,7 @@ export class PostgresIngestionRepository implements IngestionRepository {
       `;
       const job = jobs[0];
       if (!job) return null;
-      await tx`update analysis_runs set status = 'running', phase = 'analyzing_primary', started_at = now() where id = ${job.run_id}`;
+      await tx`update analysis_runs set status = 'running', phase = 'analyzing_primary', started_at = now() where id = ${job.run_id} and engine_family = ${LEGACY_ENGINE_FAMILY}`;
       await tx`update calls set status = 'analyzing', updated_at = now() where id = ${job.call_id}`;
       return {
         runId: job.run_id,
@@ -266,6 +270,7 @@ export class PostgresIngestionRepository implements IngestionRepository {
         select ar.id, ar.status, ar.provider, ar.model, ar.error_code
         from analysis_runs ar
         where ar.status in ('queued', 'failed')
+          and ar.engine_family = ${LEGACY_ENGINE_FAMILY}
           and ar.is_current = false
           and exists (select 1 from transcripts t where t.id = ar.transcript_id)
           and not exists (
@@ -274,7 +279,7 @@ export class PostgresIngestionRepository implements IngestionRepository {
           )
           and not exists (
             select 1 from analysis_runs official
-            where official.call_id = ar.call_id and official.status = 'completed' and official.is_current = true
+            where official.call_id = ar.call_id and official.engine_family = ${LEGACY_ENGINE_FAMILY} and official.status = 'completed' and official.is_current = true
           )
         order by ar.created_at
         limit ${limit}
@@ -317,7 +322,7 @@ export class PostgresIngestionRepository implements IngestionRepository {
   }): Promise<void> {
     await this.sql.begin(async (tx) => {
       const runs = await tx<{ call_id: string }[]>`
-        select call_id from analysis_runs where id = ${runId} and status = 'running' for update
+        select call_id from analysis_runs where id = ${runId} and engine_family = ${LEGACY_ENGINE_FAMILY} and status = 'running' for update
       `;
       const run = runs[0];
       if (!run) throw new Error("analysis_run_not_running");
@@ -327,7 +332,7 @@ export class PostgresIngestionRepository implements IngestionRepository {
         ? execution.attempts.reduce((sum, attempt) => sum + (attempt.costUsd ?? 0), 0)
         : null;
       const latencyMs = execution.attempts.reduce((sum, attempt) => sum + attempt.latencyMs, 0);
-      await tx`update analysis_runs set is_current = false where call_id = ${run.call_id} and is_current = true`;
+      await tx`update analysis_runs set is_current = false where call_id = ${run.call_id} and engine_family = ${LEGACY_ENGINE_FAMILY} and is_current = true`;
       await tx`
         update analysis_runs set
           status = 'completed', phase = 'completed', score = ${execution.output.overall_score},
@@ -342,12 +347,12 @@ export class PostgresIngestionRepository implements IngestionRepository {
   }
 
   async updateAnalysisPhase(runId: string, phase: "analyzing_primary" | "escalation_required" | "analyzing_escalation"): Promise<void> {
-    await this.sql`update analysis_runs set phase = ${phase} where id = ${runId} and status = 'running'`;
+    await this.sql`update analysis_runs set phase = ${phase} where id = ${runId} and engine_family = ${LEGACY_ENGINE_FAMILY} and status = 'running'`;
   }
 
   async reserveAnalysisRequest(runId: string, request: { role: "primary" | "escalation"; model: string }): Promise<string> {
     return this.sql.begin(async (tx) => {
-      const runs = await tx`select id from analysis_runs where id = ${runId} and status = 'running' for update`;
+      const runs = await tx`select id from analysis_runs where id = ${runId} and engine_family = ${LEGACY_ENGINE_FAMILY} and status = 'running' for update`;
       if (!runs.length) throw new Error("analysis_run_not_running");
       const offsets = await tx<{ next_request: number }[]>`
         select coalesce(max(request_number), 0)::integer + 1 next_request
@@ -366,7 +371,7 @@ export class PostgresIngestionRepository implements IngestionRepository {
 
   async settleAnalysisRequest(runId: string, reservationId: string, attempt: AnalysisAttemptResult): Promise<void> {
     await this.sql.begin(async (tx) => {
-      await tx`select id from analysis_runs where id = ${runId} and status = 'running' for update`;
+      await tx`select id from analysis_runs where id = ${runId} and engine_family = ${LEGACY_ENGINE_FAMILY} and status = 'running' for update`;
       const offsets = await tx<{ next_attempt: number }[]>`
         select coalesce(max(attempt_number), 0)::integer + 1 as next_attempt
         from analysis_attempts where analysis_run_id = ${runId}
@@ -411,7 +416,7 @@ export class PostgresIngestionRepository implements IngestionRepository {
             where reservation.analysis_run_id = ar.id and reservation.status = 'reserved'
           ) outcome_unknown
         from analysis_runs ar
-        where ar.status = 'running' and ar.started_at < now() - ${`${staleMinutes} minutes`}::interval
+        where ar.status = 'running' and ar.engine_family = ${LEGACY_ENGINE_FAMILY} and ar.started_at < now() - ${`${staleMinutes} minutes`}::interval
         for update
       `;
       let requeued = 0;
@@ -422,14 +427,14 @@ export class PostgresIngestionRepository implements IngestionRepository {
           await tx`
             update analysis_runs set status = 'failed', phase = 'failed', is_current = false,
               error_code = ${run.outcome_unknown ? "analysis_request_outcome_unknown" : "analysis_finalization_interrupted"}, finished_at = now()
-            where id = ${run.id}
+            where id = ${run.id} and engine_family = ${LEGACY_ENGINE_FAMILY}
           `;
           await tx`update calls set status = 'failed_retryable', updated_at = now() where id = ${run.call_id}`;
         } else {
           requeued += 1;
           await tx`
             update analysis_runs set status = 'queued', phase = 'queued', started_at = null, error_code = null
-            where id = ${run.id}
+            where id = ${run.id} and engine_family = ${LEGACY_ENGINE_FAMILY}
           `;
           await tx`update calls set status = 'analysis_queued', updated_at = now() where id = ${run.call_id}`;
         }
@@ -444,7 +449,7 @@ export class PostgresIngestionRepository implements IngestionRepository {
       const runs = await tx<{ call_id: string }[]>`
         update analysis_runs
         set status = 'failed', phase = 'failed', error_code = ${safeCode}, is_current = false, finished_at = now()
-        where id = ${runId} and status = 'running'
+        where id = ${runId} and engine_family = ${LEGACY_ENGINE_FAMILY} and status = 'running'
         returning call_id
       `;
       if (!runs[0]) return;
@@ -455,6 +460,7 @@ export class PostgresIngestionRepository implements IngestionRepository {
               select 1 from analysis_runs official
               where official.call_id = ${runs[0].call_id}
                 and official.status = 'completed'
+                and official.engine_family = ${LEGACY_ENGINE_FAMILY}
                 and official.is_current = true
             ) then 'analyzed'
             else 'failed_retryable'

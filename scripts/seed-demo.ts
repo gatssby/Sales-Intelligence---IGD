@@ -46,10 +46,10 @@ try {
       on conflict (call_id, content_sha256) do update set normalized_text = excluded.normalized_text
       returning id
     `;
-    await tx`update analysis_runs set is_current = false where call_id = ${call.id}`;
+    await tx`update analysis_runs set is_current = false where call_id = ${call.id} and engine_family = 'generative-ai-v1'`;
     await tx`
-      insert into analysis_runs (call_id, transcript_id, provider, model, rubric_version, prompt_version, schema_version, status, score, result_json, is_current, finished_at)
-      values (${call.id}, ${transcript.id}, ${payload.run.provider}, ${payload.run.model}, ${payload.run.rubric_version}, ${payload.run.prompt_version}, ${payload.run.schema_version}, 'completed', ${analysis.overall_score}, ${tx.json(analysis)}, true, now())
+      insert into analysis_runs (call_id, transcript_id, provider, model, rubric_version, prompt_version, schema_version, engine_family, status, score, result_json, is_current, finished_at)
+      values (${call.id}, ${transcript.id}, ${payload.run.provider}, ${payload.run.model}, ${payload.run.rubric_version}, ${payload.run.prompt_version}, ${payload.run.schema_version}, 'generative-ai-v1', 'completed', ${analysis.overall_score}, ${tx.json(analysis)}, true, now())
       on conflict (call_id, transcript_id, rubric_version, prompt_version, model)
       do update set result_json = excluded.result_json, score = excluded.score, status = 'completed', is_current = true, finished_at = now()
     `;

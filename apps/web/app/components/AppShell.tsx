@@ -22,6 +22,7 @@ const adminItems: NavItem[] = [
 const platformItems: NavItem[] = [
   { href: "/platform", label: "Plataforma", route: "platform", icon: "integrations" },
   { href: "/admin/ai", label: "Operações de IA", route: "ai", icon: "report" },
+  { href: "/alpha/calls", label: "Call Analysis — Alpha", route: "alpha", icon: "calls" },
 ];
 
 const roleLabels: Record<string, string> = {

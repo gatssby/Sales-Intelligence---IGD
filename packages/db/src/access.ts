@@ -2,6 +2,7 @@ import type { AuthorizationContext, Capability, SelectedOrganizationScope } from
 import { assertCapability } from "@igd/auth";
 import type { PendingQuery, Sql } from "postgres";
 import { calculateAiSpendSummary, type AiSpendSummary, type OfficialCallCost } from "./ai-spend";
+import { legacyAnalysisRunPredicate } from "./analysis-run-schema";
 
 export type ScopedCallRow = {
   id: string;
@@ -137,6 +138,7 @@ export class ScopedSalesRepository {
 
   async getMetrics(context: AuthorizationContext, selected: SelectedOrganizationScope = {}): Promise<ScopedMetrics> {
     this.require(context, "analytics:read");
+    const engineFamilyPredicate = await legacyAnalysisRunPredicate(this.sql, "ar");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
     const rows = await this.sql<ScopedMetrics[]>`
@@ -149,13 +151,14 @@ export class ScopedSalesRepository {
       from analysis_runs ar
       join calls c on c.id = ar.call_id
       join sellers s on s.id = c.seller_id
-      where ar.status = 'completed' and ar.is_current = true and ${predicate} and ${selection}
+      where ar.status = 'completed' and ${this.sql.unsafe(engineFamilyPredicate)} and ar.is_current = true and ${predicate} and ${selection}
     `;
     return rows[0];
   }
 
   async getDashboardSummary(context: AuthorizationContext, selected: SelectedOrganizationScope = {}, period: CallPeriod = {}): Promise<ScopedDashboardSummary> {
     this.require(context, "analytics:read");
+    const engineFamilyPredicate = await legacyAnalysisRunPredicate(this.sql, "ar");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
     const dates = callPeriodPredicate(this.sql, period);
@@ -167,7 +170,7 @@ export class ScopedSalesRepository {
       ), official as (
         select ar.*, scoped_calls.seller_id
         from analysis_runs ar join scoped_calls on scoped_calls.id = ar.call_id
-        where ar.status = 'completed' and ar.is_current = true
+        where ar.status = 'completed' and ${this.sql.unsafe(engineFamilyPredicate)} and ar.is_current = true
       ), opportunity as (
         select result_json->>'opportunity_quality' quality, count(*) amount
         from official group by 1 order by amount desc, quality limit 1
@@ -186,19 +189,21 @@ export class ScopedSalesRepository {
 
   async listSellerMetrics(context: AuthorizationContext, selected: SelectedOrganizationScope = {}, period: CallPeriod = {}): Promise<ScopedSellerMetric[]> {
     this.require(context, "analytics:read");
+    const engineFamilyPredicate = await legacyAnalysisRunPredicate(this.sql, "ar");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
     const dates = callPeriodPredicate(this.sql, period);
     return this.sql<ScopedSellerMetric[]>`
       select s.seller_code, s.display_name seller_name, round(avg(ar.score)) score, count(ar.score)::integer calls
       from analysis_runs ar join calls c on c.id=ar.call_id join sellers s on s.id=c.seller_id
-      where ar.status='completed' and ar.is_current=true and ${predicate} and ${selection} and ${dates}
+      where ar.status='completed' and ${this.sql.unsafe(engineFamilyPredicate)} and ar.is_current=true and ${predicate} and ${selection} and ${dates}
       group by s.id,s.seller_code,s.display_name order by avg(ar.score) desc,s.display_name
     `;
   }
 
   async listPersonMetrics(context: AuthorizationContext, selected: SelectedOrganizationScope = {}, period: CallPeriod = {}): Promise<ScopedOrganizationMetric[]> {
     this.require(context, "analytics:read");
+    const engineFamilyPredicate = await legacyAnalysisRunPredicate(this.sql, "ar");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
     const dates = callPeriodPredicate(this.sql, period);
@@ -206,7 +211,7 @@ export class ScopedSalesRepository {
       select coalesce(c.primary_closer_id,s.person_id) entity_id,
         round(avg(ar.score)) score,count(ar.score)::integer calls
       from analysis_runs ar join calls c on c.id=ar.call_id join sellers s on s.id=c.seller_id
-      where ar.status='completed' and ar.is_current=true and ar.score is not null
+      where ar.status='completed' and ${this.sql.unsafe(engineFamilyPredicate)} and ar.is_current=true and ar.score is not null
         and coalesce(c.primary_closer_id,s.person_id) is not null and ${predicate} and ${selection} and ${dates}
       group by coalesce(c.primary_closer_id,s.person_id)
     `;
@@ -214,6 +219,7 @@ export class ScopedSalesRepository {
 
   async listTeamMetrics(context: AuthorizationContext, selected: SelectedOrganizationScope = {}, period: CallPeriod = {}): Promise<ScopedOrganizationMetric[]> {
     this.require(context, "analytics:read");
+    const engineFamilyPredicate = await legacyAnalysisRunPredicate(this.sql, "ar");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
     const dates = callPeriodPredicate(this.sql, period);
@@ -221,7 +227,7 @@ export class ScopedSalesRepository {
       select coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id) entity_id,
         round(avg(ar.score)) score,count(ar.score)::integer calls
       from analysis_runs ar join calls c on c.id=ar.call_id join sellers s on s.id=c.seller_id
-      where ar.status='completed' and ar.is_current=true and ar.score is not null
+      where ar.status='completed' and ${this.sql.unsafe(engineFamilyPredicate)} and ar.is_current=true and ar.score is not null
         and coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id) is not null and ${predicate} and ${selection} and ${dates}
       group by coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
     `;
@@ -229,6 +235,7 @@ export class ScopedSalesRepository {
 
   async listDimensionMetrics(context: AuthorizationContext, selected: SelectedOrganizationScope = {}, period: CallPeriod = {}): Promise<ScopedDimensionMetric[]> {
     this.require(context, "analytics:read");
+    const engineFamilyPredicate = await legacyAnalysisRunPredicate(this.sql, "ar");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
     const dates = callPeriodPredicate(this.sql, period);
@@ -237,13 +244,14 @@ export class ScopedSalesRepository {
         round(avg((dimension->>'score')::numeric)) score, count(*)::integer calls
       from analysis_runs ar join calls c on c.id=ar.call_id join sellers s on s.id=c.seller_id
       cross join lateral jsonb_array_elements(ar.result_json->'dimensions') dimension
-      where ar.status='completed' and ar.is_current=true and ar.score is not null and ${predicate} and ${selection} and ${dates}
+      where ar.status='completed' and ${this.sql.unsafe(engineFamilyPredicate)} and ar.is_current=true and ar.score is not null and ${predicate} and ${selection} and ${dates}
       group by dimension->>'key' order by avg((dimension->>'score')::numeric) desc
     `;
   }
 
   async listCalls(context: AuthorizationContext, limit = 50, selected: SelectedOrganizationScope = {}, period: CallPeriod = {}): Promise<ScopedCallRow[]> {
     this.require(context, "calls:read");
+    const engineFamilyPredicate = await legacyAnalysisRunPredicate(this.sql, "ar");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
     const dates = callPeriodPredicate(this.sql, period);
@@ -257,7 +265,7 @@ export class ScopedSalesRepository {
       join calls c on c.id = ar.call_id
       join sellers s on s.id = c.seller_id
       left join teams tteam on tteam.id = coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
-      where ar.status = 'completed' and ar.is_current = true and ar.score is not null and ${predicate} and ${selection} and ${dates}
+      where ar.status = 'completed' and ${this.sql.unsafe(engineFamilyPredicate)} and ar.is_current = true and ar.score is not null and ${predicate} and ${selection} and ${dates}
       order by c.started_at desc nulls last,c.id desc
       limit ${Math.max(1, Math.min(limit, 100))}
     `;
@@ -265,6 +273,7 @@ export class ScopedSalesRepository {
 
   async getCallById(context: AuthorizationContext, callId: string, selected: SelectedOrganizationScope = {}): Promise<ScopedCallRow | null> {
     this.require(context, "calls:read");
+    const engineFamilyPredicate = await legacyAnalysisRunPredicate(this.sql, "ar");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
     const rows = await this.sql<ScopedCallRow[]>`
@@ -278,7 +287,7 @@ export class ScopedSalesRepository {
       join sellers s on s.id = c.seller_id
       left join teams tteam on tteam.id = coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
       where c.id = ${callId}
-        and ar.status = 'completed' and ar.is_current = true and ${predicate} and ${selection}
+        and ar.status = 'completed' and ${this.sql.unsafe(engineFamilyPredicate)} and ar.is_current = true and ${predicate} and ${selection}
       limit 1
     `;
     return rows[0] ?? null;
@@ -286,6 +295,7 @@ export class ScopedSalesRepository {
 
   async listCallCatalog(context: AuthorizationContext, options: { page: number; pageSize: number; selected?: SelectedOrganizationScope }): Promise<{ rows: ScopedCallCatalogRow[]; total: number }> {
     this.require(context, "calls:read");
+    const engineFamilyPredicate = await legacyAnalysisRunPredicate(this.sql, "ar");
     const page = Math.max(1, Math.trunc(options.page));
     const pageSize = Math.max(1, Math.min(100, Math.trunc(options.pageSize)));
     const offset = (page - 1) * pageSize;
@@ -305,7 +315,7 @@ export class ScopedSalesRepository {
         from calls c join sellers s on s.id=c.seller_id
         left join teams t on t.id=coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
         left join analysis_jobs j on j.call_id=c.id
-        left join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ar.is_current=true
+        left join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ${this.sql.unsafe(engineFamilyPredicate)} and ar.is_current=true
         where ${predicate} and ${selection}
         order by coalesce(c.started_at,c.created_at) desc,c.id desc
         limit ${pageSize} offset ${offset}
@@ -319,6 +329,7 @@ export class ScopedSalesRepository {
 
   async getCatalogCallById(context: AuthorizationContext, callId: string, selected: SelectedOrganizationScope = {}): Promise<ScopedCallCatalogRow | null> {
     this.require(context, "calls:read");
+    const engineFamilyPredicate = await legacyAnalysisRunPredicate(this.sql, "ar");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
     const rows = await this.sql<ScopedCallCatalogRow[]>`
@@ -334,7 +345,7 @@ export class ScopedSalesRepository {
       from calls c join sellers s on s.id=c.seller_id
       left join teams t on t.id=coalesce(c.team_id,c.legacy_team_snapshot_id,s.team_id)
       left join analysis_jobs j on j.call_id=c.id
-      left join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ar.is_current=true
+      left join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ${this.sql.unsafe(engineFamilyPredicate)} and ar.is_current=true
       where c.id=${callId} and ${predicate} and ${selection} limit 1
     `;
     return rows[0] ?? null;
@@ -354,6 +365,7 @@ export class ScopedSalesRepository {
 
   async getBacklogProgress(context: AuthorizationContext, selected: SelectedOrganizationScope = {}): Promise<ScopedBacklogProgress> {
     this.require(context, "analytics:read");
+    const engineFamilyPredicate = await legacyAnalysisRunPredicate(this.sql, "ar");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
     const globalQuarantine = context.scope.kind === "GLOBAL";
@@ -363,7 +375,7 @@ export class ScopedSalesRepository {
       ), state as (
         select scoped.id, j.status, j.stage, j.last_error_code, ar.id official_id
         from scoped left join analysis_jobs j on j.call_id=scoped.id
-        left join analysis_runs ar on ar.call_id=scoped.id and ar.status='completed' and ar.is_current=true
+        left join analysis_runs ar on ar.call_id=scoped.id and ar.status='completed' and ${this.sql.unsafe(engineFamilyPredicate)} and ar.is_current=true
       )
       select count(*)::integer total,
         count(*) filter(where official_id is not null)::integer analyzed,
@@ -388,6 +400,7 @@ export class ScopedSalesRepository {
 
   async listActiveAnalyses(context: AuthorizationContext, selected: SelectedOrganizationScope = {}): Promise<ScopedActiveAnalysis[]> {
     this.require(context, "analytics:read");
+    const engineFamilyPredicate = await legacyAnalysisRunPredicate(this.sql, "ar");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
     return this.sql<ScopedActiveAnalysis[]>`
@@ -396,20 +409,21 @@ export class ScopedSalesRepository {
         ar.started_at
       from analysis_jobs j join calls c on c.id=j.call_id join sellers s on s.id=c.seller_id
       join analysis_runs ar on ar.id=j.analysis_run_id
-      where j.status='claimed' and ${predicate} and ${selection}
+      where j.status='claimed' and ${this.sql.unsafe(engineFamilyPredicate)} and ${predicate} and ${selection}
       order by ar.started_at limit 20
     `;
   }
 
   async listAnalysisAttempts(context: AuthorizationContext, callId: string, selected: SelectedOrganizationScope = {}): Promise<ScopedAnalysisAttempt[]> {
     this.require(context, "calls:read");
+    const engineFamilyPredicate = await legacyAnalysisRunPredicate(this.sql, "ar");
     const predicate = scopePredicate(this.sql, context);
     const selection = selectedCallPredicate(this.sql, selected);
     return this.sql<ScopedAnalysisAttempt[]>`
       select aa.role,aa.attempt_number,aa.model,aa.provider,aa.status,aa.gateway_actual_cost_usd,
         aa.latency_ms,aa.requested_at,aa.error_code
       from calls c join sellers s on s.id=c.seller_id
-      join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ar.is_current=true
+      join analysis_runs ar on ar.call_id=c.id and ar.status='completed' and ${this.sql.unsafe(engineFamilyPredicate)} and ar.is_current=true
       join analysis_attempts aa on aa.analysis_run_id=ar.id
       where c.id=${callId} and ${predicate} and ${selection} order by aa.attempt_number
     `;
@@ -419,6 +433,7 @@ export class ScopedSalesRepository {
     accountId: string; strategyVersion: string; confidencePolicyVersion: string;
   }): Promise<AiSpendSummary> {
     this.require(context, "platform:observe");
+    const engineFamilyPredicate = await legacyAnalysisRunPredicate(this.sql, "ar");
     const [accounts, callRows, backlogs, workers, completions] = await Promise.all([
       this.sql<{
         limit_usd: string | number; external_spend_baseline_usd: string | number;
@@ -453,7 +468,7 @@ export class ScopedSalesRepository {
           ar.escalated,ar.human_review_requested,coalesce(ar.finished_at,ar.created_at) completed_at,
           (ar.strategy_version=${options.strategyVersion} and ar.confidence_policy_version=${options.confidencePolicyVersion}) current_strategy
         from analysis_runs ar left join attempt_costs ac on ac.analysis_run_id=ar.id
-        where ar.status='completed' and ar.is_current=true
+        where ar.status='completed' and ${this.sql.unsafe(engineFamilyPredicate)} and ar.is_current=true
         order by coalesce(ar.finished_at,ar.created_at) desc
       `,
       this.sql<{ eligible: number }[]>`
@@ -463,7 +478,7 @@ export class ScopedSalesRepository {
           and not (j.status='awaiting_transcript' and coalesce(j.last_error_code,'') like 'transcript_access%')
           and not exists (
             select 1 from analysis_runs ar
-            where ar.call_id=j.call_id and ar.status='completed' and ar.is_current=true
+            where ar.call_id=j.call_id and ar.status='completed' and ${this.sql.unsafe(engineFamilyPredicate)} and ar.is_current=true
           )
       `,
       this.sql<{ status: string; concurrency: number; last_seen_at: Date }[]>`
@@ -473,8 +488,8 @@ export class ScopedSalesRepository {
       `,
       this.sql<{ last_completion_at: Date | null }[]>`
         select max(coalesce(finished_at,created_at)) last_completion_at
-        from analysis_runs
-        where status='completed' and strategy_version=${options.strategyVersion}
+        from analysis_runs ar
+        where ${this.sql.unsafe(engineFamilyPredicate)} and ar.status='completed' and ar.strategy_version=${options.strategyVersion}
           and confidence_policy_version=${options.confidencePolicyVersion}
       `,
     ]);

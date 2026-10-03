@@ -1,5 +1,7 @@
 import type { Sql } from "postgres";
 
+const LEGACY_ENGINE_FAMILY = "generative-ai-v1";
+
 export type DriveSource = {
   sourceId: string;
   googleFileId: string;
@@ -410,7 +412,7 @@ export class PostgresDriveDiscoveryRepository {
         select d.id document_id,d.google_file_id,d.web_view_link,d.name document_name,d.mime_type,d.raw_metadata->>'resource_key' resource_key,
           c.id call_id,s.seller_code,c.primary_closer_id,s.person_id seller_person_id,s.team_id seller_team_id,
           exists(select 1 from transcripts t where t.call_id=c.id) transcript_present,
-          exists(select 1 from analysis_runs ar where ar.call_id=c.id and ar.status='completed' and ar.is_current) analysis_completed
+          exists(select 1 from analysis_runs ar where ar.call_id=c.id and ar.engine_family=${LEGACY_ENGINE_FAMILY} and ar.status='completed' and ar.is_current) analysis_completed
         from drive_documents d
         join calls c on c.transcript_file_id=d.google_file_id
         join sellers s on s.id=c.seller_id
@@ -635,7 +637,7 @@ export class PostgresDriveDiscoveryRepository {
         (select count(*)::integer from drive_documents where transcript_status='ignored') ignored,
         (select count(*)::integer from analysis_jobs where status in ('awaiting_transcript','ready','retry_wait','paused_budget')) awaiting_analysis,
         (select count(*)::integer from analysis_jobs where status='claimed') processing,
-        (select count(*)::integer from drive_documents d join analysis_runs ar on ar.call_id=d.call_id where ar.status='completed' and ar.is_current) analyzed
+        (select count(*)::integer from drive_documents d join analysis_runs ar on ar.call_id=d.call_id where ar.engine_family=${LEGACY_ENGINE_FAMILY} and ar.status='completed' and ar.is_current) analyzed
     `;
     const row = rows[0] as Record<string, number>;
     return {

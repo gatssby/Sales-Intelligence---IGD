@@ -186,3 +186,45 @@ _Evite_: erro de análise
 
 **Latency**:
 Tempo de ponta a ponta, em milissegundos, de uma invocação ao Model.
+
+**System One**:
+Linha analítica determinística e provider-agnostic que começa sem resultados ativos e usa decisões estruturadas para leads e calls, sem depender de IA generativa.
+_Evite_: nova versão dos resultados generativos, reprocessamento implícito, modelo IGD
+
+**Generative AI v1 Archive**:
+Família lógica que preserva análises históricas produzidas pela arquitetura generativa anterior. Pode ser benchmark ou teacher signal, mas não é ground truth nem conjunto ativo do System One.
+_Evite_: apagar, promover automaticamente, misturar com Current Analysis
+
+**Decision Engine**:
+Módulo que executa uma pergunta de decisão e devolve escolhas, scores, probabilidades, confiança, evidência e metadados de execução através de uma interface única.
+_Evite_: chamada direta a Jev ou Laya no domínio
+
+**Decision Run**:
+Execução persistida de uma decisão sobre um Lead, Call ou Batch, identificada por Engine Family, Analysis Generation, Provider, Model, Model Version e Schema Version.
+_Evite_: prediction como truth, resultado sem snapshot de entrada
+
+**Engine Family**:
+Linha lógica do avaliador, como `system-one` ou `generative-ai-v1`, usada para isolamento de resultados e seleção explícita do conjunto ativo.
+
+**Analysis Generation**:
+Número monotônico dentro de uma Engine Family. Reanálise cria nova geração ou nova execução; nenhuma geração substitui o histórico anterior.
+
+**Model Asset**:
+Artefato genérico de vendas que inclui código de treino, schemas, evaluation framework, checkpoints, registry e versões, sem identidade de cliente.
+_Evite_: IGD model
+
+**Client Profile**:
+Configuração específica da IGD: taxonomia, produtos, rubricas, calibração e datasets de labels/outcomes.
+_Evite_: incorporar regras da IGD no Model Asset
+
+**Teacher Signal**:
+Saída de um Champion ou avaliador histórico usada como feature auxiliar ou comparação. Nunca substitui label humano ou outcome real.
+
+**Outcome Label**:
+Resultado observado depois da decisão, como resposta, agendamento, show-up ou compra, com proveniência e janela temporal explícitas.
+
+**Champion**:
+Provider/model de referência operacional, inicialmente Jev.
+
+**Challenger**:
+Provider/model experimental, inicialmente Laya local, que só pode ser promovido após benchmark versionado e decisão explícita.

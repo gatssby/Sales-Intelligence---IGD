@@ -1,6 +1,7 @@
 const GOOGLE_FILE_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 export * from "./organization";
+export * from "./system-one-provenance";
 
 const GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 const GOOGLE_SHORTCUT_MIME_TYPE = "application/vnd.google-apps.shortcut";
@@ -38,18 +39,13 @@ export function classifyDriveDocument(input: {
   }
 
   const name = normalizeComparable(input.name);
-  const context = normalizeComparable(input.ancestorNames?.join(" "));
-  const content = String(input.contentSample ?? "");
-  const nameSignals = ["TRANSCRICAO", "TRANSCRIPT", "ANOTACOES DO GEMINI", "MEETING NOTES", "CALL"];
+  const aiNotesSignals = ["ANOTACOES DO GEMINI", "GEMINI NOTES", "AI NOTES", "MEETING NOTES", "RESUMO AUTOMATICO", "RESUMO DE REUNIAO"];
+  if (aiNotesSignals.some((signal) => name.includes(signal))) {
+    return { documentType: "document", transcriptStatus: "ignored", confidence: 1, method: "mime_name" };
+  }
+  const nameSignals = ["TRANSCRICAO", "TRANSCRIPT"];
   if (nameSignals.some((signal) => name.includes(signal))) {
     return { documentType: "transcript", transcriptStatus: "candidate", confidence: 0.9, method: "mime_name" };
-  }
-  if (["TRANSCRICOES", "TRANSCRIPTS", "CALLS"].some((signal) => context.includes(signal))) {
-    return { documentType: "transcript", transcriptStatus: "candidate", confidence: 0.75, method: "folder_context" };
-  }
-  const speakerLines = content.split(/\r?\n/).filter((line) => /^.{1,80}:\s+\S/.test(line.trim())).length;
-  if (speakerLines >= 2 || /\b\d{1,2}:\d{2}(?::\d{2})?\b/.test(content)) {
-    return { documentType: "transcript", transcriptStatus: "identified", confidence: 0.85, method: "content_structure" };
   }
   return { documentType: "document", transcriptStatus: "needs_review", confidence: 0.4, method: "mime_type" };
 }

@@ -1,0 +1,1074 @@
+{
+  "schemaVersion": "system-one-product-alpha10-results-v01",
+  "product": "SYSTEM ONE PRODUCT ALPHA10",
+  "methodology": "product_sanity_alpha_read_only_no_new_human_labels",
+  "generatedAt": "2026-10-03T00:13:13.069Z",
+  "provider": "jev",
+  "transcriptPolicy": {
+    "acceptedContentKinds": [
+      "literal_transcript",
+      "google_meet_caption_transcript"
+    ],
+    "excludedContentKinds": [
+      "gemini_generated_notes_or_summary",
+      "summary",
+      "unknown"
+    ],
+    "transcriptBodyPersisted": false
+  },
+  "cohort": {
+    "candidates": 10,
+    "eligible": 3,
+    "ineligible": 5,
+    "needsReviewEligibility": 2
+  },
+  "privacy": {
+    "aliasesOnly": true,
+    "rawUuidPersisted": false,
+    "transcriptBodyPersisted": false,
+    "piiPersisted": false,
+    "providerSecretsPersisted": false
+  },
+  "status": "ready",
+  "execution": {
+    "attempted": 3,
+    "succeeded": 3,
+    "failed": 0,
+    "totalLatencyMs": 50844,
+    "averageLatencyMs": 16948,
+    "tokenUsage": {
+      "inputTokens": 363245,
+      "outputTokens": 103189
+    },
+    "estimatedCostUsd": null,
+    "productionWrites": 0
+  },
+  "calls": [
+    {
+      "alphaCallId": "3155a200dbc1133c1da43615",
+      "alias": "Call 01",
+      "contentKind": "literal_transcript",
+      "sourceKind": "manual_or_programmatic_import",
+      "samplingBucket": "short",
+      "byteCount": 1508,
+      "transcriptCharacterCount": 1480,
+      "eligibility": {
+        "status": "ineligible",
+        "source": "jev_semantic_v03",
+        "result": {
+          "callType": "non_sales_external",
+          "salesCallMode": "not_applicable",
+          "internalMode": "not_applicable",
+          "evidence": [
+            {
+              "kind": "direct_customer_buyer_participation",
+              "confidence": 0.7
+            },
+            {
+              "kind": "pure_reschedule",
+              "confidence": 0.86
+            },
+            {
+              "kind": "pure_post_purchase_onboarding",
+              "confidence": 0.56
+            },
+            {
+              "kind": "operational_support_active_transaction",
+              "confidence": 0.79
+            }
+          ],
+          "reason": null,
+          "eligibleForSalesAnalysis": false
+        }
+      },
+      "analysis": null
+    },
+    {
+      "alphaCallId": "8f3da38f9ababba0e00b49cf",
+      "alias": "Call 02",
+      "contentKind": "literal_transcript",
+      "sourceKind": "manual_or_programmatic_import",
+      "samplingBucket": "short",
+      "byteCount": 1307,
+      "transcriptCharacterCount": 1281,
+      "eligibility": {
+        "status": "ineligible",
+        "source": "jev_semantic_v03",
+        "result": {
+          "callType": "other_internal",
+          "salesCallMode": "not_applicable",
+          "internalMode": "other",
+          "evidence": [
+            {
+              "kind": "pure_reschedule",
+              "confidence": 0.95
+            },
+            {
+              "kind": "operational_support_active_transaction",
+              "confidence": 0.64
+            }
+          ],
+          "reason": null,
+          "eligibleForSalesAnalysis": false
+        }
+      },
+      "analysis": null
+    },
+    {
+      "alphaCallId": "be401c905e7ea3229f03aa71",
+      "alias": "Call 03",
+      "contentKind": "literal_transcript",
+      "sourceKind": "manual_or_programmatic_import",
+      "samplingBucket": "short",
+      "byteCount": 5491,
+      "transcriptCharacterCount": 5361,
+      "eligibility": {
+        "status": "ineligible",
+        "source": "jev_semantic_v03",
+        "result": {
+          "callType": "non_sales_external",
+          "salesCallMode": "not_applicable",
+          "internalMode": "not_applicable",
+          "evidence": [
+            {
+              "kind": "direct_customer_buyer_participation",
+              "confidence": 0.81
+            },
+            {
+              "kind": "substantive_commercial_progression",
+              "confidence": 0.58
+            },
+            {
+              "kind": "pure_reschedule",
+              "confidence": 0.8
+            }
+          ],
+          "reason": null,
+          "eligibleForSalesAnalysis": false
+        }
+      },
+      "analysis": null
+    },
+    {
+      "alphaCallId": "2907c58faebcf6ef11815dfb",
+      "alias": "Call 04",
+      "contentKind": "literal_transcript",
+      "sourceKind": "manual_or_programmatic_import",
+      "samplingBucket": "medium",
+      "byteCount": 13264,
+      "transcriptCharacterCount": 12938,
+      "eligibility": {
+        "status": "ineligible",
+        "source": "jev_semantic_v03",
+        "result": {
+          "callType": "internal_debrief_coaching",
+          "salesCallMode": "not_applicable",
+          "internalMode": "coaching_debrief",
+          "evidence": [
+            {
+              "kind": "seller_to_seller_internal_interaction",
+              "confidence": 0.89
+            },
+            {
+              "kind": "coaching_debrief",
+              "confidence": 0.95
+            },
+            {
+              "kind": "training",
+              "confidence": 0.86
+            }
+          ],
+          "reason": null,
+          "eligibleForSalesAnalysis": false
+        }
+      },
+      "analysis": null
+    },
+    {
+      "alphaCallId": "6a5bf686b71b08ae1a9da684",
+      "alias": "Call 05",
+      "contentKind": "literal_transcript",
+      "sourceKind": "manual_or_programmatic_import",
+      "samplingBucket": "medium",
+      "byteCount": 23649,
+      "transcriptCharacterCount": 22942,
+      "eligibility": {
+        "status": "ineligible",
+        "source": "jev_semantic_v03",
+        "result": {
+          "callType": "internal_debrief_coaching",
+          "salesCallMode": "not_applicable",
+          "internalMode": "coaching_debrief",
+          "evidence": [
+            {
+              "kind": "substantive_commercial_progression",
+              "confidence": 0.67
+            },
+            {
+              "kind": "seller_to_seller_internal_interaction",
+              "confidence": 0.61
+            }
+          ],
+          "reason": null,
+          "eligibleForSalesAnalysis": false
+        }
+      },
+      "analysis": null
+    },
+    {
+      "alphaCallId": "682adfbfe925a6175fabffb5",
+      "alias": "Call 06",
+      "contentKind": "literal_transcript",
+      "sourceKind": "manual_or_programmatic_import",
+      "samplingBucket": "long",
+      "byteCount": 119072,
+      "transcriptCharacterCount": 115765,
+      "eligibility": {
+        "status": "needs_review",
+        "source": "jev_semantic_v03",
+        "result": {
+          "callType": "unknown",
+          "salesCallMode": "unknown",
+          "internalMode": "unknown",
+          "eligibleForSalesAnalysis": "needs_review",
+          "evidence": [
+            {
+              "kind": "insufficient_evidence",
+              "confidence": 0
+            }
+          ],
+          "reason": "insufficient_whole_call_evidence"
+        }
+      },
+      "analysis": null
+    },
+    {
+      "alphaCallId": "8f380c9ccaeae990f51ee177",
+      "alias": "Call 07",
+      "contentKind": "literal_transcript",
+      "sourceKind": "manual_or_programmatic_import",
+      "samplingBucket": "long",
+      "byteCount": 74440,
+      "transcriptCharacterCount": 72555,
+      "eligibility": {
+        "status": "eligible",
+        "source": "jev_semantic_v03",
+        "result": {
+          "callType": "customer_sales_call",
+          "salesCallMode": "active_sale",
+          "internalMode": "not_applicable",
+          "evidence": [
+            {
+              "kind": "direct_customer_buyer_participation",
+              "confidence": 0.92
+            },
+            {
+              "kind": "active_commercial_interaction",
+              "confidence": 0.91
+            }
+          ],
+          "reason": null,
+          "eligibleForSalesAnalysis": true
+        }
+      },
+      "analysis": {
+        "provider": "jev",
+        "status": "needs_review",
+        "needsReview": true,
+        "analysisTimestamp": "2026-10-03T00:12:36.885Z",
+        "latencyMs": 22190,
+        "chunks": 84,
+        "tokenUsage": {
+          "inputTokens": 158212,
+          "outputTokens": 45489
+        },
+        "estimatedCostUsd": null,
+        "decisions": [
+          {
+            "key": "pain_identified",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              2,
+              3,
+              4,
+              6,
+              7,
+              8,
+              11,
+              12,
+              13,
+              23,
+              25,
+              26,
+              27,
+              28,
+              29,
+              33,
+              34,
+              38,
+              41,
+              42,
+              50,
+              64,
+              65,
+              70,
+              71,
+              72,
+              73,
+              74,
+              75,
+              76,
+              77,
+              80
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "impact_explored",
+            "value": true,
+            "confidence": null,
+            "needsReview": true,
+            "evidenceChunkIndexes": [
+              6,
+              8,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              30,
+              33,
+              34,
+              38,
+              39,
+              42,
+              43,
+              51,
+              64,
+              65,
+              73,
+              75,
+              76,
+              80,
+              81
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "price_objection_present",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              16,
+              63,
+              64,
+              72,
+              73,
+              76
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "objection_type",
+            "value": "price",
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              76
+            ],
+            "supportingEvidenceChunkIndexes": [
+              76
+            ],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "objection_handled",
+            "value": true,
+            "confidence": null,
+            "needsReview": true,
+            "evidenceChunkIndexes": [
+              17,
+              65,
+              72,
+              73,
+              76
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "social_proof_used",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              13,
+              28,
+              29,
+              69
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "urgency_present",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              8,
+              25,
+              43,
+              74,
+              75,
+              76
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "cta_present",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              20,
+              68,
+              71,
+              72,
+              76,
+              78,
+              81
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "next_step_defined",
+            "value": false,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              83
+            ],
+            "supportingEvidenceChunkIndexes": [
+              83
+            ],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "buyer_intent",
+            "value": 1.33,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              36,
+              65,
+              67,
+              75,
+              77,
+              78,
+              80,
+              81
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": []
+          }
+        ],
+        "reviewReasons": [
+          "impact_explored:needs_review",
+          "objection_handled:needs_review"
+        ]
+      }
+    },
+    {
+      "alphaCallId": "af379cc13cfbff36098fa64b",
+      "alias": "Call 08",
+      "contentKind": "literal_transcript",
+      "sourceKind": "manual_or_programmatic_import",
+      "samplingBucket": "long",
+      "byteCount": 37902,
+      "transcriptCharacterCount": 36789,
+      "eligibility": {
+        "status": "eligible",
+        "source": "jev_semantic_v03",
+        "result": {
+          "callType": "customer_sales_call",
+          "salesCallMode": "active_sale",
+          "internalMode": "not_applicable",
+          "evidence": [
+            {
+              "kind": "direct_customer_buyer_participation",
+              "confidence": 0.86
+            },
+            {
+              "kind": "active_commercial_interaction",
+              "confidence": 0.87
+            },
+            {
+              "kind": "substantive_commercial_progression",
+              "confidence": 0.94
+            }
+          ],
+          "reason": null,
+          "eligibleForSalesAnalysis": true
+        }
+      },
+      "analysis": {
+        "provider": "jev",
+        "status": "needs_review",
+        "needsReview": true,
+        "analysisTimestamp": "2026-10-03T00:12:50.041Z",
+        "latencyMs": 11743,
+        "chunks": 43,
+        "tokenUsage": {
+          "inputTokens": 81394,
+          "outputTokens": 23126
+        },
+        "estimatedCostUsd": null,
+        "decisions": [
+          {
+            "key": "pain_identified",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              6,
+              7,
+              10,
+              37,
+              40
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": []
+          },
+          {
+            "key": "impact_explored",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              6
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": []
+          },
+          {
+            "key": "price_objection_present",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              37
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": []
+          },
+          {
+            "key": "objection_type",
+            "value": "price",
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              37
+            ],
+            "supportingEvidenceChunkIndexes": [
+              37
+            ],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": []
+          },
+          {
+            "key": "objection_handled",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              38
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": []
+          },
+          {
+            "key": "social_proof_used",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              0
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": []
+          },
+          {
+            "key": "urgency_present",
+            "value": false,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": []
+          },
+          {
+            "key": "cta_present",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              33,
+              36,
+              38,
+              40
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": []
+          },
+          {
+            "key": "next_step_defined",
+            "value": null,
+            "confidence": null,
+            "needsReview": true,
+            "evidenceChunkIndexes": [],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [
+              42
+            ],
+            "consistencyCodes": [
+              "next_step_agreed_without_owner_or_timing"
+            ]
+          },
+          {
+            "key": "buyer_intent",
+            "value": 2.08,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": []
+          }
+        ],
+        "reviewReasons": [
+          "next_step_defined:needs_review"
+        ]
+      }
+    },
+    {
+      "alphaCallId": "b4bb17a076056363e884f3e1",
+      "alias": "Call 09",
+      "contentKind": "literal_transcript",
+      "sourceKind": "manual_or_programmatic_import",
+      "samplingBucket": "long",
+      "byteCount": 109360,
+      "transcriptCharacterCount": 106636,
+      "eligibility": {
+        "status": "needs_review",
+        "source": "jev_semantic_v03",
+        "result": {
+          "callType": "unknown",
+          "salesCallMode": "unknown",
+          "internalMode": "unknown",
+          "eligibleForSalesAnalysis": "needs_review",
+          "evidence": [
+            {
+              "kind": "insufficient_evidence",
+              "confidence": 0
+            }
+          ],
+          "reason": "insufficient_whole_call_evidence"
+        }
+      },
+      "analysis": null
+    },
+    {
+      "alphaCallId": "ca7904ebca810036eedf1a70",
+      "alias": "Call 10",
+      "contentKind": "literal_transcript",
+      "sourceKind": "manual_or_programmatic_import",
+      "samplingBucket": "long",
+      "byteCount": 57311,
+      "transcriptCharacterCount": 55921,
+      "eligibility": {
+        "status": "eligible",
+        "source": "jev_semantic_v03",
+        "result": {
+          "callType": "customer_sales_call",
+          "salesCallMode": "active_sale",
+          "internalMode": "not_applicable",
+          "evidence": [
+            {
+              "kind": "direct_customer_buyer_participation",
+              "confidence": 0.88
+            },
+            {
+              "kind": "active_commercial_interaction",
+              "confidence": 0.93
+            },
+            {
+              "kind": "substantive_commercial_progression",
+              "confidence": 0.9
+            }
+          ],
+          "reason": null,
+          "eligibleForSalesAnalysis": true
+        }
+      },
+      "analysis": {
+        "provider": "jev",
+        "status": "needs_review",
+        "needsReview": true,
+        "analysisTimestamp": "2026-10-03T00:13:13.069Z",
+        "latencyMs": 16911,
+        "chunks": 64,
+        "tokenUsage": {
+          "inputTokens": 123639,
+          "outputTokens": 34574
+        },
+        "estimatedCostUsd": null,
+        "decisions": [
+          {
+            "key": "pain_identified",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              4,
+              16,
+              22,
+              26,
+              32,
+              37,
+              39,
+              41,
+              44,
+              45,
+              51,
+              52,
+              53,
+              58
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "impact_explored",
+            "value": true,
+            "confidence": null,
+            "needsReview": true,
+            "evidenceChunkIndexes": [
+              26,
+              27,
+              40,
+              58
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "price_objection_present",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              44,
+              45,
+              46
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "objection_type",
+            "value": "timing",
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              55
+            ],
+            "supportingEvidenceChunkIndexes": [
+              55
+            ],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "objection_handled",
+            "value": true,
+            "confidence": null,
+            "needsReview": true,
+            "evidenceChunkIndexes": [
+              44,
+              45,
+              46
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "social_proof_used",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              7,
+              10,
+              45,
+              46,
+              50,
+              54,
+              61
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "urgency_present",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              20,
+              21,
+              22,
+              30,
+              32,
+              34,
+              48,
+              58
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "cta_present",
+            "value": true,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [
+              4,
+              5,
+              21,
+              45,
+              60,
+              63
+            ],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": [
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "next_step_defined",
+            "value": null,
+            "confidence": null,
+            "needsReview": true,
+            "evidenceChunkIndexes": [],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [
+              63
+            ],
+            "consistencyCodes": [
+              "next_step_agreed_without_owner_or_timing",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "objection_current_without_valid_objection",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain",
+              "pain_current_without_confirmed_pain"
+            ]
+          },
+          {
+            "key": "buyer_intent",
+            "value": 2.19,
+            "confidence": null,
+            "needsReview": false,
+            "evidenceChunkIndexes": [],
+            "supportingEvidenceChunkIndexes": [],
+            "reviewEvidenceChunkIndexes": [],
+            "consistencyCodes": []
+          }
+        ],
+        "reviewReasons": [
+          "impact_explored:needs_review",
+          "next_step_defined:needs_review",
+          "objection_handled:needs_review"
+        ]
+      }
+    }
+  ]
+}

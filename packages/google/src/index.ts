@@ -41,6 +41,13 @@ export type GoogleDriveFile = {
   modifiedTime: string | null;
   sharedWithMeTime: string | null;
   version: string | null;
+  size: string | null;
+  fileExtension: string | null;
+  fullFileExtension: string | null;
+  originalFilename: string | null;
+  description: string | null;
+  properties: Record<string, string>;
+  appProperties: Record<string, string>;
   webViewLink: string | null;
   resourceKey: string | null;
   shortcutDetails: {
@@ -51,6 +58,7 @@ export type GoogleDriveFile = {
   owners: GoogleDriveUser[];
   sharingUser: GoogleDriveUser | null;
   lastModifyingUser: GoogleDriveUser | null;
+  videoMediaMetadata: { width: number | null; height: number | null; durationMillis: string | null } | null;
   capabilities: { canDownload: boolean | null; canListChildren: boolean | null };
 };
 
@@ -64,7 +72,8 @@ export type GoogleDriveChange = {
 
 const DRIVE_FILE_FIELDS = [
   "id", "name", "mimeType", "parents", "driveId", "trashed", "createdTime", "modifiedTime",
-  "sharedWithMeTime", "version", "webViewLink", "resourceKey",
+  "sharedWithMeTime", "version", "size", "fileExtension", "fullFileExtension", "originalFilename", "description",
+  "properties", "appProperties", "webViewLink", "resourceKey", "videoMediaMetadata(width,height,durationMillis)",
   "shortcutDetails(targetId,targetMimeType,targetResourceKey)",
   "owners(displayName,emailAddress)", "sharingUser(displayName,emailAddress)",
   "lastModifyingUser(displayName,emailAddress)", "capabilities(canDownload,canListChildren)",
@@ -80,6 +89,13 @@ function parseDriveUser(value: unknown): GoogleDriveUser | null {
   return { displayName: nullableString(record.displayName), emailAddress: nullableString(record.emailAddress) };
 }
 
+function stringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    .sort(([left], [right]) => left.localeCompare(right)));
+}
+
 function parseDriveFile(value: unknown): GoogleDriveFile {
   if (!value || typeof value !== "object") throw new Error("google_drive_invalid_file");
   const record = value as Record<string, unknown>;
@@ -92,6 +108,9 @@ function parseDriveFile(value: unknown): GoogleDriveFile {
   const capabilities = record.capabilities && typeof record.capabilities === "object"
     ? record.capabilities as Record<string, unknown>
     : {};
+  const video = record.videoMediaMetadata && typeof record.videoMediaMetadata === "object"
+    ? record.videoMediaMetadata as Record<string, unknown>
+    : null;
   return {
     id,
     name: nullableString(record.name) ?? "",
@@ -103,6 +122,13 @@ function parseDriveFile(value: unknown): GoogleDriveFile {
     modifiedTime: nullableString(record.modifiedTime),
     sharedWithMeTime: nullableString(record.sharedWithMeTime),
     version: nullableString(record.version),
+    size: nullableString(record.size),
+    fileExtension: nullableString(record.fileExtension),
+    fullFileExtension: nullableString(record.fullFileExtension),
+    originalFilename: nullableString(record.originalFilename),
+    description: nullableString(record.description),
+    properties: stringRecord(record.properties),
+    appProperties: stringRecord(record.appProperties),
     webViewLink: nullableString(record.webViewLink),
     resourceKey: nullableString(record.resourceKey),
     shortcutDetails: targetId ? {
@@ -113,6 +139,11 @@ function parseDriveFile(value: unknown): GoogleDriveFile {
     owners: Array.isArray(record.owners) ? record.owners.map(parseDriveUser).filter((item): item is GoogleDriveUser => item !== null) : [],
     sharingUser: parseDriveUser(record.sharingUser),
     lastModifyingUser: parseDriveUser(record.lastModifyingUser),
+    videoMediaMetadata: video ? {
+      width: typeof video.width === "number" && Number.isFinite(video.width) ? video.width : null,
+      height: typeof video.height === "number" && Number.isFinite(video.height) ? video.height : null,
+      durationMillis: nullableString(video.durationMillis),
+    } : null,
     capabilities: {
       canDownload: typeof capabilities.canDownload === "boolean" ? capabilities.canDownload : null,
       canListChildren: typeof capabilities.canListChildren === "boolean" ? capabilities.canListChildren : null,
@@ -216,7 +247,8 @@ export class GoogleDriveDiscoveryClient {
       if (pageToken) url.searchParams.set("pageToken", pageToken);
       const response = await this.authorizedFetch(url, extraHeaders);
       this.assertDriveResponse(response);
-      const payload = await response.json() as { nextPageToken?: unknown; files?: unknown };
+      const payload = await response.json() as { nextPageToken?: unknown; incompleteSearch?: unknown; files?: unknown };
+      if (payload.incompleteSearch === true) throw new Error("drive_search_incomplete");
       if (Array.isArray(payload.files)) files.push(...payload.files.map(parseDriveFile));
       pageToken = nullableString(payload.nextPageToken);
     } while (pageToken);
