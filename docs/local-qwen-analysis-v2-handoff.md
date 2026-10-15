@@ -120,7 +120,7 @@ Configuração preliminar recomendada; ainda falta comparar multi-pass/chunked e
 ## Alterações no código
 
 - `packages/ai_local/ai_local/provider.py`: `LocalQwenProvider`, health check, timeout, endpoint e structured output;
-- `packages/ai_local/ai_local/schema.py`: contrato e validação local;
+- `packages/ai_local/ai_local/schema.py` + `intermediate_schema.py`: contratos e validação local;
 - `packages/ai_local/ai_local/chunking.py`: chunks por linhas/turnos, origem e overlap;
 - `packages/ai_local/ai_local/pipeline.py`: pipeline multi-pass e métricas;
 - `packages/ai_local/ai_local/config.py`: perfis day/night, endpoint, contexto e timeout;
@@ -129,6 +129,8 @@ Configuração preliminar recomendada; ainda falta comparar multi-pass/chunked e
 - `ops/local-qwen-job.sh`: jobs systemd resumíveis com status/logs/result/cancel;
 - `packages/ai_local/tests/test_local_qwen.py`: testes de schema, chunking, pipeline e grounding;
 - `eval/evaluate_local_qwen.py`: métricas determinísticas sem APIs pagas;
+- `eval/benchmark_metrics.py` + `eval/tests/test_metrics.py`: JSONL/CSV/Markdown e testes determinísticos;
+- `eval/select_reference_corpus.sql`: seleção estratificada read-only;
 - `eval/promptfoo/promptfooconfig.yaml`: primeiro caso reproduzível para direct structured analysis.
 
 O provider possui retries limitados para falhas transitórias, rejeita transcrições vazias e a pipeline retorna provenance com hash SHA-256 da transcrição, versão da pipeline e estratégia de chunks.
@@ -192,7 +194,7 @@ Estado atual:
 
 - branch local/remoto: `feat/qwen9b-analysis-v2`;
 - working tree deve permanecer limpo após o commit deste checkpoint;
-- último commit desta etapa: `c38ebbe`;
+- último commit desta etapa: `b2d2072`;
 - branch já enviado ao origin;
 - System One preservado;
 - somente `Qwen3.5-9B-Q4_K_M.gguf` permanece na VPS;
