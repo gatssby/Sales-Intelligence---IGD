@@ -29,5 +29,5 @@ class LocalQwenSettings:
             threads=int(values.get("QWEN_THREADS", defaults[0])),
             cpu_quota=values.get("QWEN_CPU_QUOTA", defaults[1]),
             context_size=int(values.get("QWEN_CONTEXT_SIZE", "32768")),
-            timeout_s=float(values.get("QWEN_TIMEOUT_S", "300")),
+            timeout_s=float(values.get("QWEN_TIMEOUT_S", "1800" if profile == "night" else "300")),
         )
