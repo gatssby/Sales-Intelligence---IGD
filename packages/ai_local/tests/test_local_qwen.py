@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import Mock
 
 from ai_local.chunking import chunk_transcript
+from ai_local.config import LocalQwenSettings
 from ai_local.pipeline import LocalQwenPipeline
 from ai_local.schema import validate_analysis_output, validation_errors
 
@@ -60,6 +61,12 @@ class ChunkingTests(unittest.TestCase):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_day_and_night_profiles_are_explicit_and_safe(self):
+        day = LocalQwenSettings.from_env({"QWEN_PROFILE": "day"})
+        night = LocalQwenSettings.from_env({"QWEN_PROFILE": "night"})
+        self.assertEqual((day.threads, day.cpu_quota), (2, "200%"))
+        self.assertEqual((night.threads, night.cpu_quota), (4, "380%"))
+
     def test_multi_pass_uses_structured_intermediates_and_returns_final(self):
         provider = Mock()
         provider.complete.side_effect = [
