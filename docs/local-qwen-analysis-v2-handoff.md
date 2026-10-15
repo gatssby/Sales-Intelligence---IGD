@@ -135,6 +135,8 @@ Configuração preliminar recomendada; ainda falta comparar multi-pass/chunked e
 
 O provider possui retries limitados para falhas transitórias, rejeita transcrições vazias e a pipeline retorna provenance com hash SHA-256 da transcrição, versão da pipeline e estratégia de chunks.
 
+O runtime script foi executado na VPS em perfil `day`: iniciou uma unidade transitória localhost-only, aguardou health `{"status":"ok"}` durante o carregamento do modelo e foi parado explicitamente ao final. O guard de concorrência usa `pgrep -x llama-server`, evitando falsos positivos do próprio shell.
+
 Comando recomendado para amanhã:
 
 ```text
