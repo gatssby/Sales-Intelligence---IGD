@@ -290,4 +290,4 @@ Achados qualitativos do Qwen:
 - radar, não culpa: confusão do prospect sobre a origem da call pode indicar problema de qualidade/SDR anterior;
 - erro corrigido após a primeira execução: timestamps estavam em linhas separadas e foram associados deterministicamente ao turno seguinte; `not_sold` sem evidência explícita passou a ser `unknown`.
 
-Uma segunda execução, na call longa `77d37a58-fcb5-40b1-9568-cd3dcb8e88ed`, está em andamento em `si-qwen9b-job-77d37a58-fcb5-40b1-9568-cd3dcb8e88ed.service`, com `QWEN_MAX_TURNS=300` e `QWEN_OVERLAP_TURNS=30`. Não há escrita no banco oficial.
+Uma segunda execução, na call longa `77d37a58-fcb5-40b1-9568-cd3dcb8e88ed`, foi tentada com `QWEN_MAX_TURNS=300` e `QWEN_OVERLAP_TURNS=30`, mas falhou imediatamente com HTTP 400 no primeiro chunk: o tamanho do request excedeu o limite efetivo do endpoint/contexto. Não houve escrita no banco oficial. O próximo teste da longa deve usar chunks menores (por exemplo, 80–120 turnos) ou uma estratégia de sumarização incremental antes da avaliação.
