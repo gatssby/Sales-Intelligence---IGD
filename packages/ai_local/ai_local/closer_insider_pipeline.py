@@ -77,11 +77,11 @@ class CloserInsiderPipeline:
         commercial = self.provider.complete(commercial_prompt(), json.dumps({"source": source, "evidence": ledger}, ensure_ascii=False), schema=CLOSER_INSIDER_SCHEMAS["commercial_state"], max_tokens=1024)
         validate_stage_references(commercial, valid_ids)
         commercial["outcome"] = normalize_commercial_outcome(commercial.get("outcome", "unknown"), ledger)
-        closer = self.provider.complete(closer_prompt(), json.dumps({"evidence": ledger, "commercial_state": commercial}, ensure_ascii=False), schema=CLOSER_INSIDER_SCHEMAS["closer_evaluation"], max_tokens=2048)
+        closer = self.provider.complete(closer_prompt(), json.dumps({"evidence": ledger, "commercial_state": commercial}, ensure_ascii=False), schema=CLOSER_INSIDER_SCHEMAS["closer_evaluation"], max_tokens=3072)
         validate_stage_references(closer, valid_ids)
         critic = self.provider.complete(critic_prompt(), json.dumps({"evidence": ledger, "commercial_state": commercial, "closer_evaluation": closer}, ensure_ascii=False), schema=CLOSER_INSIDER_SCHEMAS["critic"], max_tokens=1536)
         validate_stage_references(critic, valid_ids)
-        final = self.provider.complete(final_prompt(), json.dumps({"source": source, "evidence": ledger, "commercial_state": commercial, "closer_evaluation": closer, "critic": critic}, ensure_ascii=False), schema=CLOSER_INSIDER_SCHEMAS["final"], max_tokens=2048)
+        final = self.provider.complete(final_prompt(), json.dumps({"source": source, "evidence": ledger, "commercial_state": commercial, "closer_evaluation": closer, "critic": critic}, ensure_ascii=False), schema=CLOSER_INSIDER_SCHEMAS["final"], max_tokens=3072)
         validate_stage_references(final, valid_ids)
         final["scoreability"] = source["scoreability"]
         final["requires_human_review"] = bool(final.get("requires_human_review"))
