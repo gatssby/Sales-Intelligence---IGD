@@ -1,0 +1,5 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sales Intelligence Analysis Output v2",
+  "description": "Structured output contract shared by local Qwen analysis and persistence adapters."
+}

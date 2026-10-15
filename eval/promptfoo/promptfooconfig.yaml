@@ -1,0 +1,33 @@
+description: Local Qwen analysis experiments
+providers:
+  - id: llama
+    config:
+      n_predict: 2048
+      temperature: 0
+      seed: 7
+      stop: ["</s>"]
+defaultTest:
+  options:
+    transformVars: |
+      return { ...vars, transcript: vars.transcript || '' };
+tests:
+  - description: direct structured analysis contract
+    vars:
+      transcript: "Seller: Qual é o principal problema?\nLead: Preciso reduzir retrabalho."
+    prompt: |
+      Analise a call em português. Retorne somente JSON válido com as chaves:
+      scoreability, unscorable_reason, overall_score, opportunity_quality,
+      opportunity_quality_label, call_outcome, call_outcome_label, confidence,
+      executive_summary, strengths, critical_failures, objections,
+      coaching_actions, dimensions, evidence, requires_human_review.
+      Transcrição: {{transcript}}
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed && Array.isArray(parsed.dimensions) && Array.isArray(parsed.evidence);
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return (parsed.evidence || []).every(e => !e.quote || vars.transcript.includes(e.quote));
