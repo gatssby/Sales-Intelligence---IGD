@@ -211,6 +211,7 @@ Resultados persistidos na VPS:
 - structured smoke: `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/qwen9b-structured-smoke-20261015_051534/`;
 - multi-pass sintético: `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/qwen9b-multipass-smoke-20261015_051657/`;
 - manifesto sem transcrições/PII: `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/reference-corpus-manifest.json`, 180 calls deduplicadas.
+- seleção inicial metadata-only: `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/reference-corpus-selection-20.json`, 5 calls por bucket de tamanho.
 
 Próximo comando recomendado:
 
