@@ -83,7 +83,7 @@ class LocalQwenPipeline:
                 final_system_prompt(self.context),
                 json.dumps({"facts": facts, "dimensions": self.dimensions}, ensure_ascii=False),
                 schema=ANALYSIS_JSON_SCHEMA,
-                max_tokens=1536,
+                max_tokens=2048,
             )
             return self._finish(final, transcript, chunks, started, passes=1 + len(chunks), history_start=history_start)
         commercial = self.provider.complete(commercial_system_prompt(self.context), json.dumps(facts, ensure_ascii=False), schema=COMMERCIAL_JSON_SCHEMA, max_tokens=384)
