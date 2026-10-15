@@ -1,0 +1,28 @@
+{
+  "spec_version": "closer-insider-eval-v1",
+  "pack": "Closer × Insider",
+  "status": "candidate",
+  "principles": [
+    "facts and evidence precede judgments",
+    "current opportunity fit is separate from future requalification potential",
+    "sale or no sale does not determine Closer quality",
+    "unknown is valid when the source is insufficient",
+    "transcripts do not support inference of tone, pauses, body language or intent",
+    "possible prior SDR/process issues are radar only, not automatic blame"
+  ],
+  "closer_areas": [
+    "opening_and_expectation",
+    "discovery",
+    "diagnosis",
+    "qualification",
+    "pitch_and_value_connection",
+    "objection_handling",
+    "closing_and_next_step",
+    "professionalism",
+    "conversation_control"
+  ],
+  "unknown_product_rules": [
+    "specific Insider thresholds, T1/T2/T3 labels and historical price rules are intentionally not active in v1",
+    "product-specific playbook additions must be versioned before use"
+  ]
+}

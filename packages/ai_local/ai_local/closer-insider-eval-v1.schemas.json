@@ -1,0 +1,739 @@
+{
+  "evidence": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "evidence"
+    ],
+    "properties": {
+      "evidence": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "evidence_id",
+            "turn_id",
+            "claim",
+            "evidence_type"
+          ],
+          "properties": {
+            "evidence_id": {
+              "type": "string"
+            },
+            "turn_id": {
+              "type": "string"
+            },
+            "claim": {
+              "type": "string"
+            },
+            "evidence_type": {
+              "type": "string",
+              "enum": [
+                "fact",
+                "pain",
+                "goal",
+                "constraint",
+                "objection",
+                "commitment",
+                "decision",
+                "offer",
+                "handoff",
+                "other"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "commercial_state": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "current_opportunity_fit",
+      "future_requalification_potential",
+      "requalification_conditions",
+      "qualification_gaps",
+      "urgency",
+      "authority",
+      "budget_or_capacity",
+      "decision_process",
+      "availability",
+      "outcome",
+      "next_step",
+      "evidence_ids"
+    ],
+    "properties": {
+      "current_opportunity_fit": {
+        "type": "string",
+        "enum": [
+          "high",
+          "medium",
+          "low",
+          "unknown"
+        ]
+      },
+      "future_requalification_potential": {
+        "type": "string",
+        "enum": [
+          "high",
+          "medium",
+          "low",
+          "unknown"
+        ]
+      },
+      "requalification_conditions": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "qualification_gaps": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "urgency": {
+        "type": "string",
+        "enum": [
+          "high",
+          "medium",
+          "low",
+          "unknown"
+        ]
+      },
+      "authority": {
+        "type": "string",
+        "enum": [
+          "confirmed",
+          "partial",
+          "unknown"
+        ]
+      },
+      "budget_or_capacity": {
+        "type": "string",
+        "enum": [
+          "confirmed",
+          "partial",
+          "insufficient",
+          "unknown"
+        ]
+      },
+      "decision_process": {
+        "type": "string",
+        "enum": [
+          "clear",
+          "partial",
+          "unknown"
+        ]
+      },
+      "availability": {
+        "type": "string",
+        "enum": [
+          "high",
+          "medium",
+          "low",
+          "unknown"
+        ]
+      },
+      "outcome": {
+        "type": "string",
+        "enum": [
+          "sold",
+          "not_sold",
+          "follow_up",
+          "disqualified",
+          "unknown"
+        ]
+      },
+      "next_step": {
+        "type": "string"
+      },
+      "evidence_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "closer_evaluation": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "opening_and_expectation",
+      "discovery",
+      "diagnosis",
+      "qualification",
+      "pitch_and_value_connection",
+      "objection_handling",
+      "closing_and_next_step",
+      "professionalism",
+      "conversation_control"
+    ],
+    "properties": {
+      "opening_and_expectation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assessment",
+          "positive_evidence_ids",
+          "negative_evidence_ids",
+          "missing_or_missed_behaviors",
+          "rationale",
+          "confidence"
+        ],
+        "properties": {
+          "assessment": {
+            "type": "string",
+            "enum": [
+              "strong",
+              "adequate",
+              "weak",
+              "unknown"
+            ]
+          },
+          "positive_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "negative_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missing_or_missed_behaviors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "discovery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assessment",
+          "positive_evidence_ids",
+          "negative_evidence_ids",
+          "missing_or_missed_behaviors",
+          "rationale",
+          "confidence"
+        ],
+        "properties": {
+          "assessment": {
+            "type": "string",
+            "enum": [
+              "strong",
+              "adequate",
+              "weak",
+              "unknown"
+            ]
+          },
+          "positive_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "negative_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missing_or_missed_behaviors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "diagnosis": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assessment",
+          "positive_evidence_ids",
+          "negative_evidence_ids",
+          "missing_or_missed_behaviors",
+          "rationale",
+          "confidence"
+        ],
+        "properties": {
+          "assessment": {
+            "type": "string",
+            "enum": [
+              "strong",
+              "adequate",
+              "weak",
+              "unknown"
+            ]
+          },
+          "positive_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "negative_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missing_or_missed_behaviors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "qualification": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assessment",
+          "positive_evidence_ids",
+          "negative_evidence_ids",
+          "missing_or_missed_behaviors",
+          "rationale",
+          "confidence"
+        ],
+        "properties": {
+          "assessment": {
+            "type": "string",
+            "enum": [
+              "strong",
+              "adequate",
+              "weak",
+              "unknown"
+            ]
+          },
+          "positive_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "negative_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missing_or_missed_behaviors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "pitch_and_value_connection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assessment",
+          "positive_evidence_ids",
+          "negative_evidence_ids",
+          "missing_or_missed_behaviors",
+          "rationale",
+          "confidence"
+        ],
+        "properties": {
+          "assessment": {
+            "type": "string",
+            "enum": [
+              "strong",
+              "adequate",
+              "weak",
+              "unknown"
+            ]
+          },
+          "positive_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "negative_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missing_or_missed_behaviors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "objection_handling": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assessment",
+          "positive_evidence_ids",
+          "negative_evidence_ids",
+          "missing_or_missed_behaviors",
+          "rationale",
+          "confidence"
+        ],
+        "properties": {
+          "assessment": {
+            "type": "string",
+            "enum": [
+              "strong",
+              "adequate",
+              "weak",
+              "unknown"
+            ]
+          },
+          "positive_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "negative_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missing_or_missed_behaviors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "closing_and_next_step": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assessment",
+          "positive_evidence_ids",
+          "negative_evidence_ids",
+          "missing_or_missed_behaviors",
+          "rationale",
+          "confidence"
+        ],
+        "properties": {
+          "assessment": {
+            "type": "string",
+            "enum": [
+              "strong",
+              "adequate",
+              "weak",
+              "unknown"
+            ]
+          },
+          "positive_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "negative_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missing_or_missed_behaviors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "professionalism": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assessment",
+          "positive_evidence_ids",
+          "negative_evidence_ids",
+          "missing_or_missed_behaviors",
+          "rationale",
+          "confidence"
+        ],
+        "properties": {
+          "assessment": {
+            "type": "string",
+            "enum": [
+              "strong",
+              "adequate",
+              "weak",
+              "unknown"
+            ]
+          },
+          "positive_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "negative_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missing_or_missed_behaviors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "conversation_control": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assessment",
+          "positive_evidence_ids",
+          "negative_evidence_ids",
+          "missing_or_missed_behaviors",
+          "rationale",
+          "confidence"
+        ],
+        "properties": {
+          "assessment": {
+            "type": "string",
+            "enum": [
+              "strong",
+              "adequate",
+              "weak",
+              "unknown"
+            ]
+          },
+          "positive_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "negative_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missing_or_missed_behaviors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    }
+  },
+  "critic": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "critic_findings",
+      "evidence_ids"
+    ],
+    "properties": {
+      "critic_findings": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "finding",
+            "evidence_ids",
+            "absence_basis",
+            "severity"
+          ],
+          "properties": {
+            "finding": {
+              "type": "string"
+            },
+            "evidence_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "absence_basis": {
+              "type": "string"
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "material",
+                "moderate",
+                "minor"
+              ]
+            }
+          }
+        }
+      },
+      "evidence_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "final": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "executive_summary",
+      "strengths",
+      "critical_failures",
+      "missed_opportunities",
+      "coaching_actions",
+      "risk_or_compliance_flags",
+      "primary_failure",
+      "confidence",
+      "requires_human_review",
+      "evidence_ids"
+    ],
+    "properties": {
+      "executive_summary": {
+        "type": "string"
+      },
+      "strengths": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "critical_failures": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "missed_opportunities": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "coaching_actions": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "risk_or_compliance_flags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "primary_failure": {
+        "type": "string"
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "requires_human_review": {
+        "type": "boolean"
+      },
+      "evidence_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import LocalQwenSettings
+from .closer_insider_pipeline import CloserInsiderPipeline
 from .pipeline import LocalQwenPipeline
 from .provider import LocalQwenProvider
 
@@ -23,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--timeout", type=float, default=None)
     analyze.add_argument("--output", type=Path, default=None)
     analyze.add_argument("--pipeline-version", default="local-qwen-v3-historical")
-    analyze.add_argument("--strategy", choices=["direct", "two_pass", "multipass"], default="direct")
+    analyze.add_argument("--strategy", choices=["direct", "two_pass", "multipass", "closer_insider_v1"], default="direct")
     analyze.add_argument("--max-turns", type=int, default=80)
     analyze.add_argument("--overlap-turns", type=int, default=8)
     analyze.add_argument("--dry-run", action="store_true", help="check input, resources, and health without inference")
@@ -49,6 +50,20 @@ def run_analyze(args: argparse.Namespace) -> int:
     plan = {"call_id": args.call_id, "transcript_id": args.transcript_id, "profile": settings.profile, "endpoint": settings.endpoint, "pipeline_version": args.pipeline_version, "strategy": args.strategy, "output": str(output_path), "shadow": True, "dry_run": args.dry_run}
     if args.dry_run:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
+        return 0
+    if args.strategy == "closer_insider_v1":
+        pipeline = CloserInsiderPipeline(provider, max_turns=args.max_turns, overlap_turns=args.overlap_turns)
+        result = pipeline.analyze(transcript)
+        run_dir = output_path.with_suffix("")
+        run_dir.mkdir(parents=True, exist_ok=True)
+        for name, value in result.artifacts.items():
+            (run_dir / f"{name}.json").write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+        (run_dir / "source.json").write_text(json.dumps(result.source, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = {**plan, "dry_run": False, "output": result.final, "metrics": result.metrics, "provenance": {**result.provenance, "transcript_id": args.transcript_id}}
+        (run_dir / "run.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(json.dumps({"saved": str(output_path), "artifact_dir": str(run_dir), "call_id": args.call_id, "shadow": True, "metrics": result.metrics}, ensure_ascii=False, indent=2))
         return 0
     pipeline = LocalQwenPipeline(provider, dimensions=["opening_rapport", "discovery", "qualification", "diagnosis", "value_presentation", "objection_handling", "closing_next_steps"], max_turns=args.max_turns, overlap_turns=args.overlap_turns, pipeline_version=args.pipeline_version, strategy=args.strategy)
     result = pipeline.analyze(transcript)
