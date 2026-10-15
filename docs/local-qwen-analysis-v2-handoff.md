@@ -64,9 +64,35 @@ Baseline real Qwen 9B:
 - health check retornou `{"status":"ok"}`;
 - execução permaneceu ativa após a desconexão SSH;
 - durante o acompanhamento, prompt processing foi concluído e a geração avançou em torno de 3.3 tokens/s;
-- resultado final deve ser lido de `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/qwen9b-baseline-20261015_042612` quando a unidade terminar.
+- terminou em 2026-10-15 05:07 UTC, com `finish_reason=stop`;
+- input tokens: 21.088; output tokens: 1.863; total: 22.951;
+- wall time observado: aproximadamente 41m12s;
+- JSON válido e schema válido;
+- 7/7 dimensões retornadas (100% de cobertura);
+- 3/7 evidências com quote encontrado literalmente na transcrição (42,86% de grounding bruto);
+- score retornado: 88; confidence: 0,92; oportunidade `medium`; outcome `follow_up`.
 
-Ainda não é legítimo declarar qualidade final do baseline sem o JSON de saída completo. O avaliador determinístico em `eval/evaluate_local_qwen.py` mede presença de chaves, completude, citações e taxa de grounding sem fazer chamadas externas.
+Artefatos preservados em `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/qwen9b-baseline-20261015_042612`.
+
+O avaliador determinístico em `eval/evaluate_local_qwen.py` mede presença de chaves, completude, citações e taxa de grounding sem fazer chamadas externas.
+
+Smoke test real de structured output:
+
+- unidade isolada `si-qwen9b-structured-smoke`;
+- `response_format.type=json_schema` no endpoint `/v1/chat/completions`;
+- `finish_reason=stop`, 36 input tokens, 49 output tokens;
+- JSON parseado e contrato fechado validado;
+- unidade parada e porta 18081 liberada ao final.
+
+Smoke test real multi-pass sintético:
+
+- unidade isolada `si-qwen9b-multipass-smoke`;
+- 5 passes: fatos, estado comercial, dimensões, coaching e síntese;
+- 5/5 respostas structured JSON válidas;
+- latências por pass: 70,3s; 29,2s; 83,7s; 98,5s; 115,2s;
+- output tokens por pass: 232; 31; 222; 202; 187;
+- dados sintéticos, sem banco e sem PII;
+- unidade parada e porta 18081 liberada ao final.
 
 ## Melhor configuração atual
 
