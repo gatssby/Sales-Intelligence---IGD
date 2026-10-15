@@ -121,7 +121,9 @@ O pipeline histórico novo usa `local-qwen-v3-historical` e grava em provenance:
 
 O benchmark direct/night de três tamanhos foi preparado na VPS em `/home/ubuntu/sales-intelligence-local-llm/pipeline-v2/real-benchmark/qwen-v3-direct-20261015/`, usando calls concluídas do corpus: curta `22376805-e12c-4c84-a48d-f3bb2d291882`, média `87ac9b12-7e14-4fde-91c5-b5ccd253abd7` e longa `0bc1fbae-104b-4e26-a0b7-fbafe157e93b`. A curta concluiu com o prompt novo, schema válido, 7/7 dimensões, 1 evidência não grounded e scoreability `unscorable`; a primeira tentativa falhou porque a cópia da VPS ainda estava no código genérico e foi descartada.
 
-A média concluiu com schema válido, 7/7 dimensões, 3 evidências, grounding 1/3, 1 retry, 1.712 tokens de entrada, 1.381 de saída, 4.328 prompt tok/s, 5,52 generation tok/s e 551.695 ms. O job da call longa continua persistente em `si-qwen9b-job-0bc1fbae-104b-4e26-a0b7-fbafe157e93b.service`; não iniciar outro job concorrente até verificar seu término.
+A média concluiu com schema válido, 7/7 dimensões, 3 evidências, grounding 1/3, 1 retry, 1.712 tokens de entrada, 1.381 de saída, 4.328 prompt tok/s, 5,52 generation tok/s e 551.695 ms. A longa concluiu após ampliar o timeout night e corrigir sua propagação para a unidade systemd: schema válido, 7/7 dimensões, 4 evidências, grounding 1/4, 15.756 tokens de entrada, 1.639 de saída, 13.093 prompt tok/s, 2,80 generation tok/s, 586.368 ms e `finish_reason=stop`. As duas tentativas anteriores da longa foram canceladas pelo timeout padrão de 300s.
+
+O 2-pass de qualidade está em execução sobre a call média em `si-qwen9b-job-87ac9b12-7e14-4fde-91c5-b5ccd253abd7.service`, após aumentar o pass factual de 768 para 1.536 tokens porque a primeira tentativa produziu JSON truncado.
 
 Configuração preliminar recomendada; ainda falta comparar multi-pass/chunked em calls históricas reais antes de promovê-la para produção.
 
