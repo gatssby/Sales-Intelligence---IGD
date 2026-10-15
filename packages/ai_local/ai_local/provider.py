@@ -34,6 +34,7 @@ class LocalQwenProvider:
         self.schema = schema or ANALYSIS_JSON_SCHEMA
         self.max_retries = max(0, max_retries)
         self.last_metrics: CompletionMetrics | None = None
+        self.completion_history: list[CompletionMetrics] = []
         self.last_retry_count = 0
         self.last_finish_reason: str | None = None
 
@@ -85,4 +86,5 @@ class LocalQwenProvider:
         self.last_metrics = CompletionMetrics(
             usage.get("prompt_tokens"), usage.get("completion_tokens"), prompt_tps, generation_tps, elapsed_ms, self.last_finish_reason
         )
+        self.completion_history.append(self.last_metrics)
         return result

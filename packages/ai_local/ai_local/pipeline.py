@@ -55,6 +55,8 @@ class LocalQwenPipeline:
 
     def analyze(self, transcript: str) -> PipelineResult:
         started = time.monotonic()
+        history = getattr(self.provider, "completion_history", None)
+        history_start = len(history) if isinstance(history, list) else 0
         chunks = chunk_transcript(transcript, self.max_turns, self.overlap_turns)
         if not chunks:
             raise ValueError("transcript must contain at least one non-empty turn")
@@ -65,7 +67,7 @@ class LocalQwenPipeline:
                 schema=ANALYSIS_JSON_SCHEMA,
                 max_tokens=2048,
             )
-            return self._finish(final, transcript, chunks, started, passes=1)
+            return self._finish(final, transcript, chunks, started, passes=1, history_start=history_start)
         fact_passes = [
             self.provider.complete(
                 factual_system_prompt(self.context),
@@ -83,14 +85,14 @@ class LocalQwenPipeline:
                 schema=ANALYSIS_JSON_SCHEMA,
                 max_tokens=1536,
             )
-            return self._finish(final, transcript, chunks, started, passes=1 + len(chunks))
+            return self._finish(final, transcript, chunks, started, passes=1 + len(chunks), history_start=history_start)
         commercial = self.provider.complete(commercial_system_prompt(self.context), json.dumps(facts, ensure_ascii=False), schema=COMMERCIAL_JSON_SCHEMA, max_tokens=384)
         dimensions = self.provider.complete(dimensions_system_prompt(self.context), json.dumps({"facts": facts, "commercial": commercial, "dimensions": self.dimensions}, ensure_ascii=False), schema=DIMENSIONS_JSON_SCHEMA, max_tokens=768)
         coaching = self.provider.complete(coaching_system_prompt(self.context), json.dumps({"facts": facts, "commercial": commercial, "dimensions": dimensions}, ensure_ascii=False), schema=COACHING_JSON_SCHEMA, max_tokens=512)
         final = self.provider.complete(final_system_prompt(self.context), json.dumps({"facts": facts, "commercial": commercial, "dimensions": dimensions, "coaching": coaching}, ensure_ascii=False), schema=ANALYSIS_JSON_SCHEMA, max_tokens=1536)
-        return self._finish(final, transcript, chunks, started, passes=4 + len(chunks))
+        return self._finish(final, transcript, chunks, started, passes=4 + len(chunks), history_start=history_start)
 
-    def _finish(self, final: dict[str, Any], transcript: str, chunks: list[Any], started: float, *, passes: int) -> PipelineResult:
+    def _finish(self, final: dict[str, Any], transcript: str, chunks: list[Any], started: float, *, passes: int, history_start: int) -> PipelineResult:
         errors = validation_errors(final)
         if errors:
             raise ValueError(f"final analysis failed schema validation: {errors}")
@@ -113,15 +115,25 @@ class LocalQwenPipeline:
         grounded = sum(1 for item in grounding if item["grounded"] and not item["duplicate"])
         retry_value = getattr(self.provider, "last_retry_count", 0)
         retries = retry_value if isinstance(retry_value, int) else 0
-        completion_metrics = getattr(self.provider, "last_metrics", None)
+        completion_history = getattr(self.provider, "completion_history", None)
+        if isinstance(completion_history, list) and completion_history[history_start:]:
+            completion_metrics_list = completion_history[history_start:]
+        else:
+            last = getattr(self.provider, "last_metrics", None)
+            completion_metrics_list = [last] if isinstance(getattr(last, "input_tokens", None), int) else []
+        completion_metrics = completion_metrics_list[-1] if completion_metrics_list else None
+        input_tokens = sum(item.input_tokens or 0 for item in completion_metrics_list) if completion_metrics_list else None
+        output_tokens = sum(item.output_tokens or 0 for item in completion_metrics_list) if completion_metrics_list else None
+        prompt_seconds = sum((item.input_tokens or 0) / item.prompt_tokens_per_second for item in completion_metrics_list if item.input_tokens and item.prompt_tokens_per_second)
+        generation_seconds = sum((item.output_tokens or 0) / item.generation_tokens_per_second for item in completion_metrics_list if item.output_tokens and item.generation_tokens_per_second)
         finish_reason = getattr(completion_metrics, "finish_reason", None)
         metrics = PipelineMetrics(
             passes, len(chunks), retries, int((time.monotonic() - started) * 1000), grounded,
             validate_analysis_output(final),
-            getattr(completion_metrics, "input_tokens", None),
-            getattr(completion_metrics, "output_tokens", None),
-            getattr(completion_metrics, "prompt_tokens_per_second", None),
-            getattr(completion_metrics, "generation_tokens_per_second", None),
+            input_tokens,
+            output_tokens,
+            input_tokens / prompt_seconds if input_tokens and prompt_seconds else None,
+            output_tokens / generation_seconds if output_tokens and generation_seconds else None,
             finish_reason,
             finish_reason == "length",
         )

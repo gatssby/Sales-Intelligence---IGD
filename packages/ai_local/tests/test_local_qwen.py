@@ -100,7 +100,8 @@ class PipelineTests(unittest.TestCase):
 
     def test_multi_pass_uses_structured_intermediates_and_returns_final(self):
         provider = Mock()
-        provider.complete.side_effect = [
+        provider.completion_history = []
+        responses = [
             {"facts": [{"claim": "budget", "quote": "Tem orçamento", "source": "00:10"}]},
             {"opportunity_quality": "high", "call_outcome": "follow_up", "objections": []},
             {"dimensions": [{"key": "discovery", "label": "Descoberta", "score": 80, "rationale": "Perguntou"}]},
@@ -116,11 +117,17 @@ class PipelineTests(unittest.TestCase):
                 "requires_human_review": False,
             },
         ]
+        def complete(*_args, **_kwargs):
+            provider.completion_history.append(CompletionMetrics(10, 20, 5.0, 10.0, 1000))
+            return responses.pop(0)
+        provider.complete.side_effect = complete
         pipeline = LocalQwenPipeline(provider=provider, dimensions=["discovery"])
         result = pipeline.analyze("00:10 Seller: Tem orçamento")
         self.assertTrue(validate_analysis_output(result.output), validation_errors(result.output))
         self.assertEqual(result.metrics.passes, 5)
         self.assertEqual(provider.complete.call_count, 5)
+        self.assertEqual(result.metrics.input_tokens, 50)
+        self.assertEqual(result.metrics.output_tokens, 100)
         self.assertGreaterEqual(result.metrics.grounded_evidence, 1)
         self.assertEqual(result.provenance["pipeline_version"], "local-qwen-v3-historical")
         self.assertEqual(len(result.provenance["transcript_sha256"]), 64)
