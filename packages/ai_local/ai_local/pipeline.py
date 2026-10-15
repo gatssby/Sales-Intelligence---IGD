@@ -73,7 +73,7 @@ class LocalQwenPipeline:
                 factual_system_prompt(self.context),
                 json.dumps({"chunk_id": chunk.chunk_id, "source_start": chunk.source_start, "source_end": chunk.source_end, "text": chunk.text}, ensure_ascii=False),
                 schema=FACTS_JSON_SCHEMA,
-                max_tokens=768,
+                max_tokens=1536,
             )
             for chunk in chunks
         ]
