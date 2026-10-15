@@ -41,6 +41,19 @@ class CloserInsiderGroundingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             merge_evidence([{"evidence": [{"evidence_id": "x", "turn_id": "T999999", "claim": "x", "evidence_type": "fact"}]}], build_turns("Ana: fato"))
 
+    def test_overlap_dedupes_exact_evidence_but_keeps_distinct_claims_on_same_turn(self):
+        turns = build_turns("Ana: O cliente quer clareza sobre preço")
+        merged = merge_evidence([
+            {"evidence": [
+                {"turn_id": "T000001", "claim": "Cliente quer clareza sobre preço", "evidence_type": "goal"},
+                {"turn_id": "T000001", "claim": "Cliente quer clareza sobre preço", "evidence_type": "goal"},
+                {"turn_id": "T000001", "claim": "Preço é uma preocupação", "evidence_type": "objection"},
+            ]},
+        ], turns)
+        self.assertEqual(len(merged), 2)
+        self.assertEqual([item["evidence_id"] for item in merged], ["E000001", "E000002"])
+        self.assertEqual({item["evidence_type"] for item in merged}, {"goal", "objection"})
+
     def test_outcome_without_explicit_outcome_evidence_becomes_unknown(self):
         evidence = [{"claim": "A reunião será reagendada", "evidence_type": "handoff", "quote": "vamos agendar"}]
         self.assertEqual(normalize_commercial_outcome("not_sold", evidence), "unknown")
@@ -73,6 +86,26 @@ class CloserInsiderPipelineTests(unittest.TestCase):
         self.assertEqual(result.final["evidence_ids"], ["E000001"])
         self.assertEqual(result.artifacts["evidence"][0]["evidence_id"], "E000001")
         self.assertEqual(provider.complete.call_count, 5)
+
+    def test_pipeline_preserves_chunk_evidence_and_global_payload_metrics(self):
+        provider = Mock()
+        provider.model = "qwen3.5-9b"
+        provider.completion_history = []
+        provider.complete.side_effect = [
+            {"evidence": [{"evidence_id": "x", "turn_id": "T000001", "claim": "abertura", "evidence_type": "fact"}]},
+            {"evidence": [{"evidence_id": "x", "turn_id": "T000004", "claim": "fechamento", "evidence_type": "commitment"}]},
+            {"current_opportunity_fit": "unknown", "future_requalification_potential": "unknown", "requalification_conditions": [], "qualification_gaps": [], "urgency": "unknown", "authority": "unknown", "budget_or_capacity": "unknown", "decision_process": "unknown", "availability": "unknown", "outcome": "unknown", "next_step": "unknown", "evidence_ids": ["E000001"]},
+            {k: {"assessment": "unknown", "positive_evidence_ids": [], "negative_evidence_ids": [], "missing_or_missed_behaviors": [], "rationale": "", "confidence": 0.2} for k in ["opening_and_expectation", "discovery", "diagnosis", "qualification", "pitch_and_value_connection", "objection_handling", "closing_and_next_step", "professionalism", "conversation_control"]},
+            {"critic_findings": [], "evidence_ids": []},
+            {"executive_summary": "", "strengths": [], "critical_failures": [], "missed_opportunities": [], "coaching_actions": [], "risk_or_compliance_flags": [], "primary_failure": "unknown", "confidence": 0.2, "requires_human_review": True, "evidence_ids": []},
+        ]
+        pipeline = CloserInsiderPipeline(provider, max_turns=3, overlap_turns=1)
+        result = pipeline.analyze("Ana: um\nCliente: dois\nAna: três\nCliente: quatro")
+        self.assertEqual(result.metrics["chunks"], 2)
+        self.assertEqual(len(result.artifacts["chunks"]), 2)
+        self.assertEqual(result.artifacts["chunks"][0]["chunk_id"], "chunk-0001")
+        self.assertIn("commercial", result.metrics["global_payloads"])
+        self.assertGreater(result.metrics["global_payloads"]["commercial"]["characters"], 0)
 
     def test_meeting_notes_are_unscorable_without_model_calls(self):
         provider = Mock()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -66,26 +67,51 @@ class CloserInsiderPipeline:
 
         chunks = self._chunks(turns)
         evidence_passes = []
-        for chunk in chunks:
-            evidence_passes.append(self.provider.complete(
-                evidence_prompt(),
-                json.dumps({"turns": [turn.__dict__ for turn in chunk]}, ensure_ascii=False),
+        chunk_artifacts = []
+        global_payloads = {}
+        for index, chunk in enumerate(chunks, start=1):
+            chunk_payload = {"turns": [turn.__dict__ for turn in chunk]}
+            evidence_output = self._complete_stage(
+                f"evidence_chunk_{index:04d}", evidence_prompt(), chunk_payload,
                 schema=CLOSER_INSIDER_SCHEMAS["evidence"], max_tokens=1536,
-            ))
+            )
+            evidence_passes.append(evidence_output)
+            chunk_artifacts.append({
+                "chunk_id": f"chunk-{index:04d}",
+                "turn_ids": [turn.turn_id for turn in chunk],
+                "source_start": chunk[0].source_index,
+                "source_end": chunk[-1].source_index + 1,
+                "evidence": evidence_output.get("evidence", []),
+            })
         ledger = hydrate_evidence(merge_evidence(evidence_passes, turns), turns)
         valid_ids = {item["evidence_id"] for item in ledger}
-        commercial = self.provider.complete(commercial_prompt(), json.dumps({"source": source, "evidence": ledger}, ensure_ascii=False), schema=CLOSER_INSIDER_SCHEMAS["commercial_state"], max_tokens=1024)
+        commercial_payload = {"source": source, "evidence": ledger}
+        global_payloads["commercial"] = self._payload_stats(commercial_payload)
+        commercial = self._complete_stage("commercial", commercial_prompt(), commercial_payload, schema=CLOSER_INSIDER_SCHEMAS["commercial_state"], max_tokens=1024)
         validate_stage_references(commercial, valid_ids)
         commercial["outcome"] = normalize_commercial_outcome(commercial.get("outcome", "unknown"), ledger)
-        closer = self.provider.complete(closer_prompt(), json.dumps({"evidence": ledger, "commercial_state": commercial}, ensure_ascii=False), schema=CLOSER_INSIDER_SCHEMAS["closer_evaluation"], max_tokens=3072)
+        closer_payload = {"evidence": ledger, "commercial_state": commercial}
+        global_payloads["closer_evaluation"] = self._payload_stats(closer_payload)
+        closer = self._complete_stage("closer_evaluation", closer_prompt(), closer_payload, schema=CLOSER_INSIDER_SCHEMAS["closer_evaluation"], max_tokens=3072)
         validate_stage_references(closer, valid_ids)
-        critic = self.provider.complete(critic_prompt(), json.dumps({"evidence": ledger, "commercial_state": commercial, "closer_evaluation": closer}, ensure_ascii=False), schema=CLOSER_INSIDER_SCHEMAS["critic"], max_tokens=1536)
+        critic_payload = {"evidence": ledger, "commercial_state": commercial, "closer_evaluation": closer}
+        global_payloads["critic"] = self._payload_stats(critic_payload)
+        critic = self._complete_stage("critic", critic_prompt(), critic_payload, schema=CLOSER_INSIDER_SCHEMAS["critic"], max_tokens=1536)
         validate_stage_references(critic, valid_ids)
-        final = self.provider.complete(final_prompt(), json.dumps({"source": source, "evidence": ledger, "commercial_state": commercial, "closer_evaluation": closer, "critic": critic}, ensure_ascii=False), schema=CLOSER_INSIDER_SCHEMAS["final"], max_tokens=3072)
+        final_payload = {"source": source, "evidence": ledger, "commercial_state": commercial, "closer_evaluation": closer, "critic": critic}
+        global_payloads["final"] = self._payload_stats(final_payload)
+        final = self._complete_stage("final", final_prompt(), final_payload, schema=CLOSER_INSIDER_SCHEMAS["final"], max_tokens=3072)
         validate_stage_references(final, valid_ids)
         final["scoreability"] = source["scoreability"]
         final["requires_human_review"] = bool(final.get("requires_human_review"))
-        return self._result(transcript, source, turns_payload, ledger, commercial, closer, critic, final, {"chunks": len(chunks)}, started, passes=len(chunks) + 4)
+        raw_evidence_count = sum(len(output.get("evidence", [])) for output in evidence_passes)
+        return self._result(transcript, source, turns_payload, ledger, commercial, closer, critic, final, {
+            "chunks": len(chunks),
+            "chunk_artifacts": chunk_artifacts,
+            "global_payloads": global_payloads,
+            "raw_evidence_count": raw_evidence_count,
+            "duplicates_removed": raw_evidence_count - len(ledger),
+        }, started, passes=len(chunks) + 4)
 
     def _chunks(self, turns: list[Turn]) -> list[list[Turn]]:
         if self.max_turns < 1 or self.overlap_turns < 0 or self.overlap_turns >= self.max_turns:
@@ -100,6 +126,21 @@ class CloserInsiderPipeline:
             start = end - self.overlap_turns
         return chunks
 
+    @staticmethod
+    def _payload_stats(payload: dict[str, Any]) -> dict[str, int]:
+        characters = len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+        return {"characters": characters, "estimated_tokens": math.ceil(characters / 4)}
+
+    def _complete_stage(self, stage: str, system: str, payload: dict[str, Any], *, schema: dict[str, Any], max_tokens: int) -> dict[str, Any]:
+        user = json.dumps(payload, ensure_ascii=False)
+        try:
+            return self.provider.complete(system, user, schema=schema, max_tokens=max_tokens)
+        except Exception as exc:
+            stats = self._payload_stats(payload)
+            raise RuntimeError(
+                f"closer_insider stage={stage} payload_chars={stats['characters']} estimated_tokens={stats['estimated_tokens']}"
+            ) from exc
+
     def _result(self, transcript: str, source: dict[str, Any], turns: list[dict[str, Any]], evidence: list[dict[str, Any]], commercial: dict[str, Any], closer: dict[str, Any], critic: dict[str, Any], final: dict[str, Any], extra_metrics: dict[str, Any], started: float, *, passes: int) -> CloserInsiderResult:
         history = getattr(self.provider, "completion_history", None)
         history = history if isinstance(history, list) else []
@@ -113,6 +154,12 @@ class CloserInsiderPipeline:
             "input_tokens": sum(getattr(item, "input_tokens", 0) or 0 for item in history[-passes:]) if history else None,
             "output_tokens": sum(getattr(item, "output_tokens", 0) or 0 for item in history[-passes:]) if history else None,
             "schema_valid": True,
+            "raw_evidence_count": extra_metrics.get("raw_evidence_count", len(evidence)),
+            "duplicates_removed": extra_metrics.get("duplicates_removed", 0),
+            "invalid_evidence_ids": 0,
+            "quote_mismatches": 0,
+            "evidence_with_timestamp": sum(1 for item in evidence if item.get("timestamp")),
+            "global_payloads": extra_metrics.get("global_payloads", {}),
         }
         provenance = {
             "pipeline_version": CLOSER_INSIDER_PIPELINE_VERSION,
@@ -124,5 +171,5 @@ class CloserInsiderPipeline:
             "passes": passes,
             "chunks": metrics["chunks"],
         }
-        artifacts = {"turns": turns, "evidence": evidence, "commercial_state": commercial, "closer_evaluation": closer, "critic": critic, "final": final, "metrics": metrics}
+        artifacts = {"turns": turns, "evidence": evidence, "commercial_state": commercial, "closer_evaluation": closer, "critic": critic, "final": final, "metrics": metrics, "chunks": extra_metrics.get("chunk_artifacts", [])}
         return CloserInsiderResult(source, turns, evidence, commercial, closer, critic, final, artifacts, metrics, provenance)

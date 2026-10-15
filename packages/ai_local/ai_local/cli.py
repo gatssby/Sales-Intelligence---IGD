@@ -57,6 +57,14 @@ def run_analyze(args: argparse.Namespace) -> int:
         run_dir = output_path.with_suffix("")
         run_dir.mkdir(parents=True, exist_ok=True)
         for name, value in result.artifacts.items():
+            if name == "chunks":
+                chunks_dir = run_dir / "chunks"
+                chunks_dir.mkdir(parents=True, exist_ok=True)
+                for chunk in value:
+                    (chunks_dir / f"{chunk['chunk_id']}-evidence.json").write_text(
+                        json.dumps(chunk, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
+                continue
             (run_dir / f"{name}.json").write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
         (run_dir / "source.json").write_text(json.dumps(result.source, ensure_ascii=False, indent=2), encoding="utf-8")
         payload = {**plan, "dry_run": False, "output": result.final, "metrics": result.metrics, "provenance": {**result.provenance, "transcript_id": args.transcript_id}}
