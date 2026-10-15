@@ -87,7 +87,7 @@ class LocalQwenPipeline:
             )
             return self._finish(final, transcript, chunks, started, passes=1 + len(chunks), history_start=history_start)
         commercial = self.provider.complete(commercial_system_prompt(self.context), json.dumps(facts, ensure_ascii=False), schema=COMMERCIAL_JSON_SCHEMA, max_tokens=384)
-        dimensions = self.provider.complete(dimensions_system_prompt(self.context), json.dumps({"facts": facts, "commercial": commercial, "dimensions": self.dimensions}, ensure_ascii=False), schema=DIMENSIONS_JSON_SCHEMA, max_tokens=768)
+        dimensions = self.provider.complete(dimensions_system_prompt(self.context), json.dumps({"facts": facts, "commercial": commercial, "dimensions": self.dimensions}, ensure_ascii=False), schema=DIMENSIONS_JSON_SCHEMA, max_tokens=1536)
         coaching = self.provider.complete(coaching_system_prompt(self.context), json.dumps({"facts": facts, "commercial": commercial, "dimensions": dimensions}, ensure_ascii=False), schema=COACHING_JSON_SCHEMA, max_tokens=512)
         final = self.provider.complete(final_system_prompt(self.context), json.dumps({"facts": facts, "commercial": commercial, "dimensions": dimensions, "coaching": coaching}, ensure_ascii=False), schema=ANALYSIS_JSON_SCHEMA, max_tokens=1536)
         return self._finish(final, transcript, chunks, started, passes=4 + len(chunks), history_start=history_start)
