@@ -86,6 +86,14 @@ Smoke test real de structured output:
 - JSON parseado e contrato fechado validado;
 - unidade parada e porta 18081 liberada ao final.
 
+Comparação A/B real, mesma entrada sintética, run `qwen9b-direct-vs-schema-20261015_053805`:
+
+- direct sem `response_format`: JSON válido, mas schema inválido; 66 tokens de saída e 22,9s;
+- JSON Schema via `response_format`: JSON válido e schema válido; 39 tokens de saída e 11,0s;
+- ambas terminaram com `finish_reason=stop`;
+- artefatos: `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/qwen9b-direct-vs-schema-20261015_053805/`;
+- conclusão: structured output é necessário para contrato seguro; validação posterior sozinha não basta.
+
 Smoke test real multi-pass sintético:
 
 - unidade isolada `si-qwen9b-multipass-smoke`;
@@ -98,7 +106,7 @@ Smoke test real multi-pass sintético:
 
 ## Melhor configuração atual
 
-Configuração preliminar, ainda não declarada vencedora até o término do baseline:
+Configuração preliminar recomendada; ainda falta comparar multi-pass/chunked em calls históricas reais antes de promovê-la para produção.
 
 - Qwen3.5 9B Q4_K_M;
 - reasoning off;

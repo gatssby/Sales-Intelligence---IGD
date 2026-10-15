@@ -33,6 +33,7 @@ class LocalQwenProvider:
         self.schema = schema or ANALYSIS_JSON_SCHEMA
         self.max_retries = max(0, max_retries)
         self.last_metrics: CompletionMetrics | None = None
+        self.last_retry_count = 0
 
     def health(self) -> bool:
         request = urllib.request.Request(f"{self.endpoint}/health")
@@ -56,6 +57,7 @@ class LocalQwenProvider:
             method="POST",
         )
         body: dict[str, Any] | None = None
+        self.last_retry_count = 0
         for attempt in range(self.max_retries + 1):
             try:
                 with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
@@ -64,14 +66,20 @@ class LocalQwenProvider:
             except (urllib.error.URLError, TimeoutError):
                 if attempt >= self.max_retries:
                     raise
+                self.last_retry_count += 1
                 time.sleep(0.1 * (2 ** attempt))
         if body is None:
             raise RuntimeError("provider request ended without a response body")
         content = body["choices"][0]["message"]["content"]
         result = json.loads(content) if isinstance(content, str) else content
         usage = body.get("usage", {})
+        timings = body.get("timings", {})
         elapsed_ms = int((time.monotonic() - started) * 1000)
+        prompt_ms = timings.get("prompt_ms")
+        generation_ms = timings.get("predicted_ms") or timings.get("generation_ms")
+        prompt_tps = usage.get("prompt_tokens", 0) / (prompt_ms / 1000) if prompt_ms else None
+        generation_tps = usage.get("completion_tokens", 0) / (generation_ms / 1000) if generation_ms else None
         self.last_metrics = CompletionMetrics(
-            usage.get("prompt_tokens"), usage.get("completion_tokens"), None, None, elapsed_ms
+            usage.get("prompt_tokens"), usage.get("completion_tokens"), prompt_tps, generation_tps, elapsed_ms
         )
         return result

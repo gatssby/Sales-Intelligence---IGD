@@ -80,7 +80,9 @@ class LocalQwenPipeline:
             if quote:
                 seen_quotes.add(quote)
         grounded = sum(1 for item in grounding if item["grounded"] and not item["duplicate"])
-        metrics = PipelineMetrics(4 + len(chunks), len(chunks), 0, int((time.monotonic() - started) * 1000), grounded, validate_analysis_output(final))
+        retry_value = getattr(self.provider, "last_retry_count", 0)
+        retries = retry_value if isinstance(retry_value, int) else 0
+        metrics = PipelineMetrics(4 + len(chunks), len(chunks), retries, int((time.monotonic() - started) * 1000), grounded, validate_analysis_output(final))
         provenance = {
             "pipeline_version": self.pipeline_version,
             "schema_version": "analysis-output-v2-with-intermediates-v1",
