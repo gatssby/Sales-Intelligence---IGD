@@ -266,3 +266,28 @@ ops/local-qwen-job.sh result 77d37a58-fcb5-40b1-9568-cd3dcb8e88ed artifacts/loca
 ```
 
 A análise é shadow-only e não escreve nas tabelas oficiais. O comando acima usa o caminho direto; para a variante 2-pass, use `two_pass`; para multipass, use `multipass` apenas em amostras pequenas. A etapa histórica foi concluída com comparação documentada; não iniciar Qdrant, DSPy, LoRA, worker ou site antes da revisão humana dos resultados e decisão sobre o adapter shadow.
+
+## Nova filosofia de avaliação: closer-insider-eval-v1
+
+A partir desta etapa, as rubricas `call-analysis-v0/v1`, `insider-demo-v0`, `insider-production-v1` e outputs SOTA são preservados apenas como legado/referência. Eles não são gold truth nem objetivo de otimização do Qwen.
+
+A nova estratégia `closer_insider_v1` analisa somente `Closer × Insider`, sem score global como centro da avaliação. O fluxo é: evidence extraction → merge/ledger determinístico → reconstrução comercial → avaliação qualitativa do Closer → critic cético → síntese final.
+
+A spec versionada está em `packages/ai_local/ai_local/closer-insider-eval-v1.playbook.json` e os contratos em `closer-insider-eval-v1.schemas.json`. A provenance usa `pipeline_version=closer-insider-v1`, `schema_version=closer-insider-eval-v1` e `playbook_version=closer-insider-playbook-v1`.
+
+O ledger atribui IDs determinísticos `T000001...` aos turnos e `E000001...` às evidências. O modelo retorna apenas `turn_id`, claim e tipo; Python hidrata speaker, timestamp e texto exato. Passes posteriores só recebem `evidence_ids`; IDs inexistentes são rejeitados. Outcome sem evidência explícita é normalizado para `unknown`.
+
+### Primeira call real da nova estratégia
+
+Call processada: `facfd6f3-ee0f-4046-8966-363a41e2c831`, transcrição verbatim extraída do bloco `Transcrição` do transcript real. O primeiro resultado válido está em `/home/ubuntu/sales-intelligence-local-llm/pipeline-v2/real-benchmark/closer-insider-v1/closer-insider-v1/`.
+
+Resultado validado: 20 evidências, 20/20 grounded, timestamps presentes, 6 passes, 2 chunks, 1.930.526 ms, 26.462 tokens de entrada, 6.135 tokens de saída e schema válido. O estado comercial separou `current_opportunity_fit=low` de `future_requalification_potential=medium` e manteve `outcome=unknown` por ausência de evidência explícita de venda/não venda.
+
+Achados qualitativos do Qwen:
+- pontos fortes: tom profissional, esclarecimento do propósito e identificação de janela futura de disponibilidade;
+- falhas materiais: perda de controle da agenda, expectativa de duração apresentada antes de validar disponibilidade, discovery superficial, ausência de qualificação de autoridade/orçamento/processo decisório e fechamento sem data/hora concreta;
+- oportunidade perdida: transformar a restrição de 30–40 minutos em escopo reduzido ou compromisso específico;
+- radar, não culpa: confusão do prospect sobre a origem da call pode indicar problema de qualidade/SDR anterior;
+- erro corrigido após a primeira execução: timestamps estavam em linhas separadas e foram associados deterministicamente ao turno seguinte; `not_sold` sem evidência explícita passou a ser `unknown`.
+
+Uma segunda execução, na call longa `77d37a58-fcb5-40b1-9568-cd3dcb8e88ed`, está em andamento em `si-qwen9b-job-77d37a58-fcb5-40b1-9568-cd3dcb8e88ed.service`, com `QWEN_MAX_TURNS=300` e `QWEN_OVERLAP_TURNS=30`. Não há escrita no banco oficial.
