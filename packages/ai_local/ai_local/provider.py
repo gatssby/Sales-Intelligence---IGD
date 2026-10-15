@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
@@ -25,11 +26,12 @@ class Completion:
 
 
 class LocalQwenProvider:
-    def __init__(self, endpoint: str = "http://127.0.0.1:18081", model: str = "qwen3.5-9b", timeout_s: float = 300.0, schema: dict[str, Any] | None = None):
+    def __init__(self, endpoint: str = "http://127.0.0.1:18081", model: str = "qwen3.5-9b", timeout_s: float = 300.0, schema: dict[str, Any] | None = None, max_retries: int = 1):
         self.endpoint = endpoint.rstrip("/")
         self.model = model
         self.timeout_s = timeout_s
         self.schema = schema or ANALYSIS_JSON_SCHEMA
+        self.max_retries = max(0, max_retries)
         self.last_metrics: CompletionMetrics | None = None
 
     def health(self) -> bool:
@@ -53,8 +55,18 @@ class LocalQwenProvider:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
-            body = json.loads(response.read())
+        body: dict[str, Any] | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
+                    body = json.loads(response.read())
+                break
+            except (urllib.error.URLError, TimeoutError):
+                if attempt >= self.max_retries:
+                    raise
+                time.sleep(0.1 * (2 ** attempt))
+        if body is None:
+            raise RuntimeError("provider request ended without a response body")
         content = body["choices"][0]["message"]["content"]
         result = json.loads(content) if isinstance(content, str) else content
         usage = body.get("usage", {})

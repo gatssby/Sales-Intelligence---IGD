@@ -2,10 +2,13 @@ import json
 from pathlib import Path
 import unittest
 from unittest.mock import Mock
+from unittest.mock import patch
+import urllib.error
 
 from ai_local.chunking import chunk_transcript
 from ai_local.config import LocalQwenSettings
 from ai_local.pipeline import LocalQwenPipeline
+from ai_local.provider import LocalQwenProvider
 from ai_local.schema import validate_analysis_output, validation_errors
 
 
@@ -61,6 +64,20 @@ class ChunkingTests(unittest.TestCase):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_provider_retries_transient_http_failures_with_a_limit(self):
+        class Response:
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+            def read(self):
+                return json.dumps({"choices": [{"message": {"content": json.dumps({"ok": True})}}], "usage": {}}).encode()
+
+        provider = LocalQwenProvider(schema={"type": "object"}, max_retries=1)
+        with patch("ai_local.provider.urllib.request.urlopen", side_effect=[urllib.error.URLError("temporary"), Response()]) as urlopen:
+            self.assertEqual(provider.complete("s", "u"), {"ok": True})
+        self.assertEqual(urlopen.call_count, 2)
+
     def test_day_and_night_profiles_are_explicit_and_safe(self):
         day = LocalQwenSettings.from_env({"QWEN_PROFILE": "day"})
         night = LocalQwenSettings.from_env({"QWEN_PROFILE": "night"})
@@ -91,6 +108,15 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.metrics.passes, 5)
         self.assertEqual(provider.complete.call_count, 5)
         self.assertGreaterEqual(result.metrics.grounded_evidence, 1)
+        self.assertEqual(result.provenance["pipeline_version"], "local-qwen-v2")
+        self.assertEqual(len(result.provenance["transcript_sha256"]), 64)
+
+    def test_empty_transcript_is_rejected_before_model_calls(self):
+        provider = Mock()
+        pipeline = LocalQwenPipeline(provider=provider, dimensions=["discovery"])
+        with self.assertRaises(ValueError):
+            pipeline.analyze("  \n")
+        provider.complete.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -113,9 +113,12 @@ Configuração preliminar, ainda não declarada vencedora até o término do bas
 - `packages/ai_local/ai_local/schema.py`: contrato e validação local;
 - `packages/ai_local/ai_local/chunking.py`: chunks por linhas/turnos, origem e overlap;
 - `packages/ai_local/ai_local/pipeline.py`: pipeline multi-pass e métricas;
+- `packages/ai_local/ai_local/config.py`: perfis day/night, endpoint, contexto e timeout;
 - `packages/ai_local/tests/test_local_qwen.py`: testes de schema, chunking, pipeline e grounding;
 - `eval/evaluate_local_qwen.py`: métricas determinísticas sem APIs pagas;
 - `eval/promptfoo/promptfooconfig.yaml`: primeiro caso reproduzível para direct structured analysis.
+
+O provider possui retries limitados para falhas transitórias, rejeita transcrições vazias e a pipeline retorna provenance com hash SHA-256 da transcrição, versão da pipeline e estratégia de chunks.
 
 Todos os testes locais atuais passam:
 
