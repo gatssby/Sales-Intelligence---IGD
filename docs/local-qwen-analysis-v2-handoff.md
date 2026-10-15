@@ -174,5 +174,43 @@ No último check:
 - 14 GB livres, 72% usado;
 - 23 GiB RAM, aproximadamente 14 GiB disponíveis;
 - containers existentes observados sem ação;
-- Qwen 9B ativo em `127.0.0.1:18081`;
-- benchmark real ainda em execução na unidade persistente `si-qwen9b-real-20261015_042612.service`.
+- Qwen 9B parado após a execução;
+- porta `127.0.0.1:18081` livre;
+- baseline e smoke tests preservados em diretórios persistentes.
+
+## CHECKPOINT PARA PRÓXIMA SESSÃO
+
+Estado atual:
+
+- branch local/remoto: `feat/qwen9b-analysis-v2`;
+- working tree deve permanecer limpo após o commit deste checkpoint;
+- último commit desta etapa: `03c90ed`;
+- branch já enviado ao origin;
+- System One preservado;
+- somente `Qwen3.5-9B-Q4_K_M.gguf` permanece na VPS;
+- nenhuma unidade/processo Qwen ativo no último check;
+- porta `127.0.0.1:18081` livre no último check;
+- disco: 14 GB livres / 72% usado;
+- RAM disponível: aproximadamente 20 GiB;
+- containers observados sem alteração; worker continua com reinícios e organization-sync unhealthy, ambos pré-existentes.
+
+Resultados persistidos na VPS:
+
+- baseline direto: `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/qwen9b-baseline-20261015_042612/`;
+- métricas baseline: `benchmark-metrics.json`, `benchmark-metrics.csv`, `benchmark-metrics.md`;
+- structured smoke: `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/qwen9b-structured-smoke-20261015_051534/`;
+- multi-pass sintético: `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/qwen9b-multipass-smoke-20261015_051657/`;
+- manifesto sem transcrições/PII: `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/reference-corpus-manifest.json`, 180 calls deduplicadas.
+
+Próximo comando recomendado:
+
+```text
+ssh oracle-vps
+cd <checkout-do-repositório>
+QWEN_PROFILE=day ops/local-qwen-runtime.sh start
+ops/analyze-local-call.sh 77d37a58-fcb5-40b1-9568-cd3dcb8e88ed artifacts/local-qwen/77d37a58-shadow.json
+ops/local-qwen-job.sh status 77d37a58-fcb5-40b1-9568-cd3dcb8e88ed
+ops/local-qwen-job.sh result 77d37a58-fcb5-40b1-9568-cd3dcb8e88ed artifacts/local-qwen/77d37a58-shadow.json
+```
+
+A análise é shadow-only e não escreve nas tabelas oficiais. Depois da primeira execução real, rodar `eval/benchmark_metrics.py` sobre o resultado e selecionar uma amostra estratificada com `eval/select_reference_corpus.sql`. Não iniciar Qdrant, DSPy ou LoRA antes de medir direct vs structured vs multi-pass/chunked em calls reais.
