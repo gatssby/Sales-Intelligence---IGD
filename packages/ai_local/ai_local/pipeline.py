@@ -45,7 +45,10 @@ class LocalQwenPipeline:
         if not chunks:
             raise ValueError("transcript must contain at least one non-empty turn")
         fact_passes = [
-            self.provider.complete("Extract only grounded facts and evidence from this transcript chunk. Preserve exact quotes and source locations.", chunk.text)
+            self.provider.complete(
+                "Extract only grounded facts and evidence from this transcript chunk. Preserve exact quotes and source locations.",
+                json.dumps({"chunk_index": chunk.index, "source_start": chunk.source_start, "source_end": chunk.source_end, "text": chunk.text}, ensure_ascii=False),
+            )
             for chunk in chunks
         ]
         facts = {"chunks": fact_passes}
