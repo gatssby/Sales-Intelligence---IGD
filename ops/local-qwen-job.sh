@@ -5,6 +5,7 @@ REPO_DIR="${SI_REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 UNIT_PREFIX="${SI_JOB_UNIT_PREFIX:-si-qwen9b-job}"
 PROFILE="${QWEN_PROFILE:-day}"
 PORT="${QWEN_PORT:-18081}"
+TIMEOUT_S="${QWEN_TIMEOUT_S:-$([[ "$PROFILE" == night ]] && echo 1800 || echo 300)}"
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 unit_for() { printf '%s-%s' "$UNIT_PREFIX" "$(printf '%s' "$1" | tr -c '[:alnum:]_.-' '-')"; }
@@ -21,7 +22,7 @@ case "${1:-}" in
     if systemctl --user is-active --quiet "$unit.service"; then fail "job already active: $unit"; fi
     mkdir -p "$(dirname "$output")"
     systemd-run --user --unit="$unit" --property=CPUQuota="$([[ "$PROFILE" == night ]] && echo 380% || echo 200%)" --property=Nice=10 --service-type=exec --working-directory="$REPO_DIR" -- \
-      env PYTHONPATH="$REPO_DIR/packages/ai_local" python3 -m ai_local analyze \
+      env PYTHONPATH="$REPO_DIR/packages/ai_local" QWEN_TIMEOUT_S="$TIMEOUT_S" python3 -m ai_local analyze \
       --call-id "$call_id" --transcript-path "$transcript" --profile "$PROFILE" --strategy "$strategy" --output "$output"
     printf '%s\n' "started unit=$unit strategy=$strategy output=$output"
     ;;
