@@ -65,11 +65,27 @@ def validation_errors(value: Any) -> list[str]:
             errors.append("overall_score")
         if not isinstance(value.get("unscorable_reason"), str) or not value["unscorable_reason"].strip():
             errors.append("unscorable_reason")
-    if not 0 <= value.get("confidence", -1) <= 1:
+    if not isinstance(value.get("confidence"), (int, float)) or not 0 <= value.get("confidence", -1) <= 1:
         errors.append("confidence")
-    if not isinstance(value.get("dimensions"), list):
+    if value.get("opportunity_quality") not in {"high", "medium", "low", "unqualified", "unknown"}:
+        errors.append("opportunity_quality")
+    if value.get("call_outcome") not in {"sold", "not_sold", "disqualified", "follow_up", "unknown"}:
+        errors.append("call_outcome")
+    if not isinstance(value.get("dimensions"), list) or any(
+        not isinstance(item, dict)
+        or not isinstance(item.get("key"), str)
+        or not isinstance(item.get("label"), str)
+        or not isinstance(item.get("rationale"), str)
+        or not isinstance(item.get("score"), (int, float))
+        or not 0 <= item.get("score", -1) <= 100
+        for item in value.get("dimensions", [])
+    ):
         errors.append("dimensions")
-    if not isinstance(value.get("evidence"), list):
+    if not isinstance(value.get("evidence"), list) or any(
+        not isinstance(item, dict)
+        or any(not isinstance(item.get(field), str) for field in ("timestamp", "speaker", "criterion", "quote", "interpretation"))
+        for item in value.get("evidence", [])
+    ):
         errors.append("evidence")
     return sorted(set(errors))
 

@@ -41,6 +41,14 @@ class SchemaTests(unittest.TestCase):
         self.assertIn("overall_score", errors)
         self.assertIn("unscorable_reason", errors)
 
+    def test_invalid_enum_and_dimension_types_are_rejected(self):
+        output = {"scoreability": "maybe", "confidence": 2, "dimensions": [{"key": "x", "score": 101}], "evidence": "bad"}
+        errors = validation_errors(output)
+        self.assertIn("scoreability", errors)
+        self.assertIn("confidence", errors)
+        self.assertIn("dimensions", errors)
+        self.assertIn("evidence", errors)
+
 
 class ChunkingTests(unittest.TestCase):
     def test_chunks_preserve_turn_boundaries_and_overlap(self):

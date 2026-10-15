@@ -1,8 +1,10 @@
 description: Local Qwen analysis experiments
 providers:
-  - id: llama
+  - id: openai:chat:qwen3.5-9b
     config:
-      n_predict: 2048
+      apiBaseUrl: http://127.0.0.1:18081/v1
+      apiKeyRequired: false
+      max_tokens: 2048
       temperature: 0
       seed: 7
       stop: ["</s>"]

@@ -110,7 +110,7 @@ PYTHONPATH=packages/ai_local python3 -m unittest discover -s packages/ai_local/t
 python3 eval/evaluate_local_qwen.py --transcript <transcript> --result <result.json>
 ```
 
-Promptfoo, quando instalado em ambiente isolado, deve ser executado na VPS com `LLAMA_BASE_URL=http://127.0.0.1:18081`; a integração nativa usa `/completion` e não deve receber uma chave `config.baseUrl`.
+Promptfoo, quando instalado em ambiente isolado, deve usar o provider `openai:chat:qwen3.5-9b` com `apiBaseUrl=http://127.0.0.1:18081/v1` para este endpoint. O provider nativo `llama` é reservado ao endpoint legado `/completion` e usa `LLAMA_BASE_URL`, não `config.baseUrl`.
 
 ## Próximos passos
 
