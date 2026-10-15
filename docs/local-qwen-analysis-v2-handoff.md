@@ -116,11 +116,25 @@ Configuração preliminar, ainda não declarada vencedora até o término do bas
 - `packages/ai_local/ai_local/chunking.py`: chunks por linhas/turnos, origem e overlap;
 - `packages/ai_local/ai_local/pipeline.py`: pipeline multi-pass e métricas;
 - `packages/ai_local/ai_local/config.py`: perfis day/night, endpoint, contexto e timeout;
+- `packages/ai_local/ai_local/cli.py` + `__main__.py`: CLI de shadow mode sem escrita no PostgreSQL;
+- `ops/local-qwen-runtime.sh`: start/status/stop/logs do servidor localhost com resource guard;
+- `ops/local-qwen-job.sh`: jobs systemd resumíveis com status/logs/result/cancel;
 - `packages/ai_local/tests/test_local_qwen.py`: testes de schema, chunking, pipeline e grounding;
 - `eval/evaluate_local_qwen.py`: métricas determinísticas sem APIs pagas;
 - `eval/promptfoo/promptfooconfig.yaml`: primeiro caso reproduzível para direct structured analysis.
 
 O provider possui retries limitados para falhas transitórias, rejeita transcrições vazias e a pipeline retorna provenance com hash SHA-256 da transcrição, versão da pipeline e estratégia de chunks.
+
+Comando recomendado para amanhã:
+
+```text
+QWEN_PROFILE=day ops/local-qwen-runtime.sh start
+ops/local-qwen-job.sh start <CALL_ID> <TRANSCRIPT_PATH> artifacts/local-qwen/<CALL_ID>.json
+ops/local-qwen-job.sh status <CALL_ID>
+ops/local-qwen-job.sh result <CALL_ID>
+```
+
+O CLI e os jobs operam em shadow mode por padrão: salvam artefato local, métricas e provenance, mas não alteram `analysis_runs`, `analysis_attempts` ou qualquer análise oficial.
 
 Todos os testes locais atuais passam:
 

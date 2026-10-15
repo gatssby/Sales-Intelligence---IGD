@@ -12,7 +12,9 @@ from .schema import ANALYSIS_JSON_SCHEMA, validate_analysis_output, validation_e
 
 
 class Provider(Protocol):
-    def complete(self, system: str, user: str, **kwargs: Any) -> dict[str, Any]: ...
+    model: str
+
+    def complete(self, system: str, user: str, *, schema: dict[str, Any] | None = None, max_tokens: int = 2048, temperature: float = 0.0) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True)

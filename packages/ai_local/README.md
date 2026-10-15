@@ -10,6 +10,16 @@ This package is intentionally isolated from System One and from production servi
 
 The provider endpoint defaults to `http://127.0.0.1:18081` and is never exposed by this package.
 
+Shadow-mode CLI:
+
+```bash
+PYTHONPATH=packages/ai_local python3 -m ai_local analyze \
+  --call-id <CALL_ID> --transcript-path <PATH> --profile day \
+  --output artifacts/local-qwen/<CALL_ID>.json
+```
+
+The CLI never writes PostgreSQL or official analysis state. Use `ops/local-qwen-runtime.sh` for the localhost-only llama-server and `ops/local-qwen-job.sh` for resumable systemd user jobs.
+
 Run tests from the repository root:
 
 ```bash
