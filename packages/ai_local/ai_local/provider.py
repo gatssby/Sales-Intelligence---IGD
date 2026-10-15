@@ -59,23 +59,25 @@ class LocalQwenProvider:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        body: dict[str, Any] | None = None
         self.last_retry_count = 0
+        result: dict[str, Any] | None = None
+        body: dict[str, Any] | None = None
         for attempt in range(self.max_retries + 1):
             try:
                 with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
                     body = json.loads(response.read())
+                assert body is not None
+                content = body["choices"][0]["message"]["content"]
+                result = json.loads(content) if isinstance(content, str) else content
                 break
-            except (urllib.error.URLError, TimeoutError):
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError):
                 if attempt >= self.max_retries:
                     raise
                 self.last_retry_count += 1
                 time.sleep(0.1 * (2 ** attempt))
-        if body is None:
+        if body is None or result is None:
             raise RuntimeError("provider request ended without a response body")
-        content = body["choices"][0]["message"]["content"]
         self.last_finish_reason = body.get("choices", [{}])[0].get("finish_reason")
-        result = json.loads(content) if isinstance(content, str) else content
         usage = body.get("usage", {})
         timings = body.get("timings", {})
         elapsed_ms = int((time.monotonic() - started) * 1000)

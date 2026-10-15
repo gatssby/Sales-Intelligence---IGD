@@ -92,6 +92,23 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(provider.last_metrics.generation_tokens_per_second, 100)
         self.assertEqual(provider.last_metrics.finish_reason, "stop")
 
+    def test_provider_retries_malformed_json_response_with_a_limit(self):
+        class Response:
+            def __init__(self, content):
+                self.content = content
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+            def read(self):
+                return json.dumps({"choices": [{"message": {"content": self.content}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}, "timings": {"prompt_ms": 100, "predicted_ms": 100}}).encode()
+
+        provider = LocalQwenProvider(schema={"type": "object"}, max_retries=1)
+        with patch("ai_local.provider.urllib.request.urlopen", side_effect=[Response("{"), Response(json.dumps({"ok": True}))]) as urlopen:
+            self.assertEqual(provider.complete("s", "u"), {"ok": True})
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(provider.last_retry_count, 1)
+
     def test_day_and_night_profiles_are_explicit_and_safe(self):
         day = LocalQwenSettings.from_env({"QWEN_PROFILE": "day"})
         night = LocalQwenSettings.from_env({"QWEN_PROFILE": "night"})
