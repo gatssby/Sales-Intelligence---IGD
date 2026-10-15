@@ -123,7 +123,9 @@ O benchmark direct/night de três tamanhos foi preparado na VPS em `/home/ubuntu
 
 A média concluiu com schema válido, 7/7 dimensões, 3 evidências, grounding 1/3, 1 retry, 1.712 tokens de entrada, 1.381 de saída, 4.328 prompt tok/s, 5,52 generation tok/s e 551.695 ms. A longa concluiu após ampliar o timeout night e corrigir sua propagação para a unidade systemd: schema válido, 7/7 dimensões, 4 evidências, grounding 1/4, 15.756 tokens de entrada, 1.639 de saída, 13.093 prompt tok/s, 2,80 generation tok/s, 586.368 ms e `finish_reason=stop`. As duas tentativas anteriores da longa foram canceladas pelo timeout padrão de 300s.
 
-O 2-pass de qualidade está em execução sobre a call média em `si-qwen9b-job-87ac9b12-7e14-4fde-91c5-b5ccd253abd7.service`, após aumentar o pass factual de 768 para 1.536 tokens porque a primeira tentativa produziu JSON truncado.
+O 2-pass na média falhou duas vezes por JSON truncado — primeiro no pass factual com 768 tokens e depois na síntese com 1.536. O teste controlado final foi feito na call curta após aumentar a síntese para 2.048 tokens: concluiu com 2 passes, schema válido, 2 evidências, grounding 2/2, 1.387 tokens de entrada, 1.384 de saída, 318.732 ms e `finish_reason=stop`. Resultado: `/home/ubuntu/sales-intelligence-local-llm/pipeline-v2/real-benchmark/qwen-v3-direct-20261015/short/two_pass.json`.
+
+O multipass histórico está em execução somente na call curta em `si-qwen9b-job-22376805-e12c-4c84-a48d-f3bb2d291882.service`, output `real-benchmark/qwen-v3-direct-20261015/short/multipass.json`.
 
 Configuração preliminar recomendada; ainda falta comparar multi-pass/chunked em calls históricas reais antes de promovê-la para produção.
 
