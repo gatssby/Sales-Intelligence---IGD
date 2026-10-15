@@ -206,7 +206,7 @@ Estado atual:
 
 - branch local/remoto: `feat/qwen9b-analysis-v2`;
 - working tree deve permanecer limpo após o commit deste checkpoint;
-- último commit desta etapa: `45a3af1`;
+- último commit desta etapa: `00117c1`;
 - branch já enviado ao origin;
 - System One preservado;
 - somente `Qwen3.5-9B-Q4_K_M.gguf` permanece na VPS;
