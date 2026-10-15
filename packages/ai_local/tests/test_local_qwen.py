@@ -61,6 +61,7 @@ class ChunkingTests(unittest.TestCase):
         self.assertEqual([len(c.turns) for c in chunks], [3, 3, 2])
         self.assertEqual(chunks[1].turns[0], chunks[0].turns[-1])
         self.assertEqual(chunks[0].source_start, 0)
+        self.assertEqual([c.chunk_id for c in chunks], ["chunk-0000", "chunk-0001", "chunk-0002"])
 
 
 class PipelineTests(unittest.TestCase):

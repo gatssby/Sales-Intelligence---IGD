@@ -56,6 +56,8 @@ O banco de produção foi lido somente para inventário e comparação históric
 
 O benchmark histórico persistido contém 39 linhas, mas somente 2 pares call/transcript distintos, com 13 modelos × 3 resultados/run. Não foram tratados como 39 calls.
 
+Uma inspeção adicional de `analysis_runs` encontrou 180 pares call/transcript distintos, 178 execuções `completed` e 2 `queued`. A distribuição por tamanho do texto normalizado foi: 16 curtas, 58 médias, 89 longas e 17 muito longas. Esses 180 pares são o corpus candidato para a próxima seleção estratificada; nenhum texto real foi copiado para o Git.
+
 ## Resultados e métricas
 
 Baseline real Qwen 9B:

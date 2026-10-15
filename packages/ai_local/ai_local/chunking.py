@@ -9,6 +9,10 @@ class TranscriptChunk:
     source_end: int
 
     @property
+    def chunk_id(self) -> str:
+        return f"chunk-{self.index:04d}"
+
+    @property
     def text(self) -> str:
         return "\n".join(self.turns)
 
