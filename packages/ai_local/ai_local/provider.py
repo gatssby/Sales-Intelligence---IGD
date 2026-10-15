@@ -17,6 +17,7 @@ class CompletionMetrics:
     prompt_tokens_per_second: float | None
     generation_tokens_per_second: float | None
     latency_ms: int
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class LocalQwenProvider:
         self.max_retries = max(0, max_retries)
         self.last_metrics: CompletionMetrics | None = None
         self.last_retry_count = 0
+        self.last_finish_reason: str | None = None
 
     def health(self) -> bool:
         request = urllib.request.Request(f"{self.endpoint}/health")
@@ -71,6 +73,7 @@ class LocalQwenProvider:
         if body is None:
             raise RuntimeError("provider request ended without a response body")
         content = body["choices"][0]["message"]["content"]
+        self.last_finish_reason = body.get("choices", [{}])[0].get("finish_reason")
         result = json.loads(content) if isinstance(content, str) else content
         usage = body.get("usage", {})
         timings = body.get("timings", {})
@@ -80,6 +83,6 @@ class LocalQwenProvider:
         prompt_tps = usage.get("prompt_tokens", 0) / (prompt_ms / 1000) if prompt_ms else None
         generation_tps = usage.get("completion_tokens", 0) / (generation_ms / 1000) if generation_ms else None
         self.last_metrics = CompletionMetrics(
-            usage.get("prompt_tokens"), usage.get("completion_tokens"), prompt_tps, generation_tps, elapsed_ms
+            usage.get("prompt_tokens"), usage.get("completion_tokens"), prompt_tps, generation_tps, elapsed_ms, self.last_finish_reason
         )
         return result

@@ -81,7 +81,7 @@ class PipelineTests(unittest.TestCase):
             def __exit__(self, *_):
                 return False
             def read(self):
-                return json.dumps({"choices": [{"message": {"content": json.dumps({"ok": True})}}], "usage": {"prompt_tokens": 10, "completion_tokens": 20}, "timings": {"prompt_ms": 100, "predicted_ms": 200}}).encode()
+                return json.dumps({"choices": [{"message": {"content": json.dumps({"ok": True})}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 20}, "timings": {"prompt_ms": 100, "predicted_ms": 200}}).encode()
 
         provider = LocalQwenProvider(schema={"type": "object"}, max_retries=1)
         with patch("ai_local.provider.urllib.request.urlopen", side_effect=[urllib.error.URLError("temporary"), Response()]) as urlopen:
@@ -90,6 +90,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(provider.last_retry_count, 1)
         self.assertEqual(provider.last_metrics.prompt_tokens_per_second, 100)
         self.assertEqual(provider.last_metrics.generation_tokens_per_second, 100)
+        self.assertEqual(provider.last_metrics.finish_reason, "stop")
 
     def test_day_and_night_profiles_are_explicit_and_safe(self):
         day = LocalQwenSettings.from_env({"QWEN_PROFILE": "day"})

@@ -30,6 +30,8 @@ class PipelineMetrics:
     output_tokens: int | None = None
     prompt_tokens_per_second: float | None = None
     generation_tokens_per_second: float | None = None
+    finish_reason: str | None = None
+    truncated: bool = False
 
 
 @dataclass(frozen=True)
@@ -112,6 +114,7 @@ class LocalQwenPipeline:
         retry_value = getattr(self.provider, "last_retry_count", 0)
         retries = retry_value if isinstance(retry_value, int) else 0
         completion_metrics = getattr(self.provider, "last_metrics", None)
+        finish_reason = getattr(completion_metrics, "finish_reason", None)
         metrics = PipelineMetrics(
             passes, len(chunks), retries, int((time.monotonic() - started) * 1000), grounded,
             validate_analysis_output(final),
@@ -119,6 +122,8 @@ class LocalQwenPipeline:
             getattr(completion_metrics, "output_tokens", None),
             getattr(completion_metrics, "prompt_tokens_per_second", None),
             getattr(completion_metrics, "generation_tokens_per_second", None),
+            finish_reason,
+            finish_reason == "length",
         )
         provenance = {
             "pipeline_version": self.pipeline_version,

@@ -22,9 +22,9 @@ def evaluate_record(transcript: str, result: dict[str, Any], *, finish_reason: s
     empty_fields = [key for key in ("executive_summary", "strengths", "critical_failures", "coaching_actions", "dimensions", "evidence") if not analysis.get(key)]
     scoreable = analysis.get("scoreability") == "scoreable"
     score_consistent = (scoreable and isinstance(analysis.get("overall_score"), (int, float))) or (not scoreable and analysis.get("overall_score") is None)
-    finish = finish_reason or result.get("finish_reason") or "unknown"
     usage_data = usage or result.get("usage") or {}
     metrics_data = metrics or result.get("metrics") or {}
+    finish = finish_reason or result.get("finish_reason") or metrics_data.get("finish_reason") or "unknown"
     return {
         "json_valid": True,
         "schema_valid": validate_analysis_output(analysis),
