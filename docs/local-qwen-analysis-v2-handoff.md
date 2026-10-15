@@ -125,9 +125,24 @@ A média concluiu com schema válido, 7/7 dimensões, 3 evidências, grounding 1
 
 O 2-pass na média falhou duas vezes por JSON truncado — primeiro no pass factual com 768 tokens e depois na síntese com 1.536. O teste controlado final foi feito na call curta após aumentar a síntese para 2.048 tokens: concluiu com 2 passes, schema válido, 2 evidências, grounding 2/2, 1.387 tokens de entrada, 1.384 de saída, 318.732 ms e `finish_reason=stop`. Resultado: `/home/ubuntu/sales-intelligence-local-llm/pipeline-v2/real-benchmark/qwen-v3-direct-20261015/short/two_pass.json`.
 
-O multipass histórico está em execução somente na call curta em `si-qwen9b-job-22376805-e12c-4c84-a48d-f3bb2d291882.service`, output `real-benchmark/qwen-v3-direct-20261015/short/multipass.json`.
+O multipass histórico foi executado somente na call curta, após uma primeira falha no pass de dimensões com orçamento de 768 tokens. A repetição controlada com 1.536 tokens concluiu com schema válido, 5 passes, 6.426 tokens de entrada, 3.524 de saída, 855.670 ms, `finish_reason=stop`, 3/3 evidências grounded e grounding 1,0. Resultado: `real-benchmark/qwen-v3-direct-20261015/short/multipass.json`. O custo foi aproximadamente 2,7x o 2-pass e 5,6x o direct curto.
 
-Configuração preliminar recomendada; ainda falta comparar multi-pass/chunked em calls históricas reais antes de promovê-la para produção.
+### Comparação consolidada da etapa histórica
+
+| Estratégia | Call | Schema | Dimensões | Evidências grounded | Score / outcome | Wall time |
+|---|---|---:|---:|---:|---|---:|
+| direct genérico anterior | `77d37a58-fcb5-40b1-9568-cd3dcb8e88ed` longa | válido | 7/7 | 3/7 (42,9%) | 88 / follow_up | ~41m12s |
+| direct + prompt/rubrica v1 | curta | válido | 7/7 | 0/1 (0%) | unscorable / not_sold | 152,955 ms |
+| direct + prompt/rubrica v1 | média | válido | 7/7 | 1/3 (33%) | unscorable / not_sold | 551,695 ms |
+| direct + prompt/rubrica v1 | longa | válido | 7/7 | 1/4 (25%) | 72 / disqualified | 586,368 ms |
+| 2-pass factual → final | curta | válido | 7/7 | 2/2 (100%) | unscorable / unknown | 318,732 ms |
+| multipass factual → comercial → dimensões → coaching → final | curta | válido | 7/7 | 3/3 (100%) | unscorable / not_sold | 855,670 ms |
+
+O conjunto é pequeno e a call curta é explicitamente insuficiente para score; portanto não há base para declarar vencedor semântico. A evidência atual favorece o 2-pass como melhor compromisso inicial: grounding perfeito no teste curto, schema válido e cerca de um terço do tempo do multipass. O multipass aumentou a quantidade de evidência grounded de 2 para 3, mas não demonstrou ganho de cobertura (ambos 7/7) nem qualidade comparável por causa do caso unscorable. O direct continua sendo o perfil operacional mais barato em número de inferências; sua taxa de grounding foi baixa nas três calls reais.
+
+Os relatórios por call e o resumo estruturado estão preservados na VPS em `real-benchmark/qwen-v3-direct-20261015/` e localmente, fora do Git, em `artifacts/local-qwen/benchmark/qwen-v3-strategy-report.{json,md}`.
+
+Configuração preliminar recomendada: `direct` para operação econômica e `two_pass` para análises de maior valor/revisão, ambos com JSON Schema, prompt/rubrica v1 e provenance completo. O multipass permanece experimental: no único teste válido teve grounding 100%, mas levou 855,7s e exigiu ajuste de orçamento; não há evidência suficiente para promovê-lo.
 
 - Qwen3.5 9B Q4_K_M;
 - reasoning off;
@@ -204,12 +219,13 @@ Promptfoo, quando instalado em ambiente isolado, deve usar o provider `openai:ch
 
 No último check:
 
-- 14 GB livres, 72% usado;
-- 23 GiB RAM, aproximadamente 14 GiB disponíveis;
+- 13 GB livres, 72% usado;
+- 23 GiB RAM, aproximadamente 10 GiB disponíveis no último check;
 - containers existentes observados sem ação;
 - Qwen 9B parado após a execução;
 - porta `127.0.0.1:18081` livre;
-- baseline e smoke tests preservados em diretórios persistentes.
+- baseline, smoke tests e benchmarks históricos preservados em diretórios persistentes;
+- nenhum container de produção foi parado, reiniciado ou alterado.
 
 ## CHECKPOINT PARA PRÓXIMA SESSÃO
 
@@ -217,14 +233,14 @@ Estado atual:
 
 - branch local/remoto: `feat/qwen9b-analysis-v2`;
 - working tree deve permanecer limpo após o commit deste checkpoint;
-- último commit/checkpoint: consultar `git rev-parse --short HEAD` (o branch foi pushado);
+- último commit/checkpoint: `6347fe9` antes desta atualização; consultar `git rev-parse --short HEAD` após o commit atual;
 - branch já enviado ao origin;
 - System One preservado;
 - somente `Qwen3.5-9B-Q4_K_M.gguf` permanece na VPS;
 - nenhuma unidade/processo Qwen ativo no último check;
 - porta `127.0.0.1:18081` livre no último check;
-- disco: 14 GB livres / 72% usado;
-- RAM disponível: aproximadamente 20 GiB;
+- disco: 13 GB livres / 72% usado;
+- RAM disponível: aproximadamente 10 GiB;
 - containers observados sem alteração; worker continua com reinícios e organization-sync unhealthy, ambos pré-existentes.
 
 Resultados persistidos na VPS:
@@ -236,6 +252,7 @@ Resultados persistidos na VPS:
 - manifesto sem transcrições/PII: `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/reference-corpus-manifest.json`, 180 calls deduplicadas.
 - seleção inicial metadata-only: `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/reference-corpus-selection-20.json`, 5 calls por bucket de tamanho.
 - execução real do pipeline atual: `/home/ubuntu/sales-intelligence-local-llm/pipeline-v2/artifacts/synthetic-call-20261015.json`, sucesso estruturado, 5 passes, 1 chunk, grounding rate 1.0.
+- comparação histórica: `/home/ubuntu/sales-intelligence-local-llm/pipeline-v2/real-benchmark/qwen-v3-direct-20261015/`, incluindo direct curta/média/longa, two_pass curta, multipass curta e métricas por variante.
 
 Próximo comando recomendado:
 
@@ -248,4 +265,4 @@ ops/local-qwen-job.sh status 77d37a58-fcb5-40b1-9568-cd3dcb8e88ed
 ops/local-qwen-job.sh result 77d37a58-fcb5-40b1-9568-cd3dcb8e88ed artifacts/local-qwen/77d37a58-shadow.json
 ```
 
-A análise é shadow-only e não escreve nas tabelas oficiais. O comando acima usa o caminho direto; para a variante de qualidade, acrescente `multipass` como terceiro argumento. Depois da primeira execução real, rodar `eval/benchmark_metrics.py` sobre o resultado e selecionar uma amostra estratificada com `eval/select_reference_corpus.sql`. Não iniciar Qdrant, DSPy ou LoRA antes de medir direct vs structured vs multi-pass/chunked em calls reais.
+A análise é shadow-only e não escreve nas tabelas oficiais. O comando acima usa o caminho direto; para a variante 2-pass, use `two_pass`; para multipass, use `multipass` apenas em amostras pequenas. A etapa histórica foi concluída com comparação documentada; não iniciar Qdrant, DSPy, LoRA, worker ou site antes da revisão humana dos resultados e decisão sobre o adapter shadow.
