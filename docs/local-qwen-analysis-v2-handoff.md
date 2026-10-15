@@ -41,11 +41,12 @@ Espaço: de 5.7 GB livres / 88% usado para 14 GB livres / 72% usado. O único GG
 1. Baselines anteriores do run `20261015_034255`: Qwen 9B dia/noite, Qwen 4B e Ministral. Os artefatos exclusivos dos dois modelos descartados foram removidos depois da confirmação de uso.
 2. Baseline real direto Qwen 9B iniciado em `qwen9b-baseline-20261015_042612`, usando a call longa e o prompt/rubrica histórica v0. A unidade `si-qwen9b-real-20261015_042612.service` continuou viva após a queda da sessão SSH.
 3. Structured output: camada do repositório envia `response_format.type=json_schema` para `/v1/chat/completions`, com contrato fechado e validação local.
-4. Multi-pass: fatos/evidências → estado comercial → dimensões → coaching → síntese final.
+4. Multi-pass: fatos/evidências → estado comercial → dimensões → coaching → síntese final; cada etapa recebe schema intermediário e limites de saída menores.
 5. Chunking: divisão por linhas/turnos preservados, com overlap configurável; fatos são extraídos por chunk antes dos passes de síntese.
-6. Promptfoo: configuração reproduzível criada em `eval/promptfoo/promptfooconfig.yaml`; o binário não estava instalado no Mac e não foi instalado globalmente.
-7. LangExtract: avaliado documentalmente; integração ficou como protótipo/documentação, sem instalar stack paralela.
-8. Qdrant, reranker, DSPy e LoRA: deferidos; não há ainda corpus/golden set confiável suficiente para justificar custo e risco nesta sessão.
+6. O CLI permite `--strategy direct|multipass`; `direct` é o default operacional rápido e `multipass` é o modo de qualidade/night.
+7. Promptfoo: configuração reproduzível criada em `eval/promptfoo/promptfooconfig.yaml`; o binário não estava instalado no Mac e não foi instalado globalmente.
+8. LangExtract: avaliado documentalmente; integração ficou como protótipo/documentação, sem instalar stack paralela.
+9. Qdrant, reranker, DSPy e LoRA: deferidos; não há ainda corpus/golden set confiável suficiente para justificar custo e risco nesta sessão.
 
 ## Calls usadas
 
@@ -104,7 +105,16 @@ Smoke test real multi-pass sintético:
 - dados sintéticos, sem banco e sem PII;
 - unidade parada e porta 18081 liberada ao final.
 
-## Melhor configuração atual
+Execução real do pacote atual via CLI/job resumível, com runtime night e transcript sintético:
+
+- job: `si-qwen9b-job-synthetic-call-20261015.service`;
+- resultado: `/home/ubuntu/sales-intelligence-local-llm/pipeline-v2/artifacts/synthetic-call-20261015.json`;
+- status: `Result=success`, `ExecMainStatus=0`, unidade concluída;
+- 5 passes, 1 chunk, schema válido, 3 evidências grounded, grounding rate 1.0;
+- retries: 1; latência total: 854.227 segundos (aprox. 14m14s), devido ao custo de geração estruturada no ARM;
+- runtime parado depois da verificação; porta 18081 livre.
+
+O caminho direto foi adicionado para evitar que o default de amanhã force cinco gerações em toda call. O modo multi-pass permanece disponível explicitamente e deve ser usado em amostras selecionadas/revisão de qualidade até haver uma medição real melhor.
 
 Configuração preliminar recomendada; ainda falta comparar multi-pass/chunked em calls históricas reais antes de promovê-la para produção.
 
@@ -124,7 +134,7 @@ Configuração preliminar recomendada; ainda falta comparar multi-pass/chunked e
 - `packages/ai_local/ai_local/chunking.py`: chunks por linhas/turnos, origem e overlap;
 - `packages/ai_local/ai_local/pipeline.py`: pipeline multi-pass e métricas;
 - `packages/ai_local/ai_local/config.py`: perfis day/night, endpoint, contexto e timeout;
-- `packages/ai_local/ai_local/cli.py` + `__main__.py`: CLI de shadow mode sem escrita no PostgreSQL;
+- `packages/ai_local/ai_local/cli.py` + `__main__.py`: CLI de shadow mode sem escrita no PostgreSQL, com `--strategy direct|multipass`;
 - `ops/local-qwen-runtime.sh`: start/status/stop/logs do servidor localhost com resource guard;
 - `ops/local-qwen-job.sh`: jobs systemd resumíveis com status/logs/result/cancel;
 - `packages/ai_local/tests/test_local_qwen.py`: testes de schema, chunking, pipeline e grounding;
@@ -133,7 +143,7 @@ Configuração preliminar recomendada; ainda falta comparar multi-pass/chunked e
 - `eval/select_reference_corpus.sql`: seleção estratificada read-only;
 - `eval/promptfoo/promptfooconfig.yaml`: primeiro caso reproduzível para direct structured analysis.
 
-O provider possui retries limitados para falhas transitórias, rejeita transcrições vazias e a pipeline retorna provenance com hash SHA-256 da transcrição, versão da pipeline e estratégia de chunks.
+O provider possui retries limitados para falhas transitórias, rejeita transcrições vazias e a pipeline retorna provenance com hash SHA-256 da transcrição, versão da pipeline, estratégia de análise e estratégia de chunks.
 
 O runtime script foi executado na VPS em perfil `day`: iniciou uma unidade transitória localhost-only, aguardou health `{"status":"ok"}` durante o carregamento do modelo e foi parado explicitamente ao final. O guard de concorrência usa `pgrep -x llama-server`, evitando falsos positivos do próprio shell.
 
@@ -141,7 +151,7 @@ Comando recomendado para amanhã:
 
 ```text
 QWEN_PROFILE=day ops/local-qwen-runtime.sh start
-ops/local-qwen-job.sh start <CALL_ID> <TRANSCRIPT_PATH> artifacts/local-qwen/<CALL_ID>.json
+ops/local-qwen-job.sh start <CALL_ID> <TRANSCRIPT_PATH> artifacts/local-qwen/<CALL_ID>.json direct
 ops/local-qwen-job.sh status <CALL_ID>
 ops/local-qwen-job.sh result <CALL_ID>
 ```
@@ -196,7 +206,7 @@ Estado atual:
 
 - branch local/remoto: `feat/qwen9b-analysis-v2`;
 - working tree deve permanecer limpo após o commit deste checkpoint;
-- último commit desta etapa: `8b06266`;
+- último commit desta etapa: será atualizado no commit desta etapa;
 - branch já enviado ao origin;
 - System One preservado;
 - somente `Qwen3.5-9B-Q4_K_M.gguf` permanece na VPS;
@@ -214,6 +224,7 @@ Resultados persistidos na VPS:
 - multi-pass sintético: `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/qwen9b-multipass-smoke-20261015_051657/`;
 - manifesto sem transcrições/PII: `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/reference-corpus-manifest.json`, 180 calls deduplicadas.
 - seleção inicial metadata-only: `/home/ubuntu/sales-intelligence-local-llm/real-benchmark/reference-corpus-selection-20.json`, 5 calls por bucket de tamanho.
+- execução real do pipeline atual: `/home/ubuntu/sales-intelligence-local-llm/pipeline-v2/artifacts/synthetic-call-20261015.json`, sucesso estruturado, 5 passes, 1 chunk, grounding rate 1.0.
 
 Próximo comando recomendado:
 
@@ -221,9 +232,9 @@ Próximo comando recomendado:
 ssh oracle-vps
 cd <checkout-do-repositório>
 QWEN_PROFILE=day ops/local-qwen-runtime.sh start
-ops/analyze-local-call.sh 77d37a58-fcb5-40b1-9568-cd3dcb8e88ed artifacts/local-qwen/77d37a58-shadow.json
+ops/analyze-local-call.sh 77d37a58-fcb5-40b1-9568-cd3dcb8e88ed artifacts/local-qwen/77d37a58-shadow.json direct
 ops/local-qwen-job.sh status 77d37a58-fcb5-40b1-9568-cd3dcb8e88ed
 ops/local-qwen-job.sh result 77d37a58-fcb5-40b1-9568-cd3dcb8e88ed artifacts/local-qwen/77d37a58-shadow.json
 ```
 
-A análise é shadow-only e não escreve nas tabelas oficiais. Depois da primeira execução real, rodar `eval/benchmark_metrics.py` sobre o resultado e selecionar uma amostra estratificada com `eval/select_reference_corpus.sql`. Não iniciar Qdrant, DSPy ou LoRA antes de medir direct vs structured vs multi-pass/chunked em calls reais.
+A análise é shadow-only e não escreve nas tabelas oficiais. O comando acima usa o caminho direto; para a variante de qualidade, acrescente `multipass` como terceiro argumento. Depois da primeira execução real, rodar `eval/benchmark_metrics.py` sobre o resultado e selecionar uma amostra estratificada com `eval/select_reference_corpus.sql`. Não iniciar Qdrant, DSPy ou LoRA antes de medir direct vs structured vs multi-pass/chunked em calls reais.

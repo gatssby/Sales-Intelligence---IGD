@@ -23,6 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--timeout", type=float, default=None)
     analyze.add_argument("--output", type=Path, default=None)
     analyze.add_argument("--pipeline-version", default="local-qwen-v2")
+    analyze.add_argument("--strategy", choices=["direct", "multipass"], default="direct")
     analyze.add_argument("--max-turns", type=int, default=80)
     analyze.add_argument("--overlap-turns", type=int, default=8)
     analyze.add_argument("--dry-run", action="store_true", help="check input, resources, and health without inference")
@@ -45,11 +46,11 @@ def run_analyze(args: argparse.Namespace) -> int:
     provider = LocalQwenProvider(endpoint=settings.endpoint, model=settings.model, timeout_s=settings.timeout_s)
     if not provider.health():
         raise SystemExit(f"Qwen health check failed at {settings.endpoint}")
-    plan = {"call_id": args.call_id, "transcript_id": args.transcript_id, "profile": settings.profile, "endpoint": settings.endpoint, "pipeline_version": args.pipeline_version, "output": str(output_path), "shadow": True, "dry_run": args.dry_run}
+    plan = {"call_id": args.call_id, "transcript_id": args.transcript_id, "profile": settings.profile, "endpoint": settings.endpoint, "pipeline_version": args.pipeline_version, "strategy": args.strategy, "output": str(output_path), "shadow": True, "dry_run": args.dry_run}
     if args.dry_run:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
         return 0
-    pipeline = LocalQwenPipeline(provider, dimensions=["opening_rapport", "discovery", "qualification", "diagnosis", "value_presentation", "objection_handling", "closing_next_steps"], max_turns=args.max_turns, overlap_turns=args.overlap_turns, pipeline_version=args.pipeline_version)
+    pipeline = LocalQwenPipeline(provider, dimensions=["opening_rapport", "discovery", "qualification", "diagnosis", "value_presentation", "objection_handling", "closing_next_steps"], max_turns=args.max_turns, overlap_turns=args.overlap_turns, pipeline_version=args.pipeline_version, strategy=args.strategy)
     result = pipeline.analyze(transcript)
     payload = {**plan, "dry_run": False, "output": result.output, "metrics": result.metrics.__dict__, "provenance": {**result.provenance, "transcript_id": args.transcript_id}}
     output_path.parent.mkdir(parents=True, exist_ok=True)

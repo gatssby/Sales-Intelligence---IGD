@@ -122,6 +122,23 @@ class PipelineTests(unittest.TestCase):
             pipeline.analyze("  \n")
         provider.complete.assert_not_called()
 
+    def test_direct_strategy_uses_one_structured_call_and_records_strategy(self):
+        provider = Mock()
+        provider.complete.return_value = {
+            "scoreability": "scoreable", "unscorable_reason": None, "overall_score": 70,
+            "opportunity_quality": "medium", "opportunity_quality_label": "Média",
+            "call_outcome": "follow_up", "call_outcome_label": "Follow-up", "confidence": 0.7,
+            "executive_summary": "Resumo", "strengths": [], "critical_failures": [], "objections": [],
+            "coaching_actions": [], "dimensions": [{"key": "discovery", "label": "Descoberta", "score": 70, "rationale": "Ok"}],
+            "evidence": [{"timestamp": "00:10", "speaker": "Seller", "criterion": "discovery", "quote": "Tem orçamento", "interpretation": "Budget"}],
+            "requires_human_review": False,
+        }
+        pipeline = LocalQwenPipeline(provider=provider, dimensions=["discovery"], strategy="direct")
+        result = pipeline.analyze("00:10 Seller: Tem orçamento")
+        self.assertEqual(provider.complete.call_count, 1)
+        self.assertEqual(result.metrics.passes, 1)
+        self.assertEqual(result.provenance["strategy"], "direct")
+
 
 if __name__ == "__main__":
     unittest.main()
