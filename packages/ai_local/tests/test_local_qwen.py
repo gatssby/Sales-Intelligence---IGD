@@ -8,7 +8,8 @@ import urllib.error
 from ai_local.chunking import chunk_transcript
 from ai_local.config import LocalQwenSettings
 from ai_local.pipeline import LocalQwenPipeline
-from ai_local.provider import LocalQwenProvider
+from ai_local.provider import CompletionMetrics, LocalQwenProvider
+from ai_local.prompting import load_historical_context
 from ai_local.schema import validate_analysis_output, validation_errors
 
 
@@ -52,6 +53,14 @@ class SchemaTests(unittest.TestCase):
         self.assertIn("confidence", errors)
         self.assertIn("dimensions", errors)
         self.assertIn("evidence", errors)
+
+    def test_historical_context_selects_active_v1_and_loads_versioned_material(self):
+        context = load_historical_context()
+        self.assertEqual(context.prompt_version, "call-analysis-v1")
+        self.assertEqual(context.rubric_version, "insider-production-v1")
+        self.assertIn("requires_human_review", context.prompt_text)
+        self.assertEqual(context.rubric["status"], "active")
+        self.assertEqual(len(context.rubric["dimensions"]), 7)
 
 
 class ChunkingTests(unittest.TestCase):
@@ -112,7 +121,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.metrics.passes, 5)
         self.assertEqual(provider.complete.call_count, 5)
         self.assertGreaterEqual(result.metrics.grounded_evidence, 1)
-        self.assertEqual(result.provenance["pipeline_version"], "local-qwen-v2")
+        self.assertEqual(result.provenance["pipeline_version"], "local-qwen-v3-historical")
         self.assertEqual(len(result.provenance["transcript_sha256"]), 64)
 
     def test_empty_transcript_is_rejected_before_model_calls(self):
@@ -138,6 +147,50 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(provider.complete.call_count, 1)
         self.assertEqual(result.metrics.passes, 1)
         self.assertEqual(result.provenance["strategy"], "direct")
+
+    def test_direct_strategy_uses_versioned_sales_context(self):
+        provider = Mock()
+        provider.last_metrics = CompletionMetrics(10, 20, 5.0, 10.0, 1000)
+        provider.last_retry_count = 0
+        provider.complete.return_value = {
+            "scoreability": "scoreable", "unscorable_reason": None, "overall_score": 70,
+            "opportunity_quality": "medium", "opportunity_quality_label": "Média",
+            "call_outcome": "follow_up", "call_outcome_label": "Follow-up", "confidence": 0.7,
+            "executive_summary": "Resumo", "strengths": [], "critical_failures": [], "objections": [],
+            "coaching_actions": [], "dimensions": [{"key": "discovery", "label": "Descoberta", "score": 70, "rationale": "Ok"}],
+            "evidence": [{"timestamp": "00:10", "speaker": "Seller", "criterion": "discovery", "quote": "Tem orçamento", "interpretation": "Budget"}],
+            "requires_human_review": False,
+        }
+        pipeline = LocalQwenPipeline(provider=provider, dimensions=["discovery"], strategy="direct")
+        result = pipeline.analyze("00:10 Seller: Tem orçamento")
+        system_prompt = provider.complete.call_args.args[0]
+        self.assertIn("requires_human_review", system_prompt)
+        self.assertIn("insider-production-v1", system_prompt)
+        self.assertEqual(result.provenance["prompt_version"], "call-analysis-v1")
+        self.assertEqual(result.provenance["rubric_version"], "insider-production-v1")
+        self.assertEqual(result.metrics.input_tokens, 10)
+        self.assertEqual(result.metrics.output_tokens, 20)
+        self.assertEqual(result.metrics.prompt_tokens_per_second, 5.0)
+
+    def test_two_pass_strategy_extracts_facts_then_builds_final(self):
+        provider = Mock()
+        provider.complete.side_effect = [
+            {"facts": [{"fact_id": "f1", "kind": "pain", "claim": "Retrabalho", "quote": "Tem retrabalho", "chunk_id": "chunk-0000", "source_start": 0, "source_end": 1}]},
+            {
+                "scoreability": "scoreable", "unscorable_reason": None, "overall_score": 60,
+                "opportunity_quality": "medium", "opportunity_quality_label": "Média",
+                "call_outcome": "follow_up", "call_outcome_label": "Follow-up", "confidence": 0.6,
+                "executive_summary": "Resumo", "strengths": [], "critical_failures": [], "objections": [],
+                "coaching_actions": [], "dimensions": [{"key": "discovery", "label": "Descoberta", "score": 60, "rationale": "Evidência"}],
+                "evidence": [{"timestamp": "", "speaker": "Lead", "criterion": "discovery", "quote": "Tem retrabalho", "interpretation": "Dor"}],
+                "requires_human_review": False,
+            },
+        ]
+        pipeline = LocalQwenPipeline(provider=provider, dimensions=["discovery"], strategy="two_pass")
+        result = pipeline.analyze("Lead: Tem retrabalho")
+        self.assertEqual(provider.complete.call_count, 2)
+        self.assertEqual(result.metrics.passes, 2)
+        self.assertEqual(result.provenance["strategy"], "two_pass")
 
 
 if __name__ == "__main__":

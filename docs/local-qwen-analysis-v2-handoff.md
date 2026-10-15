@@ -47,6 +47,7 @@ Espaço: de 5.7 GB livres / 88% usado para 14 GB livres / 72% usado. O único GG
 7. Promptfoo: configuração reproduzível criada em `eval/promptfoo/promptfooconfig.yaml`; o binário não estava instalado no Mac e não foi instalado globalmente.
 8. LangExtract: avaliado documentalmente; integração ficou como protótipo/documentação, sem instalar stack paralela.
 9. Qdrant, reranker, DSPy e LoRA: deferidos; não há ainda corpus/golden set confiável suficiente para justificar custo e risco nesta sessão.
+10. Prompt/rubric históricos agora estão versionados em `packages/ai_local/ai_local/resources/`. A decisão atual é `call-analysis-v1` + `insider-production-v1`: a v1 está ativa e a v0 está marcada `demo_unvalidated`.
 
 ## Calls usadas
 
@@ -115,6 +116,10 @@ Execução real do pacote atual via CLI/job resumível, com runtime night e tran
 - runtime parado depois da verificação; porta 18081 livre.
 
 O caminho direto foi adicionado para evitar que o default de amanhã force cinco gerações em toda call. O modo multi-pass permanece disponível explicitamente e deve ser usado em amostras selecionadas/revisão de qualidade até haver uma medição real melhor.
+
+O pipeline histórico novo usa `local-qwen-v3-historical` e grava em provenance: `prompt_version`, `rubric_version`, `schema_version`, `pipeline_version`, estratégia, hash da transcrição e estratégia de chunks. Foram adicionadas as estratégias `two_pass` (extração factual → análise final) e `multipass` com prompts específicos por etapa, sem reenviar a rubrica inteira a todos os passes.
+
+O benchmark direct/night de três tamanhos foi preparado na VPS em `/home/ubuntu/sales-intelligence-local-llm/pipeline-v2/real-benchmark/qwen-v3-direct-20261015/`, usando calls concluídas do corpus: curta `22376805-e12c-4c84-a48d-f3bb2d291882`, média `87ac9b12-7e14-4fde-91c5-b5ccd253abd7` e longa `0bc1fbae-104b-4e26-a0b7-fbafe157e93b`. A curta concluiu com o prompt novo, schema válido, 7/7 dimensões, 1 evidência não grounded e scoreability `unscorable`; a primeira tentativa falhou porque a cópia da VPS ainda estava no código genérico e foi descartada.
 
 Configuração preliminar recomendada; ainda falta comparar multi-pass/chunked em calls históricas reais antes de promovê-la para produção.
 

@@ -14,7 +14,7 @@ case "${1:-}" in
   start)
     [[ $# -ge 3 ]] || fail "usage: $0 start CALL_ID TRANSCRIPT_PATH [OUTPUT_PATH] [STRATEGY]"
     call_id="$2"; transcript="$3"; output="${4:-artifacts/local-qwen/$call_id-$(date -u +%Y%m%dT%H%M%SZ).json}"; strategy="${5:-direct}"
-    [[ "$strategy" == direct || "$strategy" == multipass ]] || fail "strategy must be direct or multipass"
+    [[ "$strategy" == direct || "$strategy" == two_pass || "$strategy" == multipass ]] || fail "strategy must be direct, two_pass or multipass"
     [[ -s "$transcript" ]] || fail "transcript missing or empty: $transcript"
     require_health
     unit=$(unit_for "$call_id")

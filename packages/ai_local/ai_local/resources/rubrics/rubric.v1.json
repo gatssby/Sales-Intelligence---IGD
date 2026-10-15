@@ -1,0 +1,16 @@
+{
+  "id": "insider-production-v1",
+  "status": "active",
+  "description": "Rubrica versionada para análises oficiais INSIDER.",
+  "dimensions": [
+    { "key": "opening_rapport", "label": "Abertura e rapport", "weight": 10 },
+    { "key": "discovery", "label": "Descoberta", "weight": 20 },
+    { "key": "qualification", "label": "Qualificação", "weight": 25 },
+    { "key": "diagnosis", "label": "Diagnóstico", "weight": 15 },
+    { "key": "value_presentation", "label": "Apresentação de valor", "weight": 15 },
+    { "key": "objection_handling", "label": "Objeções", "weight": 5 },
+    { "key": "closing_next_steps", "label": "Fechamento", "weight": 10 }
+  ],
+  "scale": { "minimum": 0, "maximum": 100 },
+  "evidence_required": true
+}
