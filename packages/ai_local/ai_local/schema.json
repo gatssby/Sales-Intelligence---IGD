@@ -1,5 +1,27 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Sales Intelligence Analysis Output v2",
-  "description": "Structured output contract shared by local Qwen analysis and persistence adapters."
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scoreability", "unscorable_reason", "overall_score", "opportunity_quality", "opportunity_quality_label", "call_outcome", "call_outcome_label", "confidence", "executive_summary", "strengths", "critical_failures", "objections", "coaching_actions", "dimensions", "evidence", "requires_human_review"],
+  "properties": {
+    "scoreability": {"type": "string", "enum": ["scoreable", "unscorable"]},
+    "unscorable_reason": {"type": ["string", "null"]},
+    "overall_score": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+    "opportunity_quality": {"type": "string", "enum": ["high", "medium", "low", "unqualified", "unknown"]},
+    "opportunity_quality_label": {"type": "string"},
+    "call_outcome": {"type": "string", "enum": ["sold", "not_sold", "disqualified", "follow_up", "unknown"]},
+    "call_outcome_label": {"type": "string"},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "executive_summary": {"type": "string"},
+    "strengths": {"type": "array", "items": {"type": "string"}},
+    "critical_failures": {"type": "array", "items": {"type": "string"}},
+    "objections": {"type": "array", "items": {"type": "string"}},
+    "coaching_actions": {"type": "array", "items": {"type": "string"}},
+    "dimensions": {"type": "array", "items": {"$ref": "#/$defs/dimension"}},
+    "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
+    "requires_human_review": {"type": "boolean"}
+  },
+  "$defs": {
+    "dimension": {"type": "object", "additionalProperties": false, "required": ["key", "label", "score", "rationale"], "properties": {"key": {"type": "string"}, "label": {"type": "string"}, "score": {"type": "number", "minimum": 0, "maximum": 100}, "rationale": {"type": "string"}}},
+    "evidence": {"type": "object", "additionalProperties": false, "required": ["timestamp", "speaker", "criterion", "quote", "interpretation"], "properties": {"timestamp": {"type": "string"}, "speaker": {"type": "string"}, "criterion": {"type": "string"}, "quote": {"type": "string"}, "interpretation": {"type": "string"}}}
+  }
 }

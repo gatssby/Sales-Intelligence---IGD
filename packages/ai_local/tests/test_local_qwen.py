@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import unittest
 from unittest.mock import Mock
 
@@ -8,6 +9,10 @@ from ai_local.schema import validate_analysis_output, validation_errors
 
 
 class SchemaTests(unittest.TestCase):
+    def test_json_schema_artifact_matches_runtime_contract_shape(self):
+        artifact = json.loads((Path(__file__).parents[1] / "ai_local" / "schema.json").read_text())
+        self.assertEqual(set(artifact["required"]), set(__import__("ai_local.schema", fromlist=["ANALYSIS_JSON_SCHEMA"]).ANALYSIS_JSON_SCHEMA["required"]))
+
     def test_valid_scoreable_output_has_expected_contract(self):
         output = {
             "scoreability": "scoreable",
