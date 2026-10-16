@@ -90,6 +90,7 @@ class CloserInsiderPipelineTests(unittest.TestCase):
         self.assertEqual(provider.complete.call_args_list[0].kwargs["max_tokens"], 3072)
         self.assertEqual(provider.complete.call_args_list[1].kwargs["max_tokens"], 2048)
         self.assertEqual(provider.complete.call_args_list[2].kwargs["max_tokens"], 6144)
+        self.assertEqual(provider.complete.call_args_list[3].kwargs["max_tokens"], 3072)
 
     def test_pipeline_preserves_chunk_evidence_and_global_payload_metrics(self):
         provider = Mock()

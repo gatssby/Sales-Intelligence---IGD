@@ -133,7 +133,7 @@ class CloserInsiderPipeline:
         global_payloads["critic"] = self._payload_stats(critic_payload)
         critic, stage_metrics["critic"] = self._run_global_stage(
             "critic", transcript, critic_payload, critic_prompt(),
-            CLOSER_INSIDER_SCHEMAS["critic"], 1536, valid_ids, ledger,
+            CLOSER_INSIDER_SCHEMAS["critic"], 3072, valid_ids, ledger,
         )
         self._write_json("critic.json", critic)
         final_payload = {"source": source, "evidence": ledger, "commercial_state": commercial, "closer_evaluation": closer, "critic": critic}
