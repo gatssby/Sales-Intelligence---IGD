@@ -61,9 +61,9 @@ def run_analyze(args: argparse.Namespace) -> int:
                 chunks_dir = run_dir / "chunks"
                 chunks_dir.mkdir(parents=True, exist_ok=True)
                 for chunk in value:
-                    (chunks_dir / f"{chunk['chunk_id']}-evidence.json").write_text(
-                        json.dumps(chunk, ensure_ascii=False, indent=2), encoding="utf-8"
-                    )
+                    checkpoint_path = chunks_dir / f"{chunk['chunk_id']}-evidence.json"
+                    if not checkpoint_path.is_file():
+                        raise RuntimeError(f"missing evidence checkpoint: {checkpoint_path}")
                 continue
             (run_dir / f"{name}.json").write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
         (run_dir / "source.json").write_text(json.dumps(result.source, ensure_ascii=False, indent=2), encoding="utf-8")
