@@ -1,0 +1,57 @@
+{
+  "review_version": "closer-insider-human-review-v1",
+  "call_id": "",
+  "source_type": "verbatim_transcript",
+  "reviewer": "",
+  "reviewed_at": "",
+  "important_facts": [
+    {
+      "fact": "",
+      "evidence_ids": [],
+      "notes": ""
+    }
+  ],
+  "correct_seller_behaviors": [
+    {
+      "behavior": "",
+      "evidence_ids": [],
+      "notes": ""
+    }
+  ],
+  "material_failures": [
+    {
+      "failure": "",
+      "evidence_ids": [],
+      "notes": ""
+    }
+  ],
+  "missed_opportunities": [
+    {
+      "opportunity": "",
+      "evidence_ids": [],
+      "notes": ""
+    }
+  ],
+  "objections": [
+    {
+      "objection": "",
+      "evidence_ids": [],
+      "notes": ""
+    }
+  ],
+  "risk_or_compliance": [
+    {
+      "flag": "",
+      "evidence_ids": [],
+      "notes": ""
+    }
+  ],
+  "expected_coaching": [
+    {
+      "action": "",
+      "evidence_ids": [],
+      "notes": ""
+    }
+  ],
+  "review_notes": ""
+}
