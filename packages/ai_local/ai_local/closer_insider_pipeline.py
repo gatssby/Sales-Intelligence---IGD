@@ -104,7 +104,7 @@ class CloserInsiderPipeline:
         valid_ids = {item["evidence_id"] for item in ledger}
         commercial_payload = {"source": source, "evidence": ledger}
         global_payloads["commercial"] = self._payload_stats(commercial_payload)
-        commercial = self._complete_stage("commercial", commercial_prompt(), commercial_payload, schema=CLOSER_INSIDER_SCHEMAS["commercial_state"], max_tokens=1024)
+        commercial = self._complete_stage("commercial", commercial_prompt(), commercial_payload, schema=CLOSER_INSIDER_SCHEMAS["commercial_state"], max_tokens=2048)
         stage_metrics["commercial"] = self._provider_metrics()
         validate_stage_references(commercial, valid_ids)
         commercial["outcome"] = normalize_commercial_outcome(commercial.get("outcome", "unknown"), ledger)
