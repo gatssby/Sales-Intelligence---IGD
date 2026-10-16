@@ -18,6 +18,8 @@ class CompletionMetrics:
     generation_tokens_per_second: float | None
     latency_ms: int
     finish_reason: str | None = None
+    prompt_ms: float | None = None
+    generation_ms: float | None = None
 
 
 @dataclass(frozen=True)
@@ -83,7 +85,7 @@ class LocalQwenProvider:
                     usage.get("prompt_tokens"), usage.get("completion_tokens"),
                     usage.get("prompt_tokens", 0) / (prompt_ms / 1000) if prompt_ms else None,
                     usage.get("completion_tokens", 0) / (generation_ms / 1000) if generation_ms else None,
-                    elapsed_ms, self.last_finish_reason,
+                    elapsed_ms, self.last_finish_reason, prompt_ms, generation_ms,
                 )
                 self.completion_history.append(self.last_metrics)
                 result = json.loads(content) if isinstance(content, str) else content

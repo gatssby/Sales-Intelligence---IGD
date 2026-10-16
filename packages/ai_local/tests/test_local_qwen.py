@@ -132,7 +132,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual((day.threads, day.cpu_quota), (2, "200%"))
         self.assertEqual((night.threads, night.cpu_quota), (4, "380%"))
         self.assertEqual(day.timeout_s, 300.0)
-        self.assertEqual(night.timeout_s, 1800.0)
+        self.assertEqual(night.timeout_s, 5400.0)
 
     def test_multi_pass_uses_structured_intermediates_and_returns_final(self):
         provider = Mock()

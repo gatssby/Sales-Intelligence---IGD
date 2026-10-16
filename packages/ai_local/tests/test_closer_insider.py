@@ -122,19 +122,22 @@ class CloserInsiderPipelineTests(unittest.TestCase):
             first.complete.side_effect = [
                 {"evidence": [{"turn_id": "T000001", "claim": "abertura", "evidence_type": "fact"}]},
                 {"evidence": [{"turn_id": "T000004", "claim": "fechamento", "evidence_type": "commitment"}]},
+                commercial,
                 RuntimeError("stop after checkpoints"),
             ]
             with self.assertRaises(RuntimeError):
                 CloserInsiderPipeline(first, max_turns=3, overlap_turns=1, checkpoint_dir=directory).analyze("Ana: um\nCliente: dois\nAna: três\nCliente: quatro")
             self.assertTrue((__import__("pathlib").Path(directory) / "chunks" / "chunk-0001-evidence.json").is_file())
             self.assertTrue((__import__("pathlib").Path(directory) / "chunks" / "chunk-0002-evidence.json").is_file())
+            self.assertTrue((__import__("pathlib").Path(directory) / "commercial_state.json").is_file())
 
             second = Mock()
             second.model = "qwen3.5-9b"
             second.complete.side_effect = [commercial, closer, critic, final]
             result = CloserInsiderPipeline(second, max_turns=3, overlap_turns=1, checkpoint_dir=directory).analyze("Ana: um\nCliente: dois\nAna: três\nCliente: quatro")
-            self.assertEqual(second.complete.call_count, 4)
+            self.assertEqual(second.complete.call_count, 3)
             self.assertEqual(result.metrics["chunks"], 2)
+            self.assertTrue(result.metrics["stage_metrics"]["commercial"]["reused_checkpoint"])
 
     def test_meeting_notes_are_unscorable_without_model_calls(self):
         provider = Mock()

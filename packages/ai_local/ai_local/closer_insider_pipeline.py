@@ -50,6 +50,10 @@ class CloserInsiderPipeline:
         self.overlap_turns = overlap_turns
         self.checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
 
+    def _model_name(self) -> str:
+        model = getattr(self.provider, "model", "unknown")
+        return model if isinstance(model, str) else "unknown"
+
     def analyze(self, transcript: str) -> CloserInsiderResult:
         started = time.monotonic()
         if not transcript.strip():
@@ -57,6 +61,9 @@ class CloserInsiderPipeline:
         turns = build_turns(transcript)
         source = source_metadata(turns, transcript)
         turns_payload = [turn.__dict__ for turn in turns]
+        self._write_json("turns.json", turns_payload)
+        self._write_json("source.json", source)
+        self._write_json("run.json", {"status": "running", "model": self._model_name()})
         empty = {"scoreability": "unscorable", "requires_human_review": True}
         if source["source_type"] != "verbatim_transcript" or len(turns) < 4:
             final = {
@@ -76,10 +83,12 @@ class CloserInsiderPipeline:
         if self.checkpoint_dir:
             (self.checkpoint_dir / "chunks").mkdir(parents=True, exist_ok=True)
         for index, chunk in enumerate(chunks, start=1):
+            chunk_started = time.monotonic()
             chunk_payload = {"turns": [turn.__dict__ for turn in chunk]}
             chunk_id = f"chunk-{index:04d}"
             checkpoint_path = self.checkpoint_dir / "chunks" / f"{chunk_id}-evidence.json" if self.checkpoint_dir else None
-            evidence_output = self._load_checkpoint(checkpoint_path, checkpoint_fingerprint, chunk)
+            accepted_fingerprints = (checkpoint_fingerprint, self._legacy_checkpoint_fingerprint(transcript)) if self._model_name() == "qwen3.5-9b" else (checkpoint_fingerprint,)
+            evidence_output = self._load_checkpoint(checkpoint_path, accepted_fingerprints, chunk)
             reused = evidence_output is not None
             if evidence_output is None:
                 evidence_output = self._complete_stage(
@@ -90,6 +99,9 @@ class CloserInsiderPipeline:
                 self._save_checkpoint(checkpoint_path, checkpoint_fingerprint, chunk_id, chunk, evidence_output)
             stage_metrics[chunk_id] = {
                 "reused_checkpoint": reused,
+                "model": self._model_name(),
+                **self._payload_stats(chunk_payload),
+                "wall_time_ms": 0 if reused else int((time.monotonic() - chunk_started) * 1000),
                 **(self._provider_metrics() if not reused else {"input_tokens": None, "output_tokens": None, "finish_reason": "checkpoint", "retries": 0}),
             }
             evidence_passes.append(evidence_output)
@@ -102,31 +114,40 @@ class CloserInsiderPipeline:
             })
         ledger = hydrate_evidence(merge_evidence(evidence_passes, turns), turns)
         valid_ids = {item["evidence_id"] for item in ledger}
+        self._write_json("evidence.json", ledger)
         commercial_payload = {"source": source, "evidence": ledger}
         global_payloads["commercial"] = self._payload_stats(commercial_payload)
-        commercial = self._complete_stage("commercial", commercial_prompt(), commercial_payload, schema=CLOSER_INSIDER_SCHEMAS["commercial_state"], max_tokens=2048)
-        stage_metrics["commercial"] = self._provider_metrics()
-        validate_stage_references(commercial, valid_ids)
-        commercial["outcome"] = normalize_commercial_outcome(commercial.get("outcome", "unknown"), ledger)
+        commercial, stage_metrics["commercial"] = self._run_global_stage(
+            "commercial", transcript, commercial_payload, commercial_prompt(),
+            CLOSER_INSIDER_SCHEMAS["commercial_state"], 2048, valid_ids, ledger,
+        )
+        self._write_json("commercial_state.json", commercial)
         closer_payload = {"evidence": ledger, "commercial_state": commercial}
         global_payloads["closer_evaluation"] = self._payload_stats(closer_payload)
-        closer = self._complete_stage("closer_evaluation", closer_prompt(), closer_payload, schema=CLOSER_INSIDER_SCHEMAS["closer_evaluation"], max_tokens=4096)
-        stage_metrics["closer_evaluation"] = self._provider_metrics()
-        validate_stage_references(closer, valid_ids)
+        closer, stage_metrics["closer_evaluation"] = self._run_global_stage(
+            "closer_evaluation", transcript, closer_payload, closer_prompt(),
+            CLOSER_INSIDER_SCHEMAS["closer_evaluation"], 4096, valid_ids, ledger,
+        )
+        self._write_json("closer_evaluation.json", closer)
         critic_payload = {"evidence": ledger, "commercial_state": commercial, "closer_evaluation": closer}
         global_payloads["critic"] = self._payload_stats(critic_payload)
-        critic = self._complete_stage("critic", critic_prompt(), critic_payload, schema=CLOSER_INSIDER_SCHEMAS["critic"], max_tokens=1536)
-        stage_metrics["critic"] = self._provider_metrics()
-        validate_stage_references(critic, valid_ids)
+        critic, stage_metrics["critic"] = self._run_global_stage(
+            "critic", transcript, critic_payload, critic_prompt(),
+            CLOSER_INSIDER_SCHEMAS["critic"], 1536, valid_ids, ledger,
+        )
+        self._write_json("critic.json", critic)
         final_payload = {"source": source, "evidence": ledger, "commercial_state": commercial, "closer_evaluation": closer, "critic": critic}
         global_payloads["final"] = self._payload_stats(final_payload)
-        final = self._complete_stage("final", final_prompt(), final_payload, schema=CLOSER_INSIDER_SCHEMAS["final"], max_tokens=3072)
-        stage_metrics["final"] = self._provider_metrics()
+        final, stage_metrics["final"] = self._run_global_stage(
+            "final", transcript, final_payload, final_prompt(),
+            CLOSER_INSIDER_SCHEMAS["final"], 3072, valid_ids, ledger,
+        )
+        self._write_json("final.json", final)
         validate_stage_references(final, valid_ids)
         final["scoreability"] = source["scoreability"]
         final["requires_human_review"] = bool(final.get("requires_human_review"))
         raw_evidence_count = sum(len(output.get("evidence", [])) for output in evidence_passes)
-        return self._result(transcript, source, turns_payload, ledger, commercial, closer, critic, final, {
+        result = self._result(transcript, source, turns_payload, ledger, commercial, closer, critic, final, {
             "chunks": len(chunks),
             "chunk_artifacts": chunk_artifacts,
             "global_payloads": global_payloads,
@@ -134,6 +155,9 @@ class CloserInsiderPipeline:
             "duplicates_removed": raw_evidence_count - len(ledger),
             "stage_metrics": stage_metrics,
         }, started, passes=len(chunks) + 4)
+        self._write_json("metrics.json", result.metrics)
+        self._write_json("run.json", {"status": "completed", "model": self._model_name(), "metrics": result.metrics, "provenance": result.provenance})
+        return result
 
     def _chunks(self, turns: list[Turn]) -> list[list[Turn]]:
         if self.max_turns < 1 or self.overlap_turns < 0 or self.overlap_turns >= self.max_turns:
@@ -153,16 +177,93 @@ class CloserInsiderPipeline:
         characters = len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
         return {"characters": characters, "estimated_tokens": math.ceil(characters / 4)}
 
+    def _write_json(self, name: str, value: Any) -> None:
+        if self.checkpoint_dir is None:
+            return
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        path = self.checkpoint_dir / name
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(path)
+
+    @staticmethod
+    def _json_hash(value: Any) -> str:
+        return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+    def _global_fingerprint(self, stage: str, transcript: str, payload: dict[str, Any], system: str, schema: dict[str, Any], max_tokens: int) -> str:
+        material = {
+            "stage": stage,
+            "transcript_sha256": hashlib.sha256(transcript.encode()).hexdigest(),
+            "upstream_sha256": self._json_hash(payload),
+            "pipeline_version": CLOSER_INSIDER_PIPELINE_VERSION,
+            "playbook_version": CLOSER_INSIDER_PLAYBOOK_VERSION,
+            "prompt_sha256": hashlib.sha256(system.encode()).hexdigest(),
+            "schema_sha256": self._json_hash(schema),
+            "max_tokens": max_tokens,
+            "model": self._model_name(),
+            "max_turns": self.max_turns,
+            "overlap_turns": self.overlap_turns,
+        }
+        return self._json_hash(material)
+
+    def _run_global_stage(self, stage: str, transcript: str, payload: dict[str, Any], system: str, schema: dict[str, Any], max_tokens: int, valid_ids: set[str], ledger: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]]:
+        fingerprint = self._global_fingerprint(stage, transcript, payload, system, schema, max_tokens)
+        artifact_path = self.checkpoint_dir / f"{stage}.json" if self.checkpoint_dir else None
+        checkpoint_path = self.checkpoint_dir / f"{stage}.checkpoint.json" if self.checkpoint_dir else None
+        if artifact_path and checkpoint_path and artifact_path.is_file() and checkpoint_path.is_file():
+            try:
+                metadata = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+                value = json.loads(artifact_path.read_text(encoding="utf-8"))
+                if metadata.get("fingerprint") == fingerprint:
+                    validate_stage_references(value, valid_ids)
+                    if stage == "commercial":
+                        value["outcome"] = normalize_commercial_outcome(value.get("outcome", "unknown"), ledger)
+                    stats = self._payload_stats(payload)
+                    return value, {"reused_checkpoint": True, "model": self._model_name(), **stats, "input_tokens": None, "output_tokens": None, "finish_reason": "checkpoint", "retries": 0, "wall_time_ms": 0}
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                pass
+        started = time.monotonic()
+        value = self._complete_stage(stage, system, payload, schema=schema, max_tokens=max_tokens)
+        validate_stage_references(value, valid_ids)
+        if stage == "commercial":
+            value["outcome"] = normalize_commercial_outcome(value.get("outcome", "unknown"), ledger)
+        if artifact_path and checkpoint_path:
+            self._write_json(f"{stage}.json", value)
+            self._write_json(f"{stage}.checkpoint.json", {"checkpoint_version": 1, "fingerprint": fingerprint, "stage": stage, "model": self._model_name()})
+        stats = self._payload_stats(payload)
+        return value, {"reused_checkpoint": False, "model": self._model_name(), **stats, **self._provider_metrics(), "wall_time_ms": int((time.monotonic() - started) * 1000)}
+
     def _provider_metrics(self) -> dict[str, Any]:
         metrics = getattr(self.provider, "last_metrics", None)
+        def scalar(name: str) -> Any:
+            value = getattr(metrics, name, None)
+            return value if isinstance(value, (str, int, float, bool)) or value is None else None
         return {
-            "input_tokens": getattr(metrics, "input_tokens", None),
-            "output_tokens": getattr(metrics, "output_tokens", None),
-            "finish_reason": getattr(metrics, "finish_reason", None),
-            "retries": getattr(self.provider, "last_retry_count", 0),
+            "model": self._model_name(),
+            "input_tokens": scalar("input_tokens"),
+            "output_tokens": scalar("output_tokens"),
+            "prompt_tokens_per_second": scalar("prompt_tokens_per_second"),
+            "generation_tokens_per_second": scalar("generation_tokens_per_second"),
+            "prompt_ms": scalar("prompt_ms"),
+            "generation_ms": scalar("generation_ms"),
+            "finish_reason": scalar("finish_reason"),
+            "retries": getattr(self.provider, "last_retry_count", 0) if isinstance(getattr(self.provider, "last_retry_count", 0), int) else 0,
         }
 
     def _checkpoint_fingerprint(self, transcript: str) -> str:
+        payload = {
+            "transcript_sha256": hashlib.sha256(transcript.encode()).hexdigest(),
+            "max_turns": self.max_turns,
+            "overlap_turns": self.overlap_turns,
+            "pipeline_version": CLOSER_INSIDER_PIPELINE_VERSION,
+            "playbook_version": CLOSER_INSIDER_PLAYBOOK_VERSION,
+            "evidence_prompt_sha256": hashlib.sha256(evidence_prompt().encode()).hexdigest(),
+            "evidence_schema_sha256": hashlib.sha256(json.dumps(CLOSER_INSIDER_SCHEMAS["evidence"], sort_keys=True).encode()).hexdigest(),
+            "model": self._model_name(),
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+    def _legacy_checkpoint_fingerprint(self, transcript: str) -> str:
         payload = {
             "transcript_sha256": hashlib.sha256(transcript.encode()).hexdigest(),
             "max_turns": self.max_turns,
@@ -184,12 +285,13 @@ class CloserInsiderPipeline:
                 raise ValueError("evidence extraction returned an invalid turn_id")
 
     @classmethod
-    def _load_checkpoint(cls, path: Path | None, fingerprint: str, chunk: list[Turn]) -> dict[str, Any] | None:
+    def _load_checkpoint(cls, path: Path | None, fingerprint: str | tuple[str, ...], chunk: list[Turn]) -> dict[str, Any] | None:
         if path is None or not path.is_file():
             return None
         try:
             checkpoint = json.loads(path.read_text(encoding="utf-8"))
-            if checkpoint.get("fingerprint") != fingerprint or checkpoint.get("turn_ids") != [turn.turn_id for turn in chunk]:
+            accepted = {fingerprint} if isinstance(fingerprint, str) else set(fingerprint)
+            if checkpoint.get("fingerprint") not in accepted or checkpoint.get("turn_ids") != [turn.turn_id for turn in chunk]:
                 return None
             output = {"evidence": checkpoint.get("evidence", [])}
             cls._validate_chunk_output(output, chunk)
@@ -249,7 +351,7 @@ class CloserInsiderPipeline:
             "pipeline_version": CLOSER_INSIDER_PIPELINE_VERSION,
             "schema_version": "closer-insider-eval-v1",
             "playbook_version": CLOSER_INSIDER_PLAYBOOK_VERSION,
-            "model": getattr(self.provider, "model", "unknown"),
+            "model": self._model_name(),
             "transcript_sha256": hashlib.sha256(transcript.encode()).hexdigest(),
             "source_type": source["source_type"],
             "passes": passes,
