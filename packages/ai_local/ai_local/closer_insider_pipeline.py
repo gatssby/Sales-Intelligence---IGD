@@ -90,6 +90,13 @@ class CloserInsiderPipeline:
             accepted_fingerprints = (checkpoint_fingerprint, self._legacy_checkpoint_fingerprint(transcript)) if self._model_name() == "qwen3.5-9b" else (checkpoint_fingerprint,)
             evidence_output = self._load_checkpoint(checkpoint_path, accepted_fingerprints, chunk)
             reused = evidence_output is not None
+            if evidence_output is not None and checkpoint_path and checkpoint_path.is_file():
+                try:
+                    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+                    if checkpoint.get("fingerprint") != checkpoint_fingerprint:
+                        self._save_checkpoint(checkpoint_path, checkpoint_fingerprint, chunk_id, chunk, evidence_output)
+                except (OSError, json.JSONDecodeError, TypeError):
+                    pass
             if evidence_output is None:
                 evidence_output = self._complete_stage(
                     f"evidence_chunk_{index:04d}", evidence_prompt(), chunk_payload,
