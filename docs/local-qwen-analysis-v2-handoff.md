@@ -267,6 +267,18 @@ ops/local-qwen-job.sh result 77d37a58-fcb5-40b1-9568-cd3dcb8e88ed artifacts/loca
 
 A análise é shadow-only e não escreve nas tabelas oficiais. O comando acima usa o caminho direto; para a variante 2-pass, use `two_pass`; para multipass, use `multipass` apenas em amostras pequenas. A etapa histórica foi concluída com comparação documentada; não iniciar Qdrant, DSPy, LoRA, worker ou site antes da revisão humana dos resultados e decisão sobre o adapter shadow.
 
+## Estado verificado em 2026-10-16
+
+O pipeline `closer_insider_v1` agora persiste checkpoints globais para `commercial`, `closer_evaluation`, `critic` e `final`, com fingerprints de transcript, upstream, prompt, schema, pipeline/playbook, chunking, orçamento e modelo. A persistência é atômica e incremental; o CLI não sobrescreve mais checkpoints de evidence com artefatos de apresentação.
+
+A call longa `77d37a58-fcb5-40b1-9568-cd3dcb8e88ed` concluiu no Qwen 9B com 514 turns, 8 chunks, 129 evidências, 129/129 grounded, zero quote mismatches e regression determinística `valid=true`. O run reutilizou os oito checkpoints de evidence existentes. Para esta call, `closer_evaluation` precisou de 6144 tokens e `critic` de 3072 após truncamentos observados em 4096 e 1536, respectivamente. O timeout usado foi 5400 s.
+
+O microbenchmark de cache confirmou reutilização real no llama.cpp instalado: prompt idêntico reutilizou 4709/4713 tokens e reduziu wall de 282,192 ms para 1,870 ms; uma pequena alteração no sufixo reutilizou 4197 tokens e levou 34,938 ms. O resultado sanitizado está em `real-benchmark/cache-microbenchmark-20261016.json` na VPS.
+
+O Qwen 4B foi reinstalado de `unsloth/Qwen3.5-4B-GGUF`, filename `Qwen3.5-4B-Q4_K_M.gguf`, tamanho 2,740,937,888 bytes. Benchmark isolado sequencial: 4B load 14,043 ms, prompt 27.71 tok/s, generation 9.12 tok/s; 9B load 26,026 ms, prompt 17.98 tok/s, generation 6.02 tok/s. Os dois modelos não foram inferidos simultaneamente. O full hybrid 4B→9B ainda não foi executado.
+
+Relatório sanitizado versionado: `docs/local-qwen-analysis-v2-report.md`. A recomendação permanece manter o 9B como baseline de qualidade, preservar checkpoint/cache e executar o benchmark híbrido completo antes de trocar a arquitetura.
+
 ## Nova filosofia de avaliação: closer-insider-eval-v1
 
 A partir desta etapa, as rubricas `call-analysis-v0/v1`, `insider-demo-v0`, `insider-production-v1` e outputs SOTA são preservados apenas como legado/referência. Eles não são gold truth nem objetivo de otimização do Qwen.
