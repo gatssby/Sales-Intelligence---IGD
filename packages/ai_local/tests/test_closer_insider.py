@@ -139,6 +139,17 @@ class CloserInsiderPipelineTests(unittest.TestCase):
             self.assertEqual(result.metrics["chunks"], 2)
             self.assertTrue(result.metrics["stage_metrics"]["commercial"]["reused_checkpoint"])
 
+            third = Mock()
+            third.model = "qwen3.5-4b"
+            third.complete.side_effect = [
+                {"evidence": [{"turn_id": "T000001", "claim": "abertura", "evidence_type": "fact"}]},
+                {"evidence": [{"turn_id": "T000004", "claim": "fechamento", "evidence_type": "commitment"}]},
+                commercial, closer, critic, final,
+            ]
+            hybrid_result = CloserInsiderPipeline(third, max_turns=3, overlap_turns=1, checkpoint_dir=directory).analyze("Ana: um\nCliente: dois\nAna: três\nCliente: quatro")
+            self.assertEqual(third.complete.call_count, 6)
+            self.assertFalse(hybrid_result.metrics["stage_metrics"]["chunk-0001"]["reused_checkpoint"])
+
     def test_meeting_notes_are_unscorable_without_model_calls(self):
         provider = Mock()
         result = CloserInsiderPipeline(provider).analyze("📝 Observações\nResumo da conversa")
