@@ -37,6 +37,8 @@ class LocalQwenProvider:
         self.completion_history: list[CompletionMetrics] = []
         self.last_retry_count = 0
         self.last_finish_reason: str | None = None
+        self.last_response_content: str | dict[str, Any] | None = None
+        self.last_response_usage: dict[str, Any] = {}
 
     def health(self) -> bool:
         request = urllib.request.Request(f"{self.endpoint}/health")
@@ -67,7 +69,23 @@ class LocalQwenProvider:
                 with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
                     body = json.loads(response.read())
                 assert body is not None
-                content = body["choices"][0]["message"]["content"]
+                choice = body["choices"][0]
+                content = choice["message"]["content"]
+                self.last_finish_reason = choice.get("finish_reason")
+                self.last_response_content = content
+                usage = body.get("usage", {})
+                self.last_response_usage = usage
+                timings = body.get("timings", {})
+                elapsed_ms = int((time.monotonic() - started) * 1000)
+                prompt_ms = timings.get("prompt_ms")
+                generation_ms = timings.get("predicted_ms") or timings.get("generation_ms")
+                self.last_metrics = CompletionMetrics(
+                    usage.get("prompt_tokens"), usage.get("completion_tokens"),
+                    usage.get("prompt_tokens", 0) / (prompt_ms / 1000) if prompt_ms else None,
+                    usage.get("completion_tokens", 0) / (generation_ms / 1000) if generation_ms else None,
+                    elapsed_ms, self.last_finish_reason,
+                )
+                self.completion_history.append(self.last_metrics)
                 result = json.loads(content) if isinstance(content, str) else content
                 break
             except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError):
@@ -77,16 +95,4 @@ class LocalQwenProvider:
                 time.sleep(0.1 * (2 ** attempt))
         if body is None or result is None:
             raise RuntimeError("provider request ended without a response body")
-        self.last_finish_reason = body.get("choices", [{}])[0].get("finish_reason")
-        usage = body.get("usage", {})
-        timings = body.get("timings", {})
-        elapsed_ms = int((time.monotonic() - started) * 1000)
-        prompt_ms = timings.get("prompt_ms")
-        generation_ms = timings.get("predicted_ms") or timings.get("generation_ms")
-        prompt_tps = usage.get("prompt_tokens", 0) / (prompt_ms / 1000) if prompt_ms else None
-        generation_tps = usage.get("completion_tokens", 0) / (generation_ms / 1000) if generation_ms else None
-        self.last_metrics = CompletionMetrics(
-            usage.get("prompt_tokens"), usage.get("completion_tokens"), prompt_tps, generation_tps, elapsed_ms, self.last_finish_reason
-        )
-        self.completion_history.append(self.last_metrics)
         return result

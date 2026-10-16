@@ -52,9 +52,9 @@ def run_analyze(args: argparse.Namespace) -> int:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
         return 0
     if args.strategy == "closer_insider_v1":
-        pipeline = CloserInsiderPipeline(provider, max_turns=args.max_turns, overlap_turns=args.overlap_turns)
-        result = pipeline.analyze(transcript)
         run_dir = output_path.with_suffix("")
+        pipeline = CloserInsiderPipeline(provider, max_turns=args.max_turns, overlap_turns=args.overlap_turns, checkpoint_dir=run_dir)
+        result = pipeline.analyze(transcript)
         run_dir.mkdir(parents=True, exist_ok=True)
         for name, value in result.artifacts.items():
             if name == "chunks":

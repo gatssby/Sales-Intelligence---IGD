@@ -109,6 +109,23 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(urlopen.call_count, 2)
         self.assertEqual(provider.last_retry_count, 1)
 
+    def test_provider_records_finish_reason_and_usage_before_json_decode(self):
+        class Response:
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+            def read(self):
+                return json.dumps({"choices": [{"message": {"content": '{"evidence": ['}, "finish_reason": "length"}], "usage": {"prompt_tokens": 7298, "completion_tokens": 1536}, "timings": {"prompt_ms": 100, "predicted_ms": 200}}).encode()
+
+        provider = LocalQwenProvider(schema={"type": "object"}, max_retries=0)
+        with patch("ai_local.provider.urllib.request.urlopen", return_value=Response()):
+            with self.assertRaises(json.JSONDecodeError):
+                provider.complete("s", "u")
+        self.assertEqual(provider.last_finish_reason, "length")
+        self.assertEqual(provider.last_metrics.output_tokens, 1536)
+        self.assertEqual(provider.last_response_content, '{"evidence": [')
+
     def test_day_and_night_profiles_are_explicit_and_safe(self):
         day = LocalQwenSettings.from_env({"QWEN_PROFILE": "day"})
         night = LocalQwenSettings.from_env({"QWEN_PROFILE": "night"})

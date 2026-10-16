@@ -1,4 +1,5 @@
 import json
+import tempfile
 import unittest
 from unittest.mock import Mock
 
@@ -86,6 +87,7 @@ class CloserInsiderPipelineTests(unittest.TestCase):
         self.assertEqual(result.final["evidence_ids"], ["E000001"])
         self.assertEqual(result.artifacts["evidence"][0]["evidence_id"], "E000001")
         self.assertEqual(provider.complete.call_count, 5)
+        self.assertEqual(provider.complete.call_args_list[0].kwargs["max_tokens"], 3072)
 
     def test_pipeline_preserves_chunk_evidence_and_global_payload_metrics(self):
         provider = Mock()
@@ -106,6 +108,31 @@ class CloserInsiderPipelineTests(unittest.TestCase):
         self.assertEqual(result.artifacts["chunks"][0]["chunk_id"], "chunk-0001")
         self.assertIn("commercial", result.metrics["global_payloads"])
         self.assertGreater(result.metrics["global_payloads"]["commercial"]["characters"], 0)
+
+    def test_pipeline_reuses_compatible_chunk_checkpoints_after_partial_failure(self):
+        commercial = {"current_opportunity_fit": "unknown", "future_requalification_potential": "unknown", "requalification_conditions": [], "qualification_gaps": [], "urgency": "unknown", "authority": "unknown", "budget_or_capacity": "unknown", "decision_process": "unknown", "availability": "unknown", "outcome": "unknown", "next_step": "unknown", "evidence_ids": ["E000001"]}
+        closer = {k: {"assessment": "unknown", "positive_evidence_ids": [], "negative_evidence_ids": [], "missing_or_missed_behaviors": [], "rationale": "", "confidence": 0.2} for k in ["opening_and_expectation", "discovery", "diagnosis", "qualification", "pitch_and_value_connection", "objection_handling", "closing_and_next_step", "professionalism", "conversation_control"]}
+        critic = {"critic_findings": [], "evidence_ids": []}
+        final = {"executive_summary": "", "strengths": [], "critical_failures": [], "missed_opportunities": [], "coaching_actions": [], "risk_or_compliance_flags": [], "primary_failure": "unknown", "confidence": 0.2, "requires_human_review": True, "evidence_ids": []}
+        with tempfile.TemporaryDirectory() as directory:
+            first = Mock()
+            first.model = "qwen3.5-9b"
+            first.complete.side_effect = [
+                {"evidence": [{"turn_id": "T000001", "claim": "abertura", "evidence_type": "fact"}]},
+                {"evidence": [{"turn_id": "T000004", "claim": "fechamento", "evidence_type": "commitment"}]},
+                RuntimeError("stop after checkpoints"),
+            ]
+            with self.assertRaises(RuntimeError):
+                CloserInsiderPipeline(first, max_turns=3, overlap_turns=1, checkpoint_dir=directory).analyze("Ana: um\nCliente: dois\nAna: três\nCliente: quatro")
+            self.assertTrue((__import__("pathlib").Path(directory) / "chunks" / "chunk-0001-evidence.json").is_file())
+            self.assertTrue((__import__("pathlib").Path(directory) / "chunks" / "chunk-0002-evidence.json").is_file())
+
+            second = Mock()
+            second.model = "qwen3.5-9b"
+            second.complete.side_effect = [commercial, closer, critic, final]
+            result = CloserInsiderPipeline(second, max_turns=3, overlap_turns=1, checkpoint_dir=directory).analyze("Ana: um\nCliente: dois\nAna: três\nCliente: quatro")
+            self.assertEqual(second.complete.call_count, 4)
+            self.assertEqual(result.metrics["chunks"], 2)
 
     def test_meeting_notes_are_unscorable_without_model_calls(self):
         provider = Mock()
