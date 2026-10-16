@@ -329,6 +329,9 @@ class CloserInsiderPipeline:
     def _result(self, transcript: str, source: dict[str, Any], turns: list[dict[str, Any]], evidence: list[dict[str, Any]], commercial: dict[str, Any], closer: dict[str, Any], critic: dict[str, Any], final: dict[str, Any], extra_metrics: dict[str, Any], started: float, *, passes: int) -> CloserInsiderResult:
         history = getattr(self.provider, "completion_history", None)
         history = history if isinstance(history, list) else []
+        stage_metrics = extra_metrics.get("stage_metrics", {})
+        measured_input_tokens = sum(item.get("input_tokens", 0) or 0 for item in stage_metrics.values() if isinstance(item, dict))
+        measured_output_tokens = sum(item.get("output_tokens", 0) or 0 for item in stage_metrics.values() if isinstance(item, dict))
         metrics = {
             "passes": passes,
             "chunks": extra_metrics.get("chunks", 0),
@@ -336,8 +339,8 @@ class CloserInsiderPipeline:
             "evidence_count": len(evidence),
             "grounded_evidence_count": len(evidence),
             "grounding_rate": 1.0 if evidence else 0.0,
-            "input_tokens": sum(getattr(item, "input_tokens", 0) or 0 for item in history[-passes:]) if history else None,
-            "output_tokens": sum(getattr(item, "output_tokens", 0) or 0 for item in history[-passes:]) if history else None,
+            "input_tokens": measured_input_tokens or (sum(getattr(item, "input_tokens", 0) or 0 for item in history[-passes:]) if history else None),
+            "output_tokens": measured_output_tokens or (sum(getattr(item, "output_tokens", 0) or 0 for item in history[-passes:]) if history else None),
             "schema_valid": True,
             "raw_evidence_count": extra_metrics.get("raw_evidence_count", len(evidence)),
             "duplicates_removed": extra_metrics.get("duplicates_removed", 0),
@@ -345,7 +348,7 @@ class CloserInsiderPipeline:
             "quote_mismatches": 0,
             "evidence_with_timestamp": sum(1 for item in evidence if item.get("timestamp")),
             "global_payloads": extra_metrics.get("global_payloads", {}),
-            "stage_metrics": extra_metrics.get("stage_metrics", {}),
+            "stage_metrics": stage_metrics,
         }
         provenance = {
             "pipeline_version": CLOSER_INSIDER_PIPELINE_VERSION,
