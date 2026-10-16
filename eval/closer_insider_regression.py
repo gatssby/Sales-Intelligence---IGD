@@ -27,11 +27,15 @@ def _load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _checkpoint_report(transcript: str, artifact_dir: Path, *, max_turns: int = 80, overlap_turns: int = 8) -> dict[str, Any]:
+def _checkpoint_report(transcript: str, artifact_dir: Path, *, max_turns: int = 80, overlap_turns: int = 8, model: str | None = None) -> dict[str, Any]:
     turns = build_turns(transcript)
-    pipeline = CloserInsiderPipeline(object(), max_turns=max_turns, overlap_turns=overlap_turns)
+    provider = type("FingerprintProvider", (), {"model": model or "unknown"})()
+    pipeline = CloserInsiderPipeline(provider, max_turns=max_turns, overlap_turns=overlap_turns)
     expected_chunks = pipeline._chunks(turns)
     expected_fingerprint = pipeline._checkpoint_fingerprint(transcript)
+    accepted_fingerprints = {expected_fingerprint}
+    if model is None:
+        accepted_fingerprints.add(pipeline._legacy_checkpoint_fingerprint(transcript))
     checkpoint_dir = artifact_dir / "chunks"
     valid = True
     files = []
@@ -44,7 +48,7 @@ def _checkpoint_report(transcript: str, artifact_dir: Path, *, max_turns: int = 
                 item["compatible"] = (
                     checkpoint.get("chunk_id") == item["chunk_id"]
                     and checkpoint.get("turn_ids") == [turn.turn_id for turn in chunk]
-                    and checkpoint.get("fingerprint") == expected_fingerprint
+                    and checkpoint.get("fingerprint") in accepted_fingerprints
                 )
             except (OSError, json.JSONDecodeError, TypeError):
                 item["compatible"] = False
@@ -106,7 +110,7 @@ def validate_run(transcript: str, artifact_dir: Path, *, max_turns: int = 80, ov
     if final.get("evidence_ids") and not set(final["evidence_ids"]).issubset(valid_evidence_ids):
         errors.append("final references evidence outside immutable ledger")
 
-    checkpoint = _checkpoint_report(transcript, artifact_dir, max_turns=max_turns, overlap_turns=overlap_turns)
+    checkpoint = _checkpoint_report(transcript, artifact_dir, max_turns=max_turns, overlap_turns=overlap_turns, model=run.get("provenance", {}).get("model"))
     if not checkpoint["valid"]:
         errors.append("checkpoint set is incomplete or incompatible")
 
