@@ -171,6 +171,27 @@ class CloserInsiderPipelineTests(unittest.TestCase):
         self.assertEqual(result.commercial_state["current_opportunity_fit"], "low")
         self.assertEqual(result.commercial_state["future_requalification_potential"], "high")
 
+    def test_hybrid_uses_evidence_provider_only_for_evidence_and_tracks_provenance(self):
+        evidence_provider = Mock()
+        evidence_provider.model = "qwen3.5-4b"
+        evidence_provider.complete.return_value = {"evidence": [{"turn_id": "T000002", "claim": "dor", "evidence_type": "pain"}]}
+        downstream_provider = Mock()
+        downstream_provider.model = "qwen3.5-9b"
+        downstream_provider.complete.side_effect = [
+            {"current_opportunity_fit": "unknown", "future_requalification_potential": "unknown", "requalification_conditions": [], "qualification_gaps": [], "urgency": "unknown", "authority": "unknown", "budget_or_capacity": "unknown", "decision_process": "unknown", "availability": "unknown", "outcome": "unknown", "next_step": "unknown", "evidence_ids": ["E000001"]},
+            {k: {"assessment": "unknown", "positive_evidence_ids": [], "negative_evidence_ids": [], "missing_or_missed_behaviors": [], "rationale": "", "confidence": 0.2} for k in ["opening_and_expectation", "discovery", "diagnosis", "qualification", "pitch_and_value_connection", "objection_handling", "closing_and_next_step", "professionalism", "conversation_control"]},
+            {"critic_findings": [], "evidence_ids": []},
+            {"executive_summary": "", "strengths": [], "critical_failures": [], "missed_opportunities": [], "coaching_actions": [], "risk_or_compliance_flags": [], "primary_failure": "unknown", "confidence": 0.2, "requires_human_review": True, "evidence_ids": []},
+        ]
+        switch_events = []
+        result = CloserInsiderPipeline(downstream_provider, evidence_provider=evidence_provider, before_global_stages=lambda: switch_events.append("switched")).analyze("Ana: abertura\nCliente: dor\nAna: fechamento\nCliente: ok")
+        self.assertEqual(evidence_provider.complete.call_count, 1)
+        self.assertEqual(downstream_provider.complete.call_count, 4)
+        self.assertEqual(result.metrics["stage_metrics"]["chunk-0001"]["model"], "qwen3.5-4b")
+        self.assertEqual(result.provenance["model"], "qwen3.5-9b")
+        self.assertEqual(result.provenance["evidence_model"], "qwen3.5-4b")
+        self.assertEqual(switch_events, ["switched"])
+
 
 if __name__ == "__main__":
     unittest.main()
