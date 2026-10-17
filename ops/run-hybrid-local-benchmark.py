@@ -106,7 +106,7 @@ def main() -> int:
         pipeline = CloserInsiderPipeline(
             downstream_provider,
             evidence_provider=evidence_provider,
-            evidence_max_tokens=4096,
+            evidence_max_tokens=6144,
             before_global_stages=switch_to_9b,
             max_turns=80,
             overlap_turns=8,

@@ -184,9 +184,9 @@ class CloserInsiderPipelineTests(unittest.TestCase):
             {"executive_summary": "", "strengths": [], "critical_failures": [], "missed_opportunities": [], "coaching_actions": [], "risk_or_compliance_flags": [], "primary_failure": "unknown", "confidence": 0.2, "requires_human_review": True, "evidence_ids": []},
         ]
         switch_events = []
-        result = CloserInsiderPipeline(downstream_provider, evidence_provider=evidence_provider, evidence_max_tokens=4096, before_global_stages=lambda: switch_events.append("switched")).analyze("Ana: abertura\nCliente: dor\nAna: fechamento\nCliente: ok")
+        result = CloserInsiderPipeline(downstream_provider, evidence_provider=evidence_provider, evidence_max_tokens=6144, before_global_stages=lambda: switch_events.append("switched")).analyze("Ana: abertura\nCliente: dor\nAna: fechamento\nCliente: ok")
         self.assertEqual(evidence_provider.complete.call_count, 1)
-        self.assertEqual(evidence_provider.complete.call_args.kwargs["max_tokens"], 4096)
+        self.assertEqual(evidence_provider.complete.call_args.kwargs["max_tokens"], 6144)
         self.assertEqual(downstream_provider.complete.call_count, 4)
         self.assertEqual(result.metrics["stage_metrics"]["chunk-0001"]["model"], "qwen3.5-4b")
         self.assertEqual(result.provenance["model"], "qwen3.5-9b")
