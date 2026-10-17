@@ -26,6 +26,8 @@ from .closer_insider_schema import CLOSER_INSIDER_SCHEMAS
 class CloserInsiderProvider(Protocol):
     model: str
 
+    def count_prompt_tokens(self, system: str, user: str) -> int: ...
+
     def complete(self, system: str, user: str, *, schema: dict[str, Any] | None = None, max_tokens: int = 2048, temperature: float = 0.0) -> dict[str, Any]: ...
 
 
@@ -44,7 +46,7 @@ class CloserInsiderResult:
 
 
 class CloserInsiderPipeline:
-    def __init__(self, provider: CloserInsiderProvider, *, evidence_provider: CloserInsiderProvider | None = None, before_global_stages: Callable[[], None] | None = None, evidence_max_tokens: int = 3072, max_turns: int = 80, overlap_turns: int = 8, checkpoint_dir: str | Path | None = None):
+    def __init__(self, provider: CloserInsiderProvider, *, evidence_provider: CloserInsiderProvider | None = None, before_global_stages: Callable[[], None] | None = None, evidence_max_tokens: int = 3072, max_turns: int = 80, overlap_turns: int = 8, checkpoint_dir: str | Path | None = None, stage_budgets: dict[str, int] | None = None, ctx_size: int | None = None, downstream_only: bool = False, stage_validator: Callable[[Any, dict[str, Any]], None] | None = None):
         self.provider = provider
         self.evidence_provider = evidence_provider or provider
         self.before_global_stages = before_global_stages
@@ -52,6 +54,14 @@ class CloserInsiderPipeline:
         self.max_turns = max_turns
         self.overlap_turns = overlap_turns
         self.checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
+        self.stage_budgets = {"commercial": 2048, "closer_evaluation": 6144, "critic": 3072, "final": 3072}
+        if stage_budgets:
+            if set(stage_budgets) - set(self.stage_budgets) or any(type(v) is not int or v < 1 for v in stage_budgets.values()):
+                raise ValueError("invalid stage budgets")
+            self.stage_budgets.update(stage_budgets)
+        self.ctx_size = ctx_size
+        self.downstream_only = downstream_only
+        self.stage_validator = stage_validator
 
     def _model_name(self) -> str:
         model = getattr(self.provider, "model", "unknown")
@@ -101,6 +111,8 @@ class CloserInsiderPipeline:
                 except (OSError, json.JSONDecodeError, TypeError):
                     pass
             if evidence_output is None:
+                if self.downstream_only:
+                    raise ValueError(f"missing or incompatible evidence checkpoint: {chunk_id}")
                 evidence_output = self._complete_stage(
                     f"evidence_chunk_{index:04d}", evidence_prompt(), chunk_payload,
                     schema=CLOSER_INSIDER_SCHEMAS["evidence"], max_tokens=self.evidence_max_tokens,
@@ -125,35 +137,39 @@ class CloserInsiderPipeline:
             })
         ledger = hydrate_evidence(merge_evidence(evidence_passes, turns), turns)
         valid_ids = {item["evidence_id"] for item in ledger}
-        self._write_json("evidence.json", ledger)
+        if self.downstream_only:
+            if self.checkpoint_dir is None or json.loads((self.checkpoint_dir / "evidence.json").read_text()) != ledger:
+                raise ValueError("persisted evidence ledger differs from validated checkpoints")
+        else:
+            self._write_json("evidence.json", ledger)
         if self.before_global_stages:
             self.before_global_stages()
         commercial_payload = {"source": source, "evidence": ledger}
         global_payloads["commercial"] = self._payload_stats(commercial_payload)
         commercial, stage_metrics["commercial"] = self._run_global_stage(
             "commercial", transcript, commercial_payload, commercial_prompt(),
-            CLOSER_INSIDER_SCHEMAS["commercial_state"], 2048, valid_ids, ledger,
+            CLOSER_INSIDER_SCHEMAS["commercial_state"], self.stage_budgets["commercial"], valid_ids, ledger,
         )
         self._write_json("commercial_state.json", commercial)
         closer_payload = {"evidence": ledger, "commercial_state": commercial}
         global_payloads["closer_evaluation"] = self._payload_stats(closer_payload)
         closer, stage_metrics["closer_evaluation"] = self._run_global_stage(
             "closer_evaluation", transcript, closer_payload, closer_prompt(),
-            CLOSER_INSIDER_SCHEMAS["closer_evaluation"], 6144, valid_ids, ledger,
+            CLOSER_INSIDER_SCHEMAS["closer_evaluation"], self.stage_budgets["closer_evaluation"], valid_ids, ledger,
         )
         self._write_json("closer_evaluation.json", closer)
         critic_payload = {"evidence": ledger, "commercial_state": commercial, "closer_evaluation": closer}
         global_payloads["critic"] = self._payload_stats(critic_payload)
         critic, stage_metrics["critic"] = self._run_global_stage(
             "critic", transcript, critic_payload, critic_prompt(),
-            CLOSER_INSIDER_SCHEMAS["critic"], 3072, valid_ids, ledger,
+            CLOSER_INSIDER_SCHEMAS["critic"], self.stage_budgets["critic"], valid_ids, ledger,
         )
         self._write_json("critic.json", critic)
         final_payload = {"source": source, "evidence": ledger, "commercial_state": commercial, "closer_evaluation": closer, "critic": critic}
         global_payloads["final"] = self._payload_stats(final_payload)
         final, stage_metrics["final"] = self._run_global_stage(
             "final", transcript, final_payload, final_prompt(),
-            CLOSER_INSIDER_SCHEMAS["final"], 3072, valid_ids, ledger,
+            CLOSER_INSIDER_SCHEMAS["final"], self.stage_budgets["final"], valid_ids, ledger,
         )
         self._write_json("final.json", final)
         validate_stage_references(final, valid_ids)
@@ -217,6 +233,11 @@ class CloserInsiderPipeline:
             "max_turns": self.max_turns,
             "overlap_turns": self.overlap_turns,
         }
+        order = list(self.stage_budgets)
+        changed = {k: self.stage_budgets[k] for k in order[:order.index(stage) + 1]
+                   if self.stage_budgets[k] != {"commercial": 2048, "closer_evaluation": 6144, "critic": 3072, "final": 3072}[k]}
+        if changed:
+            material["upstream_budget_overrides"] = changed
         return self._json_hash(material)
 
     def _evidence_model_name(self) -> str:
@@ -232,6 +253,8 @@ class CloserInsiderPipeline:
                 metadata = json.loads(checkpoint_path.read_text(encoding="utf-8"))
                 value = json.loads(artifact_path.read_text(encoding="utf-8"))
                 if metadata.get("fingerprint") == fingerprint:
+                    if self.stage_validator:
+                        self.stage_validator(value, schema)
                     validate_stage_references(value, valid_ids)
                     if stage == "commercial":
                         value["outcome"] = normalize_commercial_outcome(value.get("outcome", "unknown"), ledger)
@@ -240,6 +263,15 @@ class CloserInsiderPipeline:
             except (OSError, json.JSONDecodeError, TypeError, ValueError):
                 pass
         started = time.monotonic()
+        if self.ctx_size is not None:
+            user = json.dumps(payload, ensure_ascii=False)
+            prompt_tokens = self.provider.count_prompt_tokens(system, user)
+            headroom = self.ctx_size - prompt_tokens - max_tokens
+            report = {"stage": stage, **self._payload_stats(payload), "prompt_tokens": prompt_tokens,
+                      "max_tokens": max_tokens, "ctx_size": self.ctx_size, "headroom": headroom, "safe": headroom >= 0}
+            self._write_json(f"{stage}.preflight.json", report)
+            if headroom < 0:
+                raise ValueError(f"context preflight unsafe: {json.dumps(report)}")
         value = self._complete_stage(stage, system, payload, schema=schema, max_tokens=max_tokens)
         validate_stage_references(value, valid_ids)
         if stage == "commercial":
@@ -248,7 +280,9 @@ class CloserInsiderPipeline:
             self._write_json(f"{stage}.json", value)
             self._write_json(f"{stage}.checkpoint.json", {"checkpoint_version": 1, "fingerprint": fingerprint, "stage": stage, "model": self._model_name()})
         stats = self._payload_stats(payload)
-        return value, {"reused_checkpoint": False, "model": self._model_name(), **stats, **self._provider_metrics(), "wall_time_ms": int((time.monotonic() - started) * 1000)}
+        metrics = {"reused_checkpoint": False, "model": self._model_name(), **stats, **self._provider_metrics(), "max_tokens": max_tokens, "wall_time_ms": int((time.monotonic() - started) * 1000)}
+        self._write_json(f"{stage}.metrics.json", metrics)
+        return value, metrics
 
     def _provider_metrics(self, provider: CloserInsiderProvider | None = None) -> dict[str, Any]:
         provider = provider or self.provider
@@ -375,6 +409,8 @@ class CloserInsiderPipeline:
             "playbook_version": CLOSER_INSIDER_PLAYBOOK_VERSION,
             "model": self._model_name(),
             "evidence_model": self._evidence_model_name(),
+            "evidence_max_tokens": self.evidence_max_tokens,
+            "stage_budgets": self.stage_budgets,
             "transcript_sha256": hashlib.sha256(transcript.encode()).hexdigest(),
             "source_type": source["source_type"],
             "passes": passes,

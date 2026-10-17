@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
-from ai_local.closer_insider import build_turns, normalize_commercial_outcome, validate_stage_references
+from ai_local.closer_insider import CLOSER_INSIDER_PIPELINE_VERSION, CLOSER_INSIDER_PLAYBOOK_VERSION, build_turns, normalize_commercial_outcome, validate_stage_references
 from ai_local.closer_insider_pipeline import CloserInsiderPipeline
+from ai_local.closer_insider_prompting import evidence_prompt
+from ai_local.closer_insider_schema import CLOSER_INSIDER_SCHEMAS
 
 
 REQUIRED_FILES = (
@@ -27,13 +30,20 @@ def _load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _checkpoint_report(transcript: str, artifact_dir: Path, *, max_turns: int = 80, overlap_turns: int = 8, model: str | None = None) -> dict[str, Any]:
+def _checkpoint_report(transcript: str, artifact_dir: Path, *, max_turns: int = 80, overlap_turns: int = 8, model: str | None = None, evidence_max_tokens: int = 3072) -> dict[str, Any]:
     turns = build_turns(transcript)
     provider = type("FingerprintProvider", (), {"model": model or "unknown"})()
-    pipeline = CloserInsiderPipeline(provider, max_turns=max_turns, overlap_turns=overlap_turns)
+    pipeline = CloserInsiderPipeline(provider, max_turns=max_turns, overlap_turns=overlap_turns, evidence_max_tokens=evidence_max_tokens)
     expected_chunks = pipeline._chunks(turns)
     expected_fingerprint = pipeline._checkpoint_fingerprint(transcript)
     accepted_fingerprints = {expected_fingerprint}
+    if evidence_max_tokens == 3072:
+        legacy = {"transcript_sha256": hashlib.sha256(transcript.encode()).hexdigest(), "max_turns": max_turns,
+                  "overlap_turns": overlap_turns, "pipeline_version": CLOSER_INSIDER_PIPELINE_VERSION,
+                  "playbook_version": CLOSER_INSIDER_PLAYBOOK_VERSION,
+                  "evidence_prompt_sha256": hashlib.sha256(evidence_prompt().encode()).hexdigest(),
+                  "evidence_schema_sha256": hashlib.sha256(json.dumps(CLOSER_INSIDER_SCHEMAS["evidence"], sort_keys=True).encode()).hexdigest(), "model": model or "unknown"}
+        accepted_fingerprints.add(hashlib.sha256(json.dumps(legacy, sort_keys=True).encode()).hexdigest())
     if model is None:
         accepted_fingerprints.add(pipeline._legacy_checkpoint_fingerprint(transcript))
     checkpoint_dir = artifact_dir / "chunks"
@@ -110,7 +120,10 @@ def validate_run(transcript: str, artifact_dir: Path, *, max_turns: int = 80, ov
     if final.get("evidence_ids") and not set(final["evidence_ids"]).issubset(valid_evidence_ids):
         errors.append("final references evidence outside immutable ledger")
 
-    checkpoint = _checkpoint_report(transcript, artifact_dir, max_turns=max_turns, overlap_turns=overlap_turns, model=run.get("provenance", {}).get("model"))
+    provenance = run.get("provenance", {})
+    checkpoint = _checkpoint_report(transcript, artifact_dir, max_turns=max_turns, overlap_turns=overlap_turns,
+                                    model=provenance.get("evidence_model", provenance.get("model")),
+                                    evidence_max_tokens=provenance.get("evidence_max_tokens", 3072))
     if not checkpoint["valid"]:
         errors.append("checkpoint set is incomplete or incompatible")
 

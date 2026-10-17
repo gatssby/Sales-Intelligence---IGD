@@ -47,6 +47,17 @@ class LocalQwenProvider:
         with urllib.request.urlopen(request, timeout=min(self.timeout_s, 10)) as response:
             return response.status == 200
 
+    def count_prompt_tokens(self, system: str, user: str) -> int:
+        def post(route: str, payload: dict[str, Any]) -> dict[str, Any]:
+            request = urllib.request.Request(f"{self.endpoint}/{route}", data=json.dumps(payload).encode(),
+                                             headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.loads(response.read())
+        template = post("apply-template", {"messages": [{"role": "system", "content": system},
+                                                        {"role": "user", "content": user}], "add_generation_prompt": True})
+        tokens = post("tokenize", {"content": template["prompt"], "add_special": True, "parse_special": True})
+        return len(tokens["tokens"])
+
     def complete(self, system: str, user: str, *, schema: dict[str, Any] | None = None, max_tokens: int = 2048, temperature: float = 0.0) -> dict[str, Any]:
         started = time.monotonic()
         payload = {
