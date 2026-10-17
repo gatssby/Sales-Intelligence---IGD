@@ -267,7 +267,23 @@ ops/local-qwen-job.sh result 77d37a58-fcb5-40b1-9568-cd3dcb8e88ed artifacts/loca
 
 A análise é shadow-only e não escreve nas tabelas oficiais. O comando acima usa o caminho direto; para a variante 2-pass, use `two_pass`; para multipass, use `multipass` apenas em amostras pequenas. A etapa histórica foi concluída com comparação documentada; não iniciar Qdrant, DSPy, LoRA, worker ou site antes da revisão humana dos resultados e decisão sobre o adapter shadow.
 
-## Estado verificado em 2026-10-16
+## Estado atual — 2026-10-17: downstream híbrido bloqueado por contexto
+
+O clean A está completo e intocado: regression válida, 514 turns, 8 chunks, 129 evidências; pipeline wall 18.156.876 ms. Diretório remoto: `real-benchmark/experiments/9b-only-long-20261016/closer-insider-v1`.
+
+O híbrido B mantém os 8 checkpoints 4B e ledger de 194 evidências. Não carregar/reexecutar 4B. A retomada downstream-only validou todos os checkpoints, reconstruiu/comparou o ledger e verificou SHA-256 ao encerrar; nenhum checkpoint/ledger mudou.
+
+Commercial B foi concluído com override de execução 4096 (baseline permanece 2048): input/output 26.948/2.204 tokens, finish_reason=stop, retries=0, wall 3.288.661 ms. `commercial.checkpoint.json`, `commercial.json`, `commercial_state.json` e `commercial.metrics.json` estão preservados. Reuso desse checkpoint foi comprovado com provider que proíbe inferência.
+
+O preflight real bloqueou `closer_evaluation` ANTES da request: prompt=28.711, output reservado=6144, ctx=32768, headroom=-2087. Não houve compressão, redução de budget ou mudança de contexto. Closer/critic/final/regression B não existem. NÃO gerar/afirmar `comparison.json` final; `comparison.blocked.json` é diagnóstico parcial explícito.
+
+Unit remota independente do Mac: `si-hybrid-downstream-benchmark.service`; iniciou 13:31:39 UTC e encerrou com status 1 às 14:26:57 UTC em 2026-10-17. Logs em journald e `llama-9b-downstream.log`; status em `downstream-status.json` e `run.json` (`blocked_context`). Não há llama-server restante. PID files históricos são stale; consultar `systemctl show/status` e command real do processo, não confiar só em PID file.
+
+Scripts versionados: `ops/resume-hybrid-downstream.py`, `ops/resume-hybrid-downstream-chain.sh`, `ops/postprocess-hybrid-benchmark.py`. A cadeia executa somente 9B downstream, regression B e pós-processamento, com lock exclusivo. O pós-processador antigo inline estava quebrado por quoting/newline literal; foi substituído por arquivos sem heredoc. `bash -n`, testes e smoke test sintético passam. O pós-processador real recusa comparar sem B válida. Preservar `regression.jsonn` como artefato de falha.
+
+Antes de qualquer nova tentativa, reconhecer o resultado material: o ledger B contém 75 repetições da mesma claim em turns distintos e aumentou 37,89% em chars compactos; quote hydration correta não garante suporte semântico. Não apagar essas evidências para fazer o experimento caber. Recomendação atual: MANTER 9B-ONLY; uma revisão de extractor/escalation ou de contexto deve ser uma NOVA variante explícita. Não executar segunda call ou cache real pressupondo sucesso de B. Métricas e revisão sanitizada em `docs/local-qwen-analysis-v2-report.md`.
+
+## Estado histórico verificado em 2026-10-16
 
 O pipeline `closer_insider_v1` agora persiste checkpoints globais para `commercial`, `closer_evaluation`, `critic` e `final`, com fingerprints de transcript, upstream, prompt, schema, pipeline/playbook, chunking, orçamento e modelo. A persistência é atômica e incremental; o CLI não sobrescreve mais checkpoints de evidence com artefatos de apresentação.
 
