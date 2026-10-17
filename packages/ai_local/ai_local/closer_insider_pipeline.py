@@ -273,6 +273,8 @@ class CloserInsiderPipeline:
             if headroom < 0:
                 raise ValueError(f"context preflight unsafe: {json.dumps(report)}")
         value = self._complete_stage(stage, system, payload, schema=schema, max_tokens=max_tokens)
+        if self.stage_validator:
+            self.stage_validator(value, schema)
         validate_stage_references(value, valid_ids)
         if stage == "commercial":
             value["outcome"] = normalize_commercial_outcome(value.get("outcome", "unknown"), ledger)

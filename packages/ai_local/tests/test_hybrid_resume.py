@@ -30,6 +30,7 @@ class HybridResumeTests(unittest.TestCase):
         subprocess.run(["bash", "-n", str(root / "ops/resume-hybrid-downstream-chain.sh")], check=True)
         path = root / "ops/postprocess-hybrid-benchmark.py"
         spec = importlib.util.spec_from_file_location("postprocessor", path)
+        assert spec is not None and spec.loader is not None
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         with tempfile.TemporaryDirectory() as directory:
@@ -39,6 +40,20 @@ class HybridResumeTests(unittest.TestCase):
                 module.validated(regression)
             regression.write_text('{"valid": true}')
             self.assertTrue(module.validated(regression)["valid"])
+
+    def test_postprocessor_smoke_with_synthetic_completed_runs(self):
+        root = Path(__file__).resolve().parents[3]
+        with tempfile.TemporaryDirectory() as directory:
+            a = Path(directory) / "a"
+            b = Path(directory) / "b"
+            for base, name in [(a, "closer-insider-v1"), (b, "closer-insider-hybrid-v1")]:
+                artifact = base / name
+                artifact.mkdir(parents=True)
+                (base / "regression.json").write_text('{"valid": true}')
+                for filename, value in [("evidence.json", []), ("metrics.json", {}), ("final.json", {})]:
+                    (artifact / filename).write_text(json.dumps(value))
+            subprocess.run([__import__("sys").executable, "ops/postprocess-hybrid-benchmark.py", "--base", str(b), "--reference", str(a)], cwd=root, check=True, capture_output=True)
+            self.assertTrue(json.loads((b / "comparison.json").read_text())["grounding"]["candidate"]["valid"])
 
     def test_budget_override_preserves_baseline_and_evidence_fingerprint(self):
         provider = Mock(model="qwen3.5-9b")

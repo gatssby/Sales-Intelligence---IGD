@@ -74,6 +74,12 @@ def main():
             status["status"] = "completed"
         except Exception as exc:
             status.update(status="failed", error=str(exc))
+            run_path = root / "run.json"
+            run = json.loads(run_path.read_text()) if run_path.exists() else {}
+            run.update(status="failed", error=str(exc), stage_budgets=pipeline.stage_budgets)
+            temporary = run_path.with_suffix(".json.tmp")
+            temporary.write_text(json.dumps(run, indent=2))
+            temporary.replace(run_path)
             raise
         finally:
             status["finished_at"] = time.time()
