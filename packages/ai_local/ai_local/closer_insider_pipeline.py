@@ -44,10 +44,11 @@ class CloserInsiderResult:
 
 
 class CloserInsiderPipeline:
-    def __init__(self, provider: CloserInsiderProvider, *, evidence_provider: CloserInsiderProvider | None = None, before_global_stages: Callable[[], None] | None = None, max_turns: int = 80, overlap_turns: int = 8, checkpoint_dir: str | Path | None = None):
+    def __init__(self, provider: CloserInsiderProvider, *, evidence_provider: CloserInsiderProvider | None = None, before_global_stages: Callable[[], None] | None = None, evidence_max_tokens: int = 3072, max_turns: int = 80, overlap_turns: int = 8, checkpoint_dir: str | Path | None = None):
         self.provider = provider
         self.evidence_provider = evidence_provider or provider
         self.before_global_stages = before_global_stages
+        self.evidence_max_tokens = evidence_max_tokens
         self.max_turns = max_turns
         self.overlap_turns = overlap_turns
         self.checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
@@ -102,7 +103,7 @@ class CloserInsiderPipeline:
             if evidence_output is None:
                 evidence_output = self._complete_stage(
                     f"evidence_chunk_{index:04d}", evidence_prompt(), chunk_payload,
-                    schema=CLOSER_INSIDER_SCHEMAS["evidence"], max_tokens=3072,
+                    schema=CLOSER_INSIDER_SCHEMAS["evidence"], max_tokens=self.evidence_max_tokens,
                     provider=self.evidence_provider,
                 )
                 self._validate_chunk_output(evidence_output, chunk)
@@ -276,6 +277,7 @@ class CloserInsiderPipeline:
             "playbook_version": CLOSER_INSIDER_PLAYBOOK_VERSION,
             "evidence_prompt_sha256": hashlib.sha256(evidence_prompt().encode()).hexdigest(),
             "evidence_schema_sha256": hashlib.sha256(json.dumps(CLOSER_INSIDER_SCHEMAS["evidence"], sort_keys=True).encode()).hexdigest(),
+            "evidence_max_tokens": self.evidence_max_tokens,
             "model": self._evidence_model_name(),
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
